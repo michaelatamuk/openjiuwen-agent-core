@@ -16,8 +16,6 @@ Jiuwen mapping:
 """
 from __future__ import annotations
 
-from openjiuwen.agent_evolving_hermess.online.provenance import make_write_metadata  # noqa: F401
-
 
 MEMORY_WRITE_TOOL = {
     "name": "memory_write",

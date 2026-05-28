@@ -56,7 +56,7 @@ async def skill_create(
         return False, f"Skill '{name}' already exists."
 
     # Import here to avoid circular imports at module level
-    from openjiuwen.agent_evolving_hermess.online.provenance import get_write_origin
+    from openjiuwen.agent_evolving_hermess.online.review_executor.provenance import get_write_origin
 
     origin = get_write_origin()
     created_by = "agent" if origin == "background_review" else "user"

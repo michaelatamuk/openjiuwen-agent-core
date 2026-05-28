@@ -55,9 +55,7 @@ from openjiuwen.agent_evolving_hermess.online.types import ReviewMode, ReviewRes
 # ── Tool name sets that trigger counter resets ─────────────────────────────
 # Mirrors Hermess tool_executor.py lines 91-94 and 523-526
 _MEMORY_TOOL_NAMES: frozenset = frozenset({"memory_write", "memory"})
-_SKILL_TOOL_NAMES: frozenset = frozenset(
-    {"skill_write", "skill_patch", "skill_manage", "skill_create"}
-)
+_SKILL_TOOL_NAMES: frozenset = frozenset({"skill_write", "skill_patch", "skill_manage", "skill_create"})
 
 
 class BackgroundReviewRail(DeepAgentRail):

@@ -22,7 +22,7 @@ from openjiuwen.agent_evolving_hermess.online.background_review_prompts import (
 )
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
 from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
-from openjiuwen.agent_evolving_hermess.online.provenance import (
+from openjiuwen.agent_evolving_hermess.online.review_executor.provenance import (
     background_review_context,
     get_write_origin,
     make_write_metadata,
