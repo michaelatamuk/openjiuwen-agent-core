@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
 from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
+from .messages_to_text import messages_to_text
 
 
 def build_conversation_context(
@@ -24,23 +25,3 @@ def build_conversation_context(
     )
     conversation_text = messages_to_text(messages_snapshot)
     return skills_root, memory_store, conversation_text
-
-
-def messages_to_text(messages: List[Dict[str, Any]]) -> str:
-    """Convert conversation snapshot to plain text for the review prompt."""
-    lines = []
-    for msg in messages:
-        role = msg.get("role", "unknown").upper()
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            # Handle tool-result message content blocks
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    parts.append(block.get("text", block.get("content", "")))
-                else:
-                    parts.append(str(block))
-            content = " ".join(parts)
-        if content:
-            lines.append(f"[{role}]\n{content}")
-    return "\n\n".join(lines)

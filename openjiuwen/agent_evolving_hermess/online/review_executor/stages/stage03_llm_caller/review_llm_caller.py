@@ -18,46 +18,10 @@ from __future__ import annotations
 
 import json
 
-import asyncio
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
-from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
 from openjiuwen.agent_evolving_hermess.online.review_executor.tools._review_tools import REVIEW_TOOLS
 from openjiuwen.core.common.logging import logger
-
-
-async def call_llm_with_timeout(
-    system_prompt: str,
-    conversation_text: str,
-    review_prompt: str,
-    model: str,
-    config: BackgroundReviewConfig,
-) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """Call the review LLM with a hard timeout, absorbing errors into the return value.
-
-    Returns (tool_calls, error) where error is None on success.
-    On timeout or exception, returns ([], error_message).
-    """
-    try:
-        tool_calls = await asyncio.wait_for(
-            call_review_llm(
-                system_prompt=system_prompt,
-                conversation_text=conversation_text,
-                review_prompt=review_prompt,
-                model=model,
-                max_iterations=config.review_max_iterations,
-            ),
-            timeout=config.review_timeout_seconds,
-        )
-        return tool_calls, None
-    except asyncio.TimeoutError:
-        error = f"Background review timed out after {config.review_timeout_seconds}s"
-        logger.warning(error)
-        return [], error
-    except Exception as e:
-        error = f"Background review LLM call failed: {e}"
-        logger.warning(error)
-        return [], error
 
 
 async def call_review_llm(
