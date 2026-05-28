@@ -23,19 +23,19 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from openjiuwen.agent_evolving_hermess.background_review_prompts import select_prompt
-from openjiuwen.agent_evolving_hermess.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.memory_store import MemoryStore
-from openjiuwen.agent_evolving_hermess.provenance import make_write_metadata  # noqa: F401
-from openjiuwen.agent_evolving_hermess.skill_store import (
+from openjiuwen.agent_evolving_hermess.online.background_review_prompts import select_prompt
+from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
+from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
+from openjiuwen.agent_evolving_hermess.online.provenance import make_write_metadata  # noqa: F401
+from openjiuwen.agent_evolving_hermess.online.skill_store import (
     skill_create,
     skill_edit,
-    skill_list,  # noqa: F401
+    # noqa: F401
     skill_patch,
 )
-from openjiuwen.agent_evolving_hermess.types import (
+from openjiuwen.agent_evolving_hermess.online.types import (
     ReviewAction,
-    ReviewMode,  # noqa: F401
+    # noqa: F401
     ReviewResult,
     ReviewTrigger,
 )

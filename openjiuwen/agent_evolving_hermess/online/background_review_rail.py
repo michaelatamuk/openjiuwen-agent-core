@@ -46,9 +46,9 @@ from typing import Any, Dict, List, Optional
 from openjiuwen.core.single_agent.rail.base import AgentCallbackContext
 from openjiuwen.harness.rails.base import DeepAgentRail
 
-from openjiuwen.agent_evolving_hermess.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.review_executor import run_background_review
-from openjiuwen.agent_evolving_hermess.types import ReviewMode, ReviewResult, ReviewTrigger
+from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
+from openjiuwen.agent_evolving_hermess.online.review_executor import run_background_review
+from openjiuwen.agent_evolving_hermess.online.types import ReviewMode, ReviewResult, ReviewTrigger
 
 logger = logging.getLogger(__name__)
 

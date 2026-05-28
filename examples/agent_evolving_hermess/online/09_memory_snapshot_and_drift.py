@@ -23,7 +23,7 @@ from pathlib import Path
 
 import tempfile
 
-from openjiuwen.agent_evolving_hermess.memory_store import MemoryStore
+from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
 
 
 def demo() -> None:

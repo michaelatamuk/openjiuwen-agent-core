@@ -22,7 +22,7 @@ import os
 import re
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -217,7 +217,7 @@ async def skill_create(
         return False, f"Skill '{name}' already exists."
 
     # Import here to avoid circular imports at module level
-    from openjiuwen.agent_evolving_hermess.provenance import get_write_origin
+    from openjiuwen.agent_evolving_hermess.online.provenance import get_write_origin
 
     origin = get_write_origin()
     created_by = "agent" if origin == "background_review" else "user"

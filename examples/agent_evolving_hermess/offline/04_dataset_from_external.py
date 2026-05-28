@@ -14,13 +14,11 @@ Sources supported:
 Usage:
     python examples/agent_evolving_hermess/04_dataset_from_external.py
 """
-import json
 from pathlib import Path
 
-from openjiuwen.agent_evolving_hermess import (
+from openjiuwen.agent_evolving_hermess.offline import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
-    RelevanceFilter,
     build_dataset_from_external,
 )
 
@@ -107,7 +105,7 @@ def example_relevance_filter_standalone():
     skill_text = "Guidelines for reviewing git diffs and pull requests."
 
     # Stage 1: heuristic filter (no LLM cost)
-    from openjiuwen.agent_evolving_hermess.external_importers import _is_relevant_to_skill
+    from openjiuwen.agent_evolving_hermess.offline.external_importers import _is_relevant_to_skill
     for msg in messages:
         relevant = _is_relevant_to_skill(msg["task_input"], skill_name, skill_text)
         mark = "✓" if relevant else "✗"

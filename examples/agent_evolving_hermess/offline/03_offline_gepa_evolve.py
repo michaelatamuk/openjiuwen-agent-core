@@ -30,7 +30,7 @@ Usage:
 """
 from pathlib import Path
 
-from openjiuwen.agent_evolving_hermess import EvolverConfig, evolve
+from openjiuwen.agent_evolving_hermess.offline import EvolverConfig, evolve
 
 
 def run_example_evolution():

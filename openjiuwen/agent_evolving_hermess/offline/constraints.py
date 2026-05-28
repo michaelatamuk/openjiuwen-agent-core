@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, List, Optional
 import yaml
 
 if TYPE_CHECKING:
-    from openjiuwen.agent_evolving_hermess.config import EvolverConfig
+    from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
 
 
 @dataclass

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import dspy
 
 if TYPE_CHECKING:
-    from openjiuwen.agent_evolving_hermess.dataset_builder import EvalDataset, EvalExample
+    from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalDataset, EvalExample
 
 # ── Secret detection (same patterns as Hermess) ───────────────────────────────
 
@@ -233,7 +233,7 @@ class RelevanceFilter:
         skill_text: str,
         max_examples: int = 50,
     ) -> "List[EvalExample]":
-        from openjiuwen.agent_evolving_hermess.dataset_builder import EvalExample
+        from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalExample
 
         skill_desc = skill_text[:800]
         messages = [m for m in messages if m.get("task_input") and m.get("source")]
@@ -285,7 +285,7 @@ def build_dataset_from_external(
     model: str,
     max_examples: int = 50,
 ) -> "EvalDataset":
-    from openjiuwen.agent_evolving_hermess.dataset_builder import EvalDataset
+    from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalDataset
 
     all_messages: List[Dict] = []
     importers = {

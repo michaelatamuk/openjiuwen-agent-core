@@ -9,9 +9,9 @@ Mirrors hermes-agent-self-evolution evolve_skill CLI exactly, plus:
   --all             Evolve ALL skills under skills-root in one invocation.
 
 Usage:
-    python -m openjiuwen.agent_evolving_hermess --skill my-skill --iterations 10
-    python -m openjiuwen.agent_evolving_hermess --all --min-improvement 0.05
-    python -m openjiuwen.agent_evolving_hermess.cli --skill my-skill --dry-run
+    python -m openjiuwen.agent_evolving_hermess.offline --skill my-skill --iterations 10
+    python -m openjiuwen.agent_evolving_hermess.offline --all --min-improvement 0.05
+    python -m openjiuwen.agent_evolving_hermess.offline.cli --skill my-skill --dry-run
 """
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from typing import Optional
 
 import click
 
-from openjiuwen.agent_evolving_hermess.config import EvolverConfig
-from openjiuwen.agent_evolving_hermess.evolve import batch_evolve, evolve
+from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
+from openjiuwen.agent_evolving_hermess.offline.evolve import batch_evolve, evolve
 
 
 def _make_config(
@@ -157,7 +157,7 @@ def main(
 
     # ── Resolve skill list for --all ─────────────────────────────────────────
     if evolve_all:
-        from openjiuwen.agent_evolving_hermess.skill_store import skill_list
+        from openjiuwen.agent_evolving_hermess.online.skill_store import skill_list
 
         skill_names = asyncio.run(skill_list(config.skills_root, include_archived=False))
         if not skill_names:
@@ -169,8 +169,8 @@ def main(
 
     # ── Dry-run mode ─────────────────────────────────────────────────────────
     if dry_run:
-        from openjiuwen.agent_evolving_hermess.constraints import ConstraintValidator
-        from openjiuwen.agent_evolving_hermess.skill_module import find_skill, load_skill
+        from openjiuwen.agent_evolving_hermess.offline.constraints import ConstraintValidator
+        from openjiuwen.agent_evolving_hermess.offline.skill_module import find_skill, load_skill
 
         any_failed = False
         for name in skill_names:

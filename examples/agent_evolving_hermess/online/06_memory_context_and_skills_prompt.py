@@ -22,7 +22,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from openjiuwen.agent_evolving_hermess import MemoryStore, build_skills_system_prompt
+from openjiuwen.agent_evolving_hermess.online import MemoryStore, build_skills_system_prompt
 
 
 async def demo_memory_context_block():

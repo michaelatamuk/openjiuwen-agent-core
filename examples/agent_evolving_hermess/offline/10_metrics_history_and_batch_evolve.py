@@ -23,7 +23,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from openjiuwen.agent_evolving_hermess.cli import main as cli_main
+from openjiuwen.agent_evolving_hermess.offline.cli import main as cli_main
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ def demo_cli_mutual_exclusion() -> None:
 def demo_batch_evolve_api() -> None:
     """Describe the batch_evolve() API without calling it (needs LLM)."""
     print("\n── Demo 5: batch_evolve() API ────────────────────────────────")
-    from openjiuwen.agent_evolving_hermess.evolve import batch_evolve
+    from openjiuwen.agent_evolving_hermess.offline.evolve import batch_evolve
     import inspect
 
     sig = inspect.signature(batch_evolve)

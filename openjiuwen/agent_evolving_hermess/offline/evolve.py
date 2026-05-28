@@ -24,15 +24,15 @@ from typing import List, Optional
 
 import dspy
 
-from openjiuwen.agent_evolving_hermess.config import EvolverConfig
-from openjiuwen.agent_evolving_hermess.constraints import ConstraintValidator
-from openjiuwen.agent_evolving_hermess.dataset_builder import (
+from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
+from openjiuwen.agent_evolving_hermess.offline.constraints import ConstraintValidator
+from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
     EvalDataset,
     SyntheticDatasetBuilder,
 )
-from openjiuwen.agent_evolving_hermess.external_importers import build_dataset_from_external
-from openjiuwen.agent_evolving_hermess.fitness import LLMJudge, skill_fitness_metric
-from openjiuwen.agent_evolving_hermess.skill_module import (
+from openjiuwen.agent_evolving_hermess.offline.external_importers import build_dataset_from_external
+from openjiuwen.agent_evolving_hermess.offline.fitness import LLMJudge, skill_fitness_metric
+from openjiuwen.agent_evolving_hermess.offline.skill_module import (
     SkillModule,
     find_skill,
     load_skill,
@@ -222,7 +222,7 @@ def evolve(
         golden_path = config.skills_root / skill_name / "golden_dataset"
         if not golden_path.exists():
             raise FileNotFoundError(f"No golden dataset at {golden_path}")
-        from openjiuwen.agent_evolving_hermess.dataset_builder import GoldenDatasetLoader
+        from openjiuwen.agent_evolving_hermess.offline.dataset_builder import GoldenDatasetLoader
         dataset = GoldenDatasetLoader.load(golden_path)
     else:
         raise ValueError(f"Unknown eval_source '{eval_source}'")

@@ -86,7 +86,7 @@ If nothing needs updating, say 'No changes needed.' and stop.
 
 def select_prompt(mode: "ReviewMode") -> str:  # noqa: F821
     """Return the correct prompt string for the given ReviewMode."""
-    from openjiuwen.agent_evolving_hermess.types import ReviewMode
+    from openjiuwen.agent_evolving_hermess.online.types import ReviewMode
     if mode == ReviewMode.MEMORY_ONLY:
         return MEMORY_REVIEW_PROMPT
     if mode == ReviewMode.SKILLS_ONLY:

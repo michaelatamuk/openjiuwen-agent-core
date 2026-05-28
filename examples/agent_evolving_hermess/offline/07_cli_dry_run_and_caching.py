@@ -26,7 +26,7 @@ Usage:
     python examples/agent_evolving_hermess/07_cli_dry_run_and_caching.py
 """
 from click.testing import CliRunner
-from openjiuwen.agent_evolving_hermess.cli import main
+from openjiuwen.agent_evolving_hermess.offline.cli import main
 
 
 def show_dry_run_output():
