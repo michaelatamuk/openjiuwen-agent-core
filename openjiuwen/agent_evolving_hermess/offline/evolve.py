@@ -32,7 +32,7 @@ from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
 )
 from openjiuwen.agent_evolving_hermess.offline.external_importers import build_dataset_from_external
 from openjiuwen.agent_evolving_hermess.offline.fitness import LLMJudge, skill_fitness_metric
-from openjiuwen.agent_evolving_hermess.offline.skill_module import (
+from openjiuwen.agent_evolving_hermess.offline.skills.skill_module import (
     SkillModule,
     find_skill,
     load_skill,

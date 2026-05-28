@@ -170,7 +170,7 @@ def main(
     # ── Dry-run mode ─────────────────────────────────────────────────────────
     if dry_run:
         from openjiuwen.agent_evolving_hermess.offline.constraints import ConstraintValidator
-        from openjiuwen.agent_evolving_hermess.offline.skill_module import find_skill, load_skill
+        from openjiuwen.agent_evolving_hermess.offline.skills.skill_module import find_skill, load_skill
 
         any_failed = False
         for name in skill_names:
