@@ -4,20 +4,7 @@
 
 Faithful translations of Hermess's three review prompts into the Jiuwen context.
 """
-from __future__ import annotations
 
-MEMORY_REVIEW_PROMPT = """\
-Review the conversation above and consider saving to memory if appropriate.
-
-Focus on:
-1. Has the user revealed things about themselves — their persona, desires,
-   preferences, or personal details worth remembering?
-2. Has the user expressed expectations about how you should behave, their work
-   style, or ways they want you to operate?
-
-If something stands out, save it using the memory_write tool.
-If nothing is worth saving, just say 'Nothing to save.' and stop.
-"""
 
 SKILL_REVIEW_PROMPT = """\
 Review the conversation and decide whether any skill should be created, updated, \
@@ -66,29 +53,3 @@ These are bundled or hub-installed skills.
 Call skill_write, skill_patch, or skill_create as many times as needed.
 If nothing warrants a change, say 'No skill changes needed.' and stop.
 """
-
-COMBINED_REVIEW_PROMPT = """\
-Review the conversation above for two things: memory-worthy user information \
-and skill improvements.
-
-━━━  MEMORY  ━━━
-Save a memory entry if the user revealed durable preferences, personal details,
-working style, or explicit expectations about your behaviour.
-Use memory_write(target="memory", ...) or memory_write(target="user", ...).
-
-━━━  SKILLS  ━━━
-""" + SKILL_REVIEW_PROMPT.split("━━━  SIGNALS TO LOOK FOR")[1].split("━━━  OUTPUT FORMAT")[0] + """
-━━━  OUTPUT FORMAT  ━━━
-Call memory_write and/or skill_write/skill_patch/skill_create as needed.
-If nothing needs updating, say 'No changes needed.' and stop.
-"""
-
-
-def select_prompt(mode: "ReviewMode") -> str:  # noqa: F821
-    """Return the correct prompt string for the given ReviewMode."""
-    from openjiuwen.agent_evolving_hermess.online.types import ReviewMode
-    if mode == ReviewMode.MEMORY_ONLY:
-        return MEMORY_REVIEW_PROMPT
-    if mode == ReviewMode.SKILLS_ONLY:
-        return SKILL_REVIEW_PROMPT
-    return COMBINED_REVIEW_PROMPT

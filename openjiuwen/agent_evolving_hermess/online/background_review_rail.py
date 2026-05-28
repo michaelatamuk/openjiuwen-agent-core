@@ -40,8 +40,9 @@ Background task (mirrors Hermess _spawn_background_review):
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Dict, List, Optional
+
+from openjiuwen.core.common.logging import logger
 
 from openjiuwen.core.single_agent.rail.base import AgentCallbackContext
 from openjiuwen.harness.rails.base import DeepAgentRail
@@ -50,7 +51,6 @@ from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConf
 from openjiuwen.agent_evolving_hermess.online.review_executor import run_background_review
 from openjiuwen.agent_evolving_hermess.online.types import ReviewMode, ReviewResult, ReviewTrigger
 
-logger = logging.getLogger(__name__)
 
 # ── Tool name sets that trigger counter resets ─────────────────────────────
 # Mirrors Hermess tool_executor.py lines 91-94 and 523-526
