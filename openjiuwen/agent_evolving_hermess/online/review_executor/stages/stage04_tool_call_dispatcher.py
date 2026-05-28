@@ -1,31 +1,44 @@
-# coding: utf-8
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Core background review execution.
-
-Hermess pattern: forks AIAgent, restricts to skill_manage + memory tools,
-runs review prompt over conversation snapshot, parses tool call outputs
-into ReviewAction list.
-
-Jiuwen mapping:
-  - No forked AIAgent available; instead, make a direct LLM call with
-    the conversation + review prompt and parse the JSON tool-call outputs.
-  - Uses litellm (same dependency Jiuwen uses for other LLM calls).
-  - Tool definitions for skill_write, skill_patch, skill_create,
-    memory_write are defined here as JSON schemas and validated locally.
-  - Actual writes are executed by skill_store.py and memory_store.py.
-"""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
 from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
 from openjiuwen.agent_evolving_hermess.online.skill_store import skill_create, skill_edit, skill_patch
 from openjiuwen.agent_evolving_hermess.online.types import ReviewAction
+from openjiuwen.core.common.logging import logger
 
 
-# ── Tool dispatch ─────────────────────────────────────────────────────────────
+async def dispatch_all_tool_calls(
+    tool_calls: List[Dict[str, Any]],
+    skills_root: Path,
+    memory_store: MemoryStore,
+    config: BackgroundReviewConfig,
+    session_id: str,
+) -> List[ReviewAction]:
+    """Dispatch every tool call to skill_store / memory_store and collect actions.
+
+    Successful calls append a ReviewAction; failed calls are logged at DEBUG.
+    Returns the list of ReviewAction objects for all successful writes.
+    """
+    actions: List[ReviewAction] = []
+    for tc in tool_calls:
+        ok, msg, action = await dispatch_tool_call(
+            tool_name=tc["tool"],
+            args=tc["args"],
+            skill_store_root=skills_root,
+            memory_store=memory_store,
+            config=config,
+            session_id=session_id,
+        )
+        if ok and action:
+            actions.append(action)
+        elif not ok:
+            logger.debug(
+                "BackgroundReview tool call failed: %s — %s", tc["tool"], msg
+            )
+    return actions
 
 
 async def dispatch_tool_call(

@@ -16,9 +16,9 @@ Jiuwen mapping:
 """
 from __future__ import annotations
 
-from openjiuwen.agent_evolving_hermess.online.review_executor.memory_write_tool import MEMORY_WRITE_TOOL
-from openjiuwen.agent_evolving_hermess.online.review_executor.skill_patch_tool import SKILL_PATCH_TOOL
-from openjiuwen.agent_evolving_hermess.online.review_executor.skill_write_tool import SKILL_WRITE_TOOL
+from openjiuwen.agent_evolving_hermess.online.review_executor.tools._memory_write_tool import MEMORY_WRITE_TOOL
+from openjiuwen.agent_evolving_hermess.online.review_executor.tools._skill_patch_tool import SKILL_PATCH_TOOL
+from openjiuwen.agent_evolving_hermess.online.review_executor.tools._skill_write_tool import SKILL_WRITE_TOOL
 
 # ── Tool schemas exposed to the review LLM ───────────────────────────────────
 

@@ -1,38 +1,27 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Core background review execution.
+"""Core background review execution — orchestrator.
 
-Hermess pattern: forks AIAgent, restricts to skill_manage + memory tools,
-runs review prompt over conversation snapshot, parses tool call outputs
-into ReviewAction list.
+Each step delegates to the matching stage module under stages/:
 
-Jiuwen mapping:
-  - No forked AIAgent available; instead, make a direct LLM call with
-    the conversation + review prompt and parse the JSON tool-call outputs.
-  - Uses litellm (same dependency Jiuwen uses for other LLM calls).
-  - Tool definitions for skill_write, skill_patch, skill_create,
-    memory_write are defined here as JSON schemas and validated locally.
-  - Actual writes are executed by skill_store.py and memory_store.py.
+  stage01_conversation_builder  — resolve paths, create MemoryStore, serialise conversation
+  stage02_prompt_selector        — select review prompt + build system prompt
+  stage03_llm_caller             — call review LLM with timeout / error handling
+  stage04_tool_call_dispatcher   — dispatch tool calls to skill_store / memory_store
+  stage05_result_assembler       — compute duration, build summary, return ReviewResult
 """
 from __future__ import annotations
 
-import asyncio
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from openjiuwen.agent_evolving_hermess.online.review_executor._messages_serializator import messages_to_text
-from openjiuwen.agent_evolving_hermess.online.review_executor.tool_call_dispatcher import dispatch_tool_call
-from openjiuwen.core.common.logging import logger
-from openjiuwen.agent_evolving_hermess.online.review_executor.review_llm_caller import call_review_llm
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts import select_prompt
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
-from openjiuwen.agent_evolving_hermess.online.types import ReviewAction, ReviewResult, ReviewTrigger
-
-
-
-# ── Main entry point ──────────────────────────────────────────────────────────
+from openjiuwen.agent_evolving_hermess.online.review_executor.stages.stage01_conversation_builder import build_conversation_context
+from openjiuwen.agent_evolving_hermess.online.review_executor.stages.stage02_prompt_selector import build_review_prompts
+from openjiuwen.agent_evolving_hermess.online.review_executor.stages.stage03_llm_caller import call_llm_with_timeout
+from openjiuwen.agent_evolving_hermess.online.review_executor.stages.stage04_tool_call_dispatcher import dispatch_all_tool_calls
+from openjiuwen.agent_evolving_hermess.online.review_executor.stages.stage05_result_assembler import assemble_review_result
+from openjiuwen.agent_evolving_hermess.online.types import ReviewResult, ReviewTrigger
 
 
 async def run_background_review(
@@ -51,71 +40,24 @@ async def run_background_review(
     4. Dispatch each tool call to skill_store / memory_store.
     5. Return ReviewResult with all actions taken.
     """
-    skills_root = config.skills_root or (Path.home() / ".jiuwen" / "skills")
-    memory_root = config.memory_root or (Path.home() / ".jiuwen" / "memories")
-    memory_store = MemoryStore(
-        memory_root=memory_root,
-        memory_char_limit=config.memory_char_limit,
-        user_char_limit=config.user_char_limit,
+    # ── Stage 1: Build conversation context ──────────────────────────────────
+    skills_root, memory_store, conversation_text = build_conversation_context(
+        messages_snapshot, config,
     )
 
-    conversation_text = messages_to_text(messages_snapshot)
-    review_prompt = select_prompt(trigger.mode)
+    # ── Stage 2: Select review prompt ────────────────────────────────────────
+    review_prompt, system_prompt = build_review_prompts(trigger)
 
-    system_prompt = (
-        "You are a background review agent. Your only job is to analyze the "
-        "conversation provided and make targeted updates to skills and/or memory "
-        "using the tools available. You must NOT do anything else. "
-        "Do not explain your reasoning at length — just call the tools."
-    )
-
+    # ── Stage 3: Call LLM ────────────────────────────────────────────────────
     t0 = time.monotonic()
-    actions: List[ReviewAction] = []
-    error: Optional[str] = None
-
-    try:
-        tool_calls = await asyncio.wait_for(
-            call_review_llm(
-                system_prompt=system_prompt,
-                conversation_text=conversation_text,
-                review_prompt=review_prompt,
-                model=model,
-                max_iterations=config.review_max_iterations,
-            ),
-            timeout=config.review_timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        error = f"Background review timed out after {config.review_timeout_seconds}s"
-        logger.warning(error)
-        tool_calls = []
-    except Exception as e:
-        error = f"Background review LLM call failed: {e}"
-        logger.warning(error)
-        tool_calls = []
-
-    for tc in tool_calls:
-        ok, msg, action = await dispatch_tool_call(
-            tool_name=tc["tool"],
-            args=tc["args"],
-            skill_store_root=skills_root,
-            memory_store=memory_store,
-            config=config,
-            session_id=session_id,
-        )
-        if ok and action:
-            actions.append(action)
-        elif not ok:
-            logger.debug(
-                "BackgroundReview tool call failed: %s — %s", tc["tool"], msg
-            )
-
-    duration = time.monotonic() - t0
-    summary = " · ".join(a.summary for a in actions) if actions else "No changes"
-
-    return ReviewResult(
-        trigger=trigger,
-        actions=actions,
-        error=error,
-        duration_seconds=duration,
-        summary_line=summary,
+    tool_calls, error = await call_llm_with_timeout(
+        system_prompt, conversation_text, review_prompt, model, config,
     )
+
+    # ── Stage 4: Dispatch tool calls ─────────────────────────────────────────
+    actions = await dispatch_all_tool_calls(
+        tool_calls, skills_root, memory_store, config, session_id,
+    )
+
+    # ── Stage 5: Assemble and return result ───────────────────────────────────
+    return assemble_review_result(trigger, actions, error, t0)
