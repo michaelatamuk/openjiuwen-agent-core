@@ -19,9 +19,9 @@ from __future__ import annotations
 import json
 
 from typing import Any, Dict, List
-
-from openjiuwen.agent_evolving_hermess.online.review_executor.tools._review_tools import REVIEW_TOOLS
 from openjiuwen.core.common.logging import logger
+
+from .tools._review_tools import REVIEW_TOOLS
 
 
 async def call_review_llm(

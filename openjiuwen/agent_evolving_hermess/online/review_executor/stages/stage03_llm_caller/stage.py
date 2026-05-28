@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
-
-from online.review_executor.stages.stage03_llm_caller.review_llm_caller import call_review_llm
-from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
 from openjiuwen.core.common.logging import logger
+
+from .review_llm_caller import call_review_llm
+from ....config import BackgroundReviewConfig
 
 
 async def call_llm_with_timeout(

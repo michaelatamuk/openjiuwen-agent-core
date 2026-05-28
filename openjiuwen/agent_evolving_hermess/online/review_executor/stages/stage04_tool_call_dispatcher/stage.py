@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List
-
-from online.review_executor.stages.stage04_tool_call_dispatcher.tool_call_dispatcher import dispatch_tool_call
-from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from online.stores.memory import MemoryStore
-from openjiuwen.agent_evolving_hermess.online.types import ReviewAction
 from openjiuwen.core.common.logging import logger
+
+from .tool_call_dispatcher import dispatch_tool_call
+from ....config import BackgroundReviewConfig
+from ....stores.memory import MemoryStore
+from ....types import ReviewAction
 
 
 async def dispatch_all_tool_calls(

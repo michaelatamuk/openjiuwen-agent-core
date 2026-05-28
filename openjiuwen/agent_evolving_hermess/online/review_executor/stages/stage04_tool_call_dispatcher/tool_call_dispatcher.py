@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional
 
-from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from online.stores.memory import MemoryStore
-from online.stores.skill import skill_create, skill_edit, skill_patch
-from openjiuwen.agent_evolving_hermess.online.types import ReviewAction
+from ....config import BackgroundReviewConfig
+from ....stores import MemoryStore
+from ....stores import skill_create, skill_edit, skill_patch
+from ....types import ReviewAction
 
 
 async def dispatch_tool_call(

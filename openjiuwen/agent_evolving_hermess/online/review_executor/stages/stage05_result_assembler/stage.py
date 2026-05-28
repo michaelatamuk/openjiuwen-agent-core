@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import List, Optional
 
-from openjiuwen.agent_evolving_hermess.online.types import ReviewAction, ReviewResult, ReviewTrigger
+from ....types import ReviewAction, ReviewResult, ReviewTrigger
 
 
 def assemble_review_result(
