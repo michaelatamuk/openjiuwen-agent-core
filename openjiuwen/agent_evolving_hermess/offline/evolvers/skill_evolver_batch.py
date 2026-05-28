@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from evolvers.skill_evolver_single import evolve_single_skill
-from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
+from .skill_evolver_single import evolve_single_skill
+from ..config import EvolverConfig
 
 
 def evolve_skills_batch(

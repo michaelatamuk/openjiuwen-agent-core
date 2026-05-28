@@ -12,8 +12,8 @@ from typing import Optional
 
 import dspy
 
-from openjiuwen.agent_evolving_hermess.offline import EvalDataset
-from openjiuwen.agent_evolving_hermess.offline.dataset_builder.eval_example import EvalExample
+from .eval_dataset import EvalDataset
+from .eval_example import EvalExample
 
 
 class SyntheticDatasetBuilder:

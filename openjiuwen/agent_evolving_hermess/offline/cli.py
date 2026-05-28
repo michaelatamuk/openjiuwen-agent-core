@@ -21,8 +21,8 @@ from typing import Optional
 
 import click
 
-from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
-from evolvers import evolve_skills_batch, evolve_single_skill
+from .config import EvolverConfig
+from .evolvers import evolve_skills_batch, evolve_single_skill
 
 
 def _make_config(

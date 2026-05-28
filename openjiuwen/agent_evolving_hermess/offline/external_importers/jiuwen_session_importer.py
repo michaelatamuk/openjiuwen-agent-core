@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
 
-from external_importers.secret_patterns import _contains_secret
+from .secret_patterns import _contains_secret
 
 # ── Jiuwen session importer ───────────────────────────────────────────────────
 

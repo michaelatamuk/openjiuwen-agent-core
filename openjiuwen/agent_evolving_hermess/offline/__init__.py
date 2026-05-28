@@ -24,8 +24,8 @@ from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
     GoldenDatasetLoader,
     SyntheticDatasetBuilder,
 )
-from evolvers import evolve_skills_batch, evolve_single_skill
-from openjiuwen.agent_evolving_hermess.offline.external_importers import (
+from .evolvers import evolve_skills_batch, evolve_single_skill
+from .external_importers import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
     RelevanceFilter,

@@ -12,7 +12,9 @@ import random
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
 
-from openjiuwen.agent_evolving_hermess.offline import JiuwenSessionImporter, ClaudeCodeImporter, RelevanceFilter
+from .jiuwen_session_importer import JiuwenSessionImporter
+from .claude_code_importer import ClaudeCodeImporter
+from .relevance_filter import RelevanceFilter
 
 if TYPE_CHECKING:
     from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalDataset, EvalExample

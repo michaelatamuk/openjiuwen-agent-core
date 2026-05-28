@@ -13,7 +13,7 @@ from typing import List
 
 import dspy
 
-from openjiuwen.agent_evolving_hermess.offline import EvalExample
+from .eval_example import EvalExample
 
 
 @dataclass

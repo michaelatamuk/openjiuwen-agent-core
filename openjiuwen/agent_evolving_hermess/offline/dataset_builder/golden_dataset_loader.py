@@ -11,7 +11,8 @@ import random
 from pathlib import Path
 from typing import List, Optional
 
-from openjiuwen.agent_evolving_hermess.offline import EvalDataset, EvalExample
+from .eval_dataset import EvalDataset
+from .eval_example import EvalExample
 
 
 class GoldenDatasetLoader:
