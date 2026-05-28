@@ -19,20 +19,20 @@ New vs original implementation:
 from pathlib import Path
 from typing import Optional
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_finder import _find_skill
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_reader import _read_usage
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_writer import _write_usage
+from online.stores.skill.skill_finder import _find_skill
+from online.stores.skill.usages.usage_reader import _read_usage
+from online.stores.skill.usages.usage_sidecar import UsageSidecar
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-async def skill_read(name: str, skills_root: Path) -> Optional[str]:
-    """Read and return raw SKILL.md content, or None if not found."""
+async def skill_get_usage(
+    name: str,
+    skills_root: Path,
+) -> Optional[UsageSidecar]:
+    """Return the UsageSidecar for a skill, or None if not found."""
     skill_dir = _find_skill(name, skills_root)
     if not skill_dir:
         return None
-    usage = _read_usage(skill_dir)
-    usage.view_count += 1
-    _write_usage(skill_dir, usage)
-    return (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    return _read_usage(skill_dir)

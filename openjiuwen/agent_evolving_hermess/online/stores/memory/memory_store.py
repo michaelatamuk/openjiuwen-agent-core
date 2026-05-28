@@ -6,12 +6,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Optional
 
-from openjiuwen.agent_evolving_hermess.online.memory_store._io_helpers import _default_memory_root
-from openjiuwen.agent_evolving_hermess.online.memory_store._locking import _LockMixin
-from openjiuwen.agent_evolving_hermess.online.memory_store._snapshot import _SnapshotMixin
-from openjiuwen.agent_evolving_hermess.online.memory_store._drift import _DriftMixin
-from openjiuwen.agent_evolving_hermess.online.memory_store._mutations import _MutationsMixin
-from openjiuwen.agent_evolving_hermess.online.memory_store._reads import _ReadsMixin
+from online.stores.memory._io_helpers import _default_memory_root
+from online.stores.memory._locking import _LockMixin
+from online.stores.memory._snapshot import _SnapshotMixin
+from online.stores.memory._drift import _DriftMixin
+from online.stores.memory._mutations import _MutationsMixin
+from online.stores.memory import _ReadsMixin
 
 
 class MemoryStore(

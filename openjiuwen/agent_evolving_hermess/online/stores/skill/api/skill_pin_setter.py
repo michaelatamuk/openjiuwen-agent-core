@@ -17,30 +17,33 @@ New vs original implementation:
 
 
 from pathlib import Path
-from typing import List
+from typing import Tuple
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_finder import _ARCHIVE_SUBDIR
+from online.stores.skill.skill_finder import _find_skill
+from online.stores.skill import _get_lock
+from online.stores.skill.usages.usage_reader import _read_usage
+from online.stores.skill import _write_usage
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-async def skill_list(
+async def skill_set_pinned(
+    name: str,
     skills_root: Path,
-    include_archived: bool = False,
-) -> List[str]:
-    """Return sorted list of all skill names.
+    pinned: bool,
+) -> Tuple[bool, str]:
+    """Pin or unpin a skill.
 
-    By default, archived skills (.archive/) are excluded.
-    Pass include_archived=True to include them.
+    Pinned skills cannot be deleted or archived.
+    Returns (success, message).
     """
-    names = []
-    if not skills_root.exists():
-        return names
-    for item in skills_root.rglob("SKILL.md"):
-        # Skip .archive/ subtree unless explicitly requested
-        parts = item.parts
-        if _ARCHIVE_SUBDIR in parts and not include_archived:
-            continue
-        names.append(item.parent.name)
-    return sorted(names)
+    skill_dir = _find_skill(name, skills_root)
+    if not skill_dir:
+        return False, f"Skill '{name}' not found."
+    async with _get_lock(name):
+        usage = _read_usage(skill_dir)
+        usage.pinned = pinned
+        _write_usage(skill_dir, usage)
+    verb = "Pinned" if pinned else "Unpinned"
+    return True, f"{verb} skill '{name}'."

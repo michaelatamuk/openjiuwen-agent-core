@@ -4,9 +4,7 @@ from typing import Tuple
 
 from .prompts import select_prompt
 from .prompts import SYSTEM_PROMPT
-from openjiuwen.agent_evolving_hermess.online.types import ReviewTrigger
-
-
+from ....types import ReviewTrigger
 
 
 def build_review_prompts(trigger: ReviewTrigger) -> Tuple[str, str]:

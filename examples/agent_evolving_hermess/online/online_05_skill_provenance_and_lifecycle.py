@@ -21,7 +21,7 @@ from openjiuwen.agent_evolving_hermess.online import (
     background_review_context,
     get_write_origin,
 )
-from openjiuwen.agent_evolving_hermess.online.skill_store import (
+from online.stores.skill import (
     SKILL_STATE_ACTIVE,
     UsageSidecar,
     skill_archive,

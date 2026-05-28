@@ -17,7 +17,7 @@ New vs original implementation:
 from dataclasses import dataclass
 from typing import Optional
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_states import SKILL_STATE_ACTIVE
+from online.stores.skill.skill_states import SKILL_STATE_ACTIVE
 
 
 # ── Usage sidecar ─────────────────────────────────────────────────────────────

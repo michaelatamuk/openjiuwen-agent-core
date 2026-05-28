@@ -16,34 +16,41 @@ New vs original implementation:
 """
 
 
+import shutil
 from pathlib import Path
 from typing import Tuple
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_finder import _find_skill, _ARCHIVE_SUBDIR
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_lock_getter import _get_lock
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_reader import _read_usage
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_writer import _write_usage
+from online.stores.skill.skill_finder import _find_skill, _find_archived
+from online.stores.skill import _get_lock
+from online.stores.skill.skill_states import SKILL_STATE_ACTIVE
+from online.stores.skill.usages.usage_reader import _read_usage
+from online.stores.skill import _write_usage
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-async def skill_set_pinned(
+async def skill_restore(
     name: str,
     skills_root: Path,
-    pinned: bool,
 ) -> Tuple[bool, str]:
-    """Pin or unpin a skill.
+    """Restore an archived skill back to active.
 
-    Pinned skills cannot be deleted or archived.
     Returns (success, message).
     """
-    skill_dir = _find_skill(name, skills_root)
-    if not skill_dir:
-        return False, f"Skill '{name}' not found."
+    archived_dir = _find_archived(name, skills_root)
+    if not archived_dir:
+        return False, f"No archived skill '{name}' found."
+    if _find_skill(name, skills_root):
+        return False, f"Skill '{name}' already exists as an active skill — cannot restore."
+
+    restore_dest = skills_root / name
+
     async with _get_lock(name):
-        usage = _read_usage(skill_dir)
-        usage.pinned = pinned
-        _write_usage(skill_dir, usage)
-    verb = "Pinned" if pinned else "Unpinned"
-    return True, f"{verb} skill '{name}'."
+        restore_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(archived_dir), str(restore_dest))
+        usage = _read_usage(restore_dest)
+        usage.state = SKILL_STATE_ACTIVE
+        usage.archived_at = None
+        _write_usage(restore_dest, usage)
+    return True, f"Restored skill '{name}' from archive."

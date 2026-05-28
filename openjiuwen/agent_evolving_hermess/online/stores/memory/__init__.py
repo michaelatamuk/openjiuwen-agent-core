@@ -16,6 +16,6 @@ Package layout:
     _memory_store.py  — MemoryStore (composes all mixins)
     __init__.py       — re-exports MemoryStore
 """
-from openjiuwen.agent_evolving_hermess.online.memory_store.memory_store import MemoryStore
+from online.stores.memory.memory_store import MemoryStore
 
 __all__ = ["MemoryStore"]

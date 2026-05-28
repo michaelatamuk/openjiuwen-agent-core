@@ -16,11 +16,20 @@ New vs original implementation:
 """
 import json
 from pathlib import Path
-from dataclasses import asdict
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.atomic_writter import _atomic_write
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_sidecar import UsageSidecar
+from online.stores.skill.usages.usage_sidecar import UsageSidecar
 
 
-def _write_usage(skill_dir: Path, usage: UsageSidecar) -> None:
-    _atomic_write(skill_dir / ".usage.json", json.dumps(asdict(usage), indent=2))
+def _read_usage(skill_dir: Path) -> UsageSidecar:
+    p = skill_dir / ".usage.json"
+    if p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            known = {f for f in UsageSidecar.__dataclass_fields__}
+            return UsageSidecar(**{k: v for k, v in data.items() if k in known})
+        except Exception:
+            pass
+    return UsageSidecar()
+
+
+

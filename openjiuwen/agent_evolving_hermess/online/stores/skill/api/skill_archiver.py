@@ -17,33 +17,30 @@ New vs original implementation:
 
 
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Tuple
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.frontmatter_handler import _is_immutable
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_finder import _find_skill
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_lock_getter import _get_lock
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_reader import _read_usage
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_writer import _write_usage
+from online.stores.skill.frontmatter_handler import _is_immutable
+from online.stores.skill.skill_finder import _find_skill, _ARCHIVE_SUBDIR
+from online.stores.skill import _get_lock
+from online.stores.skill.skill_states import SKILL_STATE_ARCHIVED
+from online.stores.skill.usages.usage_reader import _read_usage
+from online.stores.skill import _write_usage
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-async def skill_delete(
+async def skill_archive(
     name: str,
     skills_root: Path,
     protected_names: List[str] = (),
-    absorbed_into: str = "",
 ) -> Tuple[bool, str]:
-    """Permanently delete a skill directory.
+    """Move a skill to the .archive/ subdirectory (reversible).
 
-    ``absorbed_into`` mirrors Hermess skill_manager_tool.py absorbed_into
-    parameter: declare which skill absorbed this skill's content (if any).
-    This intent is recorded in .usage.json before deletion so audit logs
-    can reconstruct consolidation history.
-
-    Pinned skills cannot be deleted — use skill_set_pinned() first.
+    Pinned skills cannot be archived.
+    Archived skills are hidden from skill_list() by default.
 
     Returns (success, message).
     """
@@ -54,21 +51,21 @@ async def skill_delete(
         return False, f"Skill '{name}' not found."
     existing = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     if _is_immutable(existing):
-        return False, f"Skill '{name}' is immutable and cannot be deleted."
+        return False, f"Skill '{name}' is immutable and cannot be archived."
     usage = _read_usage(skill_dir)
     if usage.pinned:
-        return False, (
-            f"Skill '{name}' is pinned — unpin it with skill_set_pinned() before deleting."
-        )
+        return False, f"Skill '{name}' is pinned — unpin before archiving."
+    if usage.state == SKILL_STATE_ARCHIVED:
+        return False, f"Skill '{name}' is already archived."
+
+    archive_dest = skills_root / _ARCHIVE_SUBDIR / name
+    if archive_dest.exists():
+        return False, f"Archive collision: {archive_dest} already exists."
 
     async with _get_lock(name):
-        if absorbed_into:
-            usage.absorbed_into = absorbed_into
-            _write_usage(skill_dir, usage)
-        shutil.rmtree(skill_dir)
-    return True, (
-        f"Deleted skill '{name}'"
-        + (f" (content absorbed into '{absorbed_into}')" if absorbed_into else "")
-        + "."
-    )
-
+        usage.state = SKILL_STATE_ARCHIVED
+        usage.archived_at = datetime.now(timezone.utc).isoformat()
+        _write_usage(skill_dir, usage)
+        archive_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(skill_dir), str(archive_dest))
+    return True, f"Archived skill '{name}' to {archive_dest}."

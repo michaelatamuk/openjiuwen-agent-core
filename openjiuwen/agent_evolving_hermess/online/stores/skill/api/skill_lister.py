@@ -17,22 +17,30 @@ New vs original implementation:
 
 
 from pathlib import Path
-from typing import Optional
+from typing import List
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.skill_finder import _find_skill
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_reader import _read_usage
-from openjiuwen.agent_evolving_hermess.online.skill_store.usages.usage_sidecar import UsageSidecar
+from online.stores.skill.skill_finder import _ARCHIVE_SUBDIR
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-async def skill_get_usage(
-    name: str,
+async def skill_list(
     skills_root: Path,
-) -> Optional[UsageSidecar]:
-    """Return the UsageSidecar for a skill, or None if not found."""
-    skill_dir = _find_skill(name, skills_root)
-    if not skill_dir:
-        return None
-    return _read_usage(skill_dir)
+    include_archived: bool = False,
+) -> List[str]:
+    """Return sorted list of all skill names.
+
+    By default, archived skills (.archive/) are excluded.
+    Pass include_archived=True to include them.
+    """
+    names = []
+    if not skills_root.exists():
+        return names
+    for item in skills_root.rglob("SKILL.md"):
+        # Skip .archive/ subtree unless explicitly requested
+        parts = item.parts
+        if _ARCHIVE_SUBDIR in parts and not include_archived:
+            continue
+        names.append(item.parent.name)
+    return sorted(names)

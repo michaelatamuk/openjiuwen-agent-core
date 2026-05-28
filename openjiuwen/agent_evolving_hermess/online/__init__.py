@@ -21,7 +21,7 @@ from online.review_executor.stages.stage02_prompt_selector.prompts import (
     select_prompt,
 )
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
+from .stores import MemoryStore
 from openjiuwen.agent_evolving_hermess.online.review_executor.provenance import (
     background_review_context,
     get_write_origin,
@@ -29,7 +29,7 @@ from openjiuwen.agent_evolving_hermess.online.review_executor.provenance import 
     set_write_origin,
 )
 from openjiuwen.agent_evolving_hermess.online.review_executor import run_background_review
-from openjiuwen.agent_evolving_hermess.online.skill_store import (
+from .stores import (
     SKILL_STATE_ACTIVE,
     SKILL_STATE_ARCHIVED,
     SKILL_STATE_STALE,

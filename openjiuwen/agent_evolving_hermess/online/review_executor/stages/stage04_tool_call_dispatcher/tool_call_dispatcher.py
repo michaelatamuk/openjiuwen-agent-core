@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, Tuple, Optional
 
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
-from openjiuwen.agent_evolving_hermess.online.skill_store import skill_create, skill_edit, skill_patch
+from online.stores.memory import MemoryStore
+from online.stores.skill import skill_create, skill_edit, skill_patch
 from openjiuwen.agent_evolving_hermess.online.types import ReviewAction
 
 

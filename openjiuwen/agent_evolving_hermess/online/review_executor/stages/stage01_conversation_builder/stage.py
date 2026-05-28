@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
-from openjiuwen.agent_evolving_hermess.online.memory_store import MemoryStore
 from .messages_to_text import messages_to_text
+from ....config import BackgroundReviewConfig
+from ....stores.memory import MemoryStore
 
 
 def build_conversation_context(

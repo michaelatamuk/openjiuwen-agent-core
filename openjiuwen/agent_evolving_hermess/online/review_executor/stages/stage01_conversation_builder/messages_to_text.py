@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 
 def messages_to_text(messages: List[Dict[str, Any]]) -> str:

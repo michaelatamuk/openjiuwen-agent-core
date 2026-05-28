@@ -157,7 +157,7 @@ def main(
 
     # ── Resolve skill list for --all ─────────────────────────────────────────
     if evolve_all:
-        from openjiuwen.agent_evolving_hermess.online.skill_store import skill_list
+        from online.stores.skill import skill_list
 
         skill_names = asyncio.run(skill_list(config.skills_root, include_archived=False))
         if not skill_names:

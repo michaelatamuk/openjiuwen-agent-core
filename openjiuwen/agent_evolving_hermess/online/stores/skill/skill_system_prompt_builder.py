@@ -19,9 +19,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from openjiuwen.agent_evolving_hermess.online.skill_store.api.skill_lister import skill_list
-from openjiuwen.agent_evolving_hermess.online.skill_store.api.skill_reader import skill_read
-from openjiuwen.agent_evolving_hermess.online.skill_store.frontmatter_handler import _parse_frontmatter
+from online.stores.skill.api.skill_lister import skill_list
+from online.stores.skill.api.skill_reader import skill_read
+from online.stores.skill.frontmatter_handler import _parse_frontmatter
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
