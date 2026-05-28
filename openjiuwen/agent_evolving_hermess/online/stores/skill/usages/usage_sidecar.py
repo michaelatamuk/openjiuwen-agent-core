@@ -41,5 +41,6 @@ class UsageSidecar:
     patch_count: int = 0
     pinned: bool = False               # pin blocks deletion/archive
     state: str = SKILL_STATE_ACTIVE
+    last_activity_at: Optional[str] = None  # ISO-8601; updated on read/edit; curator anchor
     archived_at: Optional[str] = None  # ISO-8601 timestamp when archived
     absorbed_into: Optional[str] = None  # If deleted via consolidation, target skill

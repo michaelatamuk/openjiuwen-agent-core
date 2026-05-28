@@ -61,3 +61,30 @@ class BackgroundReviewConfig:
 
     flush_min_turns: int = 6
     """Only trigger a review on exit if session had at least this many user turns."""
+
+    # ── Curator (skill lifecycle maintenance) ─────────────────────────────────
+    curator_enabled: bool = True
+    """Enable the skill lifecycle curator (ACTIVE → STALE → ARCHIVED transitions)."""
+
+    curator_interval_hours: float = 168.0
+    """Minimum hours between curator runs (default 7 days, mirrors Hermess)."""
+
+    curator_min_idle_seconds: float = 7200.0
+    """Curator only runs when the agent has been idle at least this long (default 2 h)."""
+
+    curator_stale_after_days: int = 30
+    """Mark a skill STALE when unused for this many days (mirrors Hermess)."""
+
+    curator_archive_after_days: int = 90
+    """Archive a skill when unused for this many days (must be > stale_after_days)."""
+
+    curator_state_path: Optional[Path] = None
+    """Path for the JSON file that persists curator scheduling state.
+    Defaults to skills_root.parent / 'curator_state.json' when None."""
+
+    curator_llm_consolidation: bool = False
+    """Run the optional LLM consolidation pass (identify and merge overlapping skills).
+    Disabled by default — expensive; enable only when reviewing a mature skill library."""
+
+    curator_consolidation_model: Optional[str] = None
+    """LLM model for the consolidation pass.  None = inherit review_model."""

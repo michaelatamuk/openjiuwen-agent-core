@@ -40,6 +40,7 @@ Background task (mirrors Hermess _spawn_background_review):
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
 from openjiuwen.core.common.logging import logger
@@ -48,6 +49,7 @@ from openjiuwen.core.single_agent.rail.base import AgentCallbackContext
 from openjiuwen.harness.rails.base import DeepAgentRail
 
 from openjiuwen.agent_evolving_hermess.online.config import BackgroundReviewConfig
+from openjiuwen.agent_evolving_hermess.online.curator import SkillCurator
 from openjiuwen.agent_evolving_hermess.online.review_executor import run_background_review
 from openjiuwen.agent_evolving_hermess.online.types import ReviewMode, ReviewResult, ReviewTrigger
 
@@ -80,6 +82,13 @@ class BackgroundReviewRail(DeepAgentRail):
         self._total_turn_count: int = 0
         self._review_task: Optional[asyncio.Task] = None
         self._last_result: Optional[ReviewResult] = None
+        # ── Curator ───────────────────────────────────────────────────────────
+        # Tracks idle time between invokes (for curator scheduling gate).
+        # Initialized to current monotonic time; idle = now - _invoke_end_at
+        # at the START of each after_invoke before updating.
+        self._curator: SkillCurator = SkillCurator(self._config)
+        self._curator_task: Optional[asyncio.Task] = None
+        self._invoke_end_at: float = time.monotonic()
 
     # ── Session-resume hydration ──────────────────────────────────────────────
 
@@ -223,72 +232,119 @@ class BackgroundReviewRail(DeepAgentRail):
         3. Wait for any in-flight review task (serialisation).
         4. Check trigger conditions.
         5. Snapshot messages and spawn background review task.
+        6. Spawn curator task if scheduling conditions are met (always, after review).
         """
-        if not self._config.enabled:
-            return
+        # Compute idle time (gap between previous invoke end and this invoke end).
+        # Captured before the method body so all return paths share the same value.
+        idle_seconds = time.monotonic() - self._invoke_end_at
 
-        # ── Guard: skip if interrupted ──────────────────────────────────────
-        if self._is_interrupted(ctx):
-            logger.debug("BackgroundReviewRail: skipping review — invoke was interrupted")
-            return
+        try:
+            if not self._config.enabled:
+                return
 
-        # ── Guard: minimum session turns before any review fires ────────────
-        if self._total_turn_count < self._config.flush_min_turns:
-            return
+            # ── Guard: skip if interrupted ──────────────────────────────────
+            if self._is_interrupted(ctx):
+                logger.debug("BackgroundReviewRail: skipping review — invoke was interrupted")
+                return
 
-        # Serialise: wait for previous review to finish
-        if self._review_task and not self._review_task.done():
-            try:
-                await asyncio.wait_for(self._review_task, timeout=5.0)
-            except (asyncio.TimeoutError, Exception):
-                pass  # Best-effort; don't block current invoke
+            # ── Guard: minimum session turns before any review fires ────────
+            if self._total_turn_count < self._config.flush_min_turns:
+                return
 
-        # Determine what to review
-        should_review_memory = (
-            self._config.memory_nudge_interval > 0
-            and self._user_turn_count >= self._config.memory_nudge_interval
+            # Serialise: wait for previous review to finish
+            if self._review_task and not self._review_task.done():
+                try:
+                    await asyncio.wait_for(self._review_task, timeout=5.0)
+                except (asyncio.TimeoutError, Exception):
+                    pass  # Best-effort; don't block current invoke
+
+            # Determine what to review
+            should_review_memory = (
+                self._config.memory_nudge_interval > 0
+                and self._user_turn_count >= self._config.memory_nudge_interval
+            )
+            should_review_skills = (
+                self._config.skill_nudge_interval > 0
+                and self._tool_iter_count >= self._config.skill_nudge_interval
+            )
+
+            if not (should_review_memory or should_review_skills):
+                return
+
+            # Determine mode
+            if should_review_memory and should_review_skills:
+                mode = ReviewMode.COMBINED
+            elif should_review_memory:
+                mode = ReviewMode.MEMORY_ONLY
+            else:
+                mode = ReviewMode.SKILLS_ONLY
+
+            # Reset counters (mirrors Hermess reset-on-fire)
+            if should_review_memory:
+                self._user_turn_count = 0
+            if should_review_skills:
+                self._tool_iter_count = 0
+
+            messages_snapshot = self._capture_messages(ctx)
+            session_id = self._get_session_id(ctx)
+            model = self._get_model(ctx)
+
+            trigger = ReviewTrigger(
+                mode=mode,
+                user_turn_count=self._user_turn_count,
+                tool_iter_count=self._tool_iter_count,
+                session_id=session_id,
+            )
+
+            self._review_task = asyncio.create_task(
+                self._run_review(messages_snapshot, trigger, model, session_id)
+            )
+            logger.debug(
+                "BackgroundReviewRail: spawned review task [mode=%s session=%s]",
+                mode.value,
+                session_id,
+            )
+
+        finally:
+            # Always update the invoke-end timestamp so idle_seconds is correct
+            # on the NEXT after_invoke call.
+            self._invoke_end_at = time.monotonic()
+            # Spawn curator as a fire-and-forget background task (never blocks user).
+            model = self._get_model(ctx)
+            self._spawn_curator_if_due(idle_seconds, model)
+
+    # ── Curator background task ───────────────────────────────────────────────
+
+    def _spawn_curator_if_due(self, idle_seconds: float, model: str) -> None:
+        """Fire a background curator task if scheduling conditions are met.
+
+        Only one curator task runs at a time (same serialisation as the review task).
+        Uses asyncio.create_task so the curator never blocks the calling coroutine.
+        """
+        if self._curator_task and not self._curator_task.done():
+            return  # Previous run still in flight — skip
+
+        self._curator_task = asyncio.create_task(
+            self._run_curator_bg(idle_seconds, model)
         )
-        should_review_skills = (
-            self._config.skill_nudge_interval > 0
-            and self._tool_iter_count >= self._config.skill_nudge_interval
-        )
 
-        if not (should_review_memory or should_review_skills):
-            return
-
-        # Determine mode
-        if should_review_memory and should_review_skills:
-            mode = ReviewMode.COMBINED
-        elif should_review_memory:
-            mode = ReviewMode.MEMORY_ONLY
-        else:
-            mode = ReviewMode.SKILLS_ONLY
-
-        # Reset counters (mirrors Hermess reset-on-fire)
-        if should_review_memory:
-            self._user_turn_count = 0
-        if should_review_skills:
-            self._tool_iter_count = 0
-
-        messages_snapshot = self._capture_messages(ctx)
-        session_id = self._get_session_id(ctx)
-        model = self._get_model(ctx)
-
-        trigger = ReviewTrigger(
-            mode=mode,
-            user_turn_count=self._user_turn_count,
-            tool_iter_count=self._tool_iter_count,
-            session_id=session_id,
-        )
-
-        self._review_task = asyncio.create_task(
-            self._run_review(messages_snapshot, trigger, model, session_id)
-        )
-        logger.debug(
-            "BackgroundReviewRail: spawned review task [mode=%s session=%s]",
-            mode.value,
-            session_id,
-        )
+    async def _run_curator_bg(self, idle_seconds: float, model: str) -> None:
+        """Background coroutine: delegate to SkillCurator.maybe_run()."""
+        try:
+            result = await self._curator.maybe_run(
+                idle_seconds=idle_seconds,
+                model=model or None,
+            )
+            if result:
+                logger.info(
+                    "BackgroundReviewRail curator: %s [%.1fs]",
+                    result.summary_line(),
+                    result.elapsed_seconds,
+                )
+                if result.transitions:
+                    print(f"\n🗂️  Curator: {result.summary_line()}", flush=True)
+        except Exception as exc:
+            logger.error("BackgroundReviewRail curator task crashed: %s", exc)
 
     # ── Background task ───────────────────────────────────────────────────────
 
@@ -330,9 +386,11 @@ class BackgroundReviewRail(DeepAgentRail):
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def uninit(self, agent) -> None:
-        """Cancel any in-flight review task on rail teardown."""
+        """Cancel any in-flight review or curator task on rail teardown."""
         if self._review_task and not self._review_task.done():
             self._review_task.cancel()
+        if self._curator_task and not self._curator_task.done():
+            self._curator_task.cancel()
 
     # ── Public accessors ──────────────────────────────────────────────────────
 

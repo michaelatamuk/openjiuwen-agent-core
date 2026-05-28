@@ -89,7 +89,11 @@ def _make_config(
     "--external-sources",
     multiple=True,
     default=["jiuwen", "claude-code"],
-    help="Which external log sources to use (when --eval-source=external).",
+    help=(
+        "Which external log sources to use (when --eval-source=external). "
+        "Choices: jiuwen, claude-code, hermes, copilot. "
+        "Repeat the flag to combine sources: --external-sources jiuwen --external-sources copilot"
+    ),
 )
 @click.option(
     "--skills-root",

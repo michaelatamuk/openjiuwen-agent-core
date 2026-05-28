@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .jiuwen_session_importer import JiuwenSessionImporter
 from .claude_code_importer import ClaudeCodeImporter
+from .hermes_session_importer import HermesSessionImporter
+from .copilot_importer import CopilotImporter
 from .skill_example_extractor import SkillExampleExtractor
 from .trajectory_importer import TrajectoryImporter
 
@@ -71,6 +73,8 @@ def build_dataset_from_external(
     importers = {
         "jiuwen": ("Jiuwen sessions", JiuwenSessionImporter),
         "claude-code": ("Claude Code history", ClaudeCodeImporter),
+        "hermes": ("Hermes agent sessions", HermesSessionImporter),
+        "copilot": ("GitHub Copilot Chat history", CopilotImporter),
     }
     for source in sources:
         if source in importers:
