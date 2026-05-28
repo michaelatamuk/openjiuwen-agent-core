@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from openjiuwen.agent_evolving_hermess.online.review_executor.messages_serializator import messages_to_text
+from openjiuwen.agent_evolving_hermess.online.review_executor._messages_serializator import messages_to_text
 from openjiuwen.agent_evolving_hermess.online.review_executor.tool_call_dispatcher import dispatch_tool_call
 from openjiuwen.core.common.logging import logger
 from openjiuwen.agent_evolving_hermess.online.review_executor.review_llm_caller import call_review_llm
