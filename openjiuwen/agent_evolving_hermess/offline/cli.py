@@ -22,7 +22,7 @@ from typing import Optional
 import click
 
 from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
-from openjiuwen.agent_evolving_hermess.offline.evolve import batch_evolve, evolve
+from evolvers import evolve_skills_batch, evolve_single_skill
 
 
 def _make_config(
@@ -214,7 +214,7 @@ def main(
 
     # ── Single skill ─────────────────────────────────────────────────────────
     if not evolve_all:
-        metrics = evolve(
+        metrics = evolve_single_skill(
             skill_name=skill_names[0],
             eval_source=eval_source,
             external_sources=list(external_sources) if external_sources else None,
@@ -227,7 +227,7 @@ def main(
         return
 
     # ── Batch (--all) ─────────────────────────────────────────────────────────
-    all_metrics = batch_evolve(
+    all_metrics = evolve_skills_batch(
         skill_names=skill_names,
         eval_source=eval_source,
         external_sources=list(external_sources) if external_sources else None,

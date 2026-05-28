@@ -215,10 +215,10 @@ def demo_cli_mutual_exclusion() -> None:
 def demo_batch_evolve_api() -> None:
     """Describe the batch_evolve() API without calling it (needs LLM)."""
     print("\n── Demo 5: batch_evolve() API ────────────────────────────────")
-    from openjiuwen.agent_evolving_hermess.offline.evolve import batch_evolve
+    from evolvers.evolve import evolve_skills_batch
     import inspect
 
-    sig = inspect.signature(batch_evolve)
+    sig = inspect.signature(evolve_skills_batch)
     print(f"  Signature: batch_evolve{sig}")
     print("  Parameters:")
     for name, param in sig.parameters.items():

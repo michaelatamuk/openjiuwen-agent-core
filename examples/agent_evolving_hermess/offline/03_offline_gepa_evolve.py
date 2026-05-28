@@ -30,7 +30,7 @@ Usage:
 """
 from pathlib import Path
 
-from openjiuwen.agent_evolving_hermess.offline import EvolverConfig, evolve
+from openjiuwen.agent_evolving_hermess.offline import EvolverConfig, evolve_single_skill
 
 
 def run_example_evolution():
@@ -90,7 +90,7 @@ def run_example_evolution():
     print()
 
     try:
-        metrics = evolve(
+        metrics = evolve_single_skill(
             skill_name="git-review",
             eval_source="synthetic",      # generate dataset from skill text using LLM
             config=config,

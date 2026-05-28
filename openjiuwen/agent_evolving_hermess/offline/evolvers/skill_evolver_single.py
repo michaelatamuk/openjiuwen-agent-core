@@ -19,11 +19,14 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 
 import dspy
 
+from evolvers._cached_dataset_finder import _find_cached_dataset
+from evolvers._console_maker import _make_console
+from evolvers._metrics_history_appender import _append_metrics_history
+from evolvers._prior_metrics_loader import _load_prior_metrics
 from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
 from openjiuwen.agent_evolving_hermess.offline.constraints import ConstraintValidator
 from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
@@ -32,7 +35,7 @@ from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
 )
 from openjiuwen.agent_evolving_hermess.offline.external_importers import build_dataset_from_external
 from openjiuwen.agent_evolving_hermess.offline.fitness import LLMJudge, skill_fitness_metric
-from openjiuwen.agent_evolving_hermess.offline.skills.skill_module import (
+from openjiuwen.agent_evolving_hermess.offline.skills import (
     SkillModule,
     find_skill,
     load_skill,
@@ -40,89 +43,13 @@ from openjiuwen.agent_evolving_hermess.offline.skills.skill_module import (
 )
 
 try:
-    from rich.console import Console
     from rich.table import Table
     _RICH = True
 except ImportError:
     _RICH = False
 
 
-def _make_console() -> "Console":
-    if _RICH:
-        return Console()
-
-    class _FallbackConsole:
-        def print(self, *args, **kwargs):
-            import re
-            text = " ".join(str(a) for a in args)
-            text = re.sub(r"\[/?[^\]]*\]", "", text)
-            print(text)
-
-        def rule(self, *a, **kw):
-            print("-" * 60)
-
-    return _FallbackConsole()  # type: ignore[return-value]
-
-
-def _find_cached_dataset(skill_name: str, output_dir: Path) -> Optional[Path]:
-    """Return the most recent cached dataset directory for this skill, or None."""
-    skill_base = output_dir / skill_name
-    if not skill_base.exists():
-        return None
-    candidates = sorted(
-        (d / "dataset" for d in skill_base.iterdir() if d.is_dir()),
-        key=lambda p: p.parent.name,
-        reverse=True,
-    )
-    for candidate in candidates:
-        if (candidate / "train.jsonl").exists():
-            return candidate
-    return None
-
-
-def _load_prior_metrics(skill_name: str, output_dir: Path) -> Optional[dict]:
-    """Return the most recent metrics.json for this skill from a prior run.
-
-    Scans timestamped run directories under ``output_dir / skill_name``,
-    returning the metrics dict from the most recent run that has a
-    ``metrics.json`` file.  Returns None if no prior runs exist.
-
-    Used to detect cross-run regressions: compare the current run's
-    ``baseline_score`` against the prior run's ``evolved_score`` to see
-    whether a previously-evolved skill has deteriorated.
-    """
-    skill_base = output_dir / skill_name
-    if not skill_base.exists():
-        return None
-    run_dirs = sorted(
-        [d for d in skill_base.iterdir() if d.is_dir()],
-        key=lambda p: p.name,
-        reverse=True,
-    )
-    for run_dir in run_dirs:
-        m = run_dir / "metrics.json"
-        if m.exists():
-            try:
-                return json.loads(m.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-    return None
-
-
-def _append_metrics_history(skill_name: str, output_dir: Path, metrics: dict) -> None:
-    """Append metrics to the per-skill metrics_history.jsonl file.
-
-    This file accumulates one JSON record per run so regression trends
-    can be plotted or scanned programmatically.  It lives at:
-        <output_dir>/<skill_name>/metrics_history.jsonl
-    """
-    history_path = output_dir / skill_name / "metrics_history.jsonl"
-    history_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(history_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(metrics) + "\n")
-
-
-def evolve(
+def evolve_single_skill(
     skill_name: str,
     eval_source: str = "synthetic",
     external_sources: Optional[list] = None,
@@ -399,42 +326,3 @@ def evolve(
     if accepted:
         console.print(f"[dim]History appended to {config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]")
     return metrics
-
-
-def batch_evolve(
-    skill_names: List[str],
-    eval_source: str = "synthetic",
-    external_sources: Optional[list] = None,
-    iterations: Optional[int] = None,
-    config: Optional[EvolverConfig] = None,
-    reuse_dataset: bool = False,
-    min_improvement: float = 0.0,
-) -> List[dict]:
-    """Evolve multiple skills sequentially.
-
-    Returns a list of metrics dicts (one per skill).  If a skill fails,
-    its entry contains ``{"skill_name": name, "error": "<message>"}``.
-
-    Args:
-        skill_names: List of skill names to evolve.
-        (all other args: same as evolve())
-
-    Returns:
-        List of metrics dicts in the same order as skill_names.
-    """
-    results = []
-    for name in skill_names:
-        try:
-            m = evolve(
-                skill_name=name,
-                eval_source=eval_source,
-                external_sources=external_sources,
-                iterations=iterations,
-                config=config,
-                reuse_dataset=reuse_dataset,
-                min_improvement=min_improvement,
-            )
-        except Exception as exc:
-            m = {"skill_name": name, "error": str(exc)}
-        results.append(m)
-    return results

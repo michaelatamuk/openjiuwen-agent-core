@@ -24,7 +24,7 @@ from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
     GoldenDatasetLoader,
     SyntheticDatasetBuilder,
 )
-from openjiuwen.agent_evolving_hermess.offline.evolve import batch_evolve, evolve
+from evolvers import evolve_skills_batch, evolve_single_skill
 from openjiuwen.agent_evolving_hermess.offline.external_importers import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
@@ -47,8 +47,8 @@ from openjiuwen.agent_evolving_hermess.offline.skills import (
 __all__ = [
     # Offline track
     "EvolverConfig",
-    "evolve",
-    "batch_evolve",
+    "evolve_single_skill",
+    "evolve_skills_batch",
     "SkillModule",
     "find_skill",
     "load_skill",
