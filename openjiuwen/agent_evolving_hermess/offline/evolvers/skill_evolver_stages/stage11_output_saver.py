@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from evolvers._metrics_history_appender import _append_metrics_history
 from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
 
 
@@ -74,3 +73,16 @@ def save_outputs(
             f"{config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]"
         )
     return metrics
+
+
+def _append_metrics_history(skill_name: str, output_dir: Path, metrics: dict) -> None:
+    """Append metrics to the per-skill metrics_history.jsonl file.
+
+    This file accumulates one JSON record per run so regression trends
+    can be plotted or scanned programmatically.  It lives at:
+        <output_dir>/<skill_name>/metrics_history.jsonl
+    """
+    history_path = output_dir / skill_name / "metrics_history.jsonl"
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(history_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(metrics) + "\n")

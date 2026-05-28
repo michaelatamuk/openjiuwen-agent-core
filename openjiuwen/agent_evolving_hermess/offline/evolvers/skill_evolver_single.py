@@ -23,7 +23,6 @@ from datetime import datetime
 from typing import Optional
 
 from evolvers._console_maker import _make_console
-from evolvers._prior_metrics_loader import _load_prior_metrics
 from evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import find_and_load_skill
 from evolvers.skill_evolver_stages.stage02_baseline_constraint_validator import validate_baseline_constraints
 from evolvers.skill_evolver_stages.stage03_dataset_builder import build_or_load_dataset
@@ -74,20 +73,7 @@ def evolve_single_skill(
     console = _make_console()
 
     # ── Step 1: Find and load skill ──────────────────────────────────────────
-    skill = find_and_load_skill(skill_name, config.skills_root)
-    if skill is None:
-        raise FileNotFoundError(
-            f"Skill '{skill_name}' not found under {config.skills_root}"
-        )
-    console.print(f"[bold]Loaded skill[/bold] '{skill['name']}' ({len(skill['raw'])} chars)")
-
-    prior_metrics = _load_prior_metrics(skill_name, config.output_dir)
-    if prior_metrics:
-        console.print(
-            f"[dim]Prior run: baseline={prior_metrics['baseline_score']:.4f} "
-            f"evolved={prior_metrics['evolved_score']:.4f} "
-            f"({prior_metrics['timestamp']})[/dim]"
-        )
+    skill, prior_metrics = find_and_load_skill(skill_name, config, console)
 
     # ── Step 2: Validate baseline constraints ────────────────────────────────
     validate_baseline_constraints(skill["raw"], config, console)

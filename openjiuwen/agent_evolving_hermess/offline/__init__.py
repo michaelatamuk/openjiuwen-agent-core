@@ -32,11 +32,8 @@ from openjiuwen.agent_evolving_hermess.offline.external_importers import (
     SECRET_PATTERNS,
     build_dataset_from_external,
 )
-from openjiuwen.agent_evolving_hermess.offline.fitness import (
-    FitnessScore,
-    LLMJudge,
-    skill_fitness_metric,
-)
+from .evolvers.skill_evolver_stages.stage05_gepa_optimizer import (skill_fitness_metric)
+from .evolvers.skill_evolver_stages.stage08_holdout_evaluator_judge import LLMJudge, FitnessScore
 from openjiuwen.agent_evolving_hermess.offline.skills import (
     SkillModule,
     find_skill,

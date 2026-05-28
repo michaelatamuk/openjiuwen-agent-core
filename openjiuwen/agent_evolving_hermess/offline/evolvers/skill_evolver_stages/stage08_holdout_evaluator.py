@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
+from evolvers.skill_evolver_stages.stage08_holdout_evaluator_judge import LLMJudge
 from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
 from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalDataset
-from openjiuwen.agent_evolving_hermess.offline.fitness import LLMJudge
 from openjiuwen.agent_evolving_hermess.offline.skills import SkillModule
 
 
