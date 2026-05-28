@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 from .jiuwen_session_importer import JiuwenSessionImporter
 from .claude_code_importer import ClaudeCodeImporter
-from .relevance_filter import RelevanceFilter
+from .skill_example_extractor import SkillExampleExtractor
 
 if TYPE_CHECKING:
     from openjiuwen.agent_evolving_hermess.offline.dataset_builder import EvalDataset, EvalExample
@@ -42,8 +42,8 @@ def build_dataset_from_external(
             all_messages.extend(msgs)
     if not all_messages:
         return EvalDataset()
-    rf = RelevanceFilter(model=model)
-    examples = rf.filter_and_score(all_messages, skill_name, skill_text, max_examples)
+    extractor = SkillExampleExtractor(model=model)
+    examples = extractor.extract_examples(all_messages, skill_name, skill_text, max_examples)
     if not examples:
         return EvalDataset()
     random.shuffle(examples)
