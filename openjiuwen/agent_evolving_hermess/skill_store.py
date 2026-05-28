@@ -214,3 +214,45 @@ async def skill_list(skills_root: Path) -> List[str]:
     for item in skills_root.rglob("SKILL.md"):
         names.append(item.parent.name)
     return sorted(names)
+
+
+async def build_skills_system_prompt(skills_root: Path) -> str:
+    """Build a compact skills index for injection into the agent system prompt.
+
+    Mirrors Hermess prompt_builder.py build_skills_system_prompt():
+    - Iterates all SKILL.md files
+    - Extracts name + description from frontmatter
+    - Marks bundled/hub-installed skills with [bundled]
+    - Returns a markdown-formatted index string
+
+    Returns empty string if no skills exist.
+
+    The returned block is suitable for the STABLE tier of the system prompt
+    (it changes only when skills are added/removed/renamed).
+    """
+    names = await skill_list(skills_root)
+    if not names:
+        return ""
+
+    lines: List[str] = ["## Available Skills", ""]
+    for name in names:
+        content = await skill_read(name, skills_root)
+        if not content:
+            continue
+        fm, _ = _parse_frontmatter(content)
+        desc = ""
+        immutable = False
+        if fm and isinstance(fm, dict):
+            desc = str(fm.get("description", ""))
+            immutable = bool(fm.get("immutable", False))
+        tag = " [bundled]" if immutable else ""
+        if desc:
+            lines.append(f"- **{name}**{tag}: {desc}")
+        else:
+            lines.append(f"- **{name}**{tag}")
+
+    lines.append("")
+    lines.append(
+        "Use the skill_view tool to read a skill's full instructions before executing a task."
+    )
+    return "\n".join(lines)

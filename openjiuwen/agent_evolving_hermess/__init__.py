@@ -32,6 +32,7 @@ from openjiuwen.agent_evolving_hermess.memory_store import MemoryStore
 from openjiuwen.agent_evolving_hermess.provenance import make_write_metadata
 from openjiuwen.agent_evolving_hermess.review_executor import run_background_review
 from openjiuwen.agent_evolving_hermess.skill_store import (
+    build_skills_system_prompt,
     skill_create,
     skill_edit,
     skill_list,
@@ -95,6 +96,7 @@ __all__ = [
     "skill_edit",
     "skill_patch",
     "skill_list",
+    "build_skills_system_prompt",
     # Offline track
     "EvolverConfig",
     "evolve",

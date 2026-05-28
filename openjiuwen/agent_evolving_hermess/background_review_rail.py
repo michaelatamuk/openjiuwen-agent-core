@@ -11,6 +11,28 @@ Trigger logic (mirrors Hermess exactly):
                      assistant message is observed.
   _tool_iter_count   incremented in after_tool_call on every tool completion.
 
+Counter reset (mirrors Hermess tool_executor.py reset-on-parse behavior):
+  When a memory_write / memory tool fires  → _user_turn_count = 0
+  When a skill_write / skill_patch / skill_manage fires → _tool_iter_count = 0
+
+  Hermess resets at parse-time; we reset in after_tool_call (same effect).
+
+Session-resume hydration (mirrors Hermess gateway session hydration):
+  Call hydrate_from_history(messages) to restore the correct cadence when
+  attaching the rail to a resumed/gateway session:
+      _user_turn_count = prior_user_turns % memory_nudge_interval
+  This prevents an immediate review fire on the first message.
+
+Interrupted guard (mirrors Hermess conversation_loop.py line 4328):
+  Background review does NOT fire if the invoke was interrupted.
+
+flush_min_turns guard:
+  Background review does NOT fire until the session has seen at least
+  flush_min_turns user turns (default 6, matches Hermess config).
+
+User-facing summary (mirrors Hermess _safe_print call):
+  On completion, prints  💾 Self-improvement review: <summary>
+
 Background task (mirrors Hermess _spawn_background_review):
   asyncio.create_task(run_background_review(...)) spawned in after_invoke.
   Task is awaited in the NEXT after_invoke if still running (serialisation).
@@ -30,6 +52,13 @@ from openjiuwen.agent_evolving_hermess.types import ReviewMode, ReviewResult, Re
 
 logger = logging.getLogger(__name__)
 
+# ── Tool name sets that trigger counter resets ─────────────────────────────
+# Mirrors Hermess tool_executor.py lines 91-94 and 523-526
+_MEMORY_TOOL_NAMES: frozenset = frozenset({"memory_write", "memory"})
+_SKILL_TOOL_NAMES: frozenset = frozenset(
+    {"skill_write", "skill_patch", "skill_manage", "skill_create"}
+)
+
 
 class BackgroundReviewRail(DeepAgentRail):
     """Hermess-style background review rail for Jiuwen.
@@ -46,12 +75,40 @@ class BackgroundReviewRail(DeepAgentRail):
     def __init__(self, config: Optional[BackgroundReviewConfig] = None):
         super().__init__()
         self._config: BackgroundReviewConfig = config or BackgroundReviewConfig()
+        # Nudge counters (mirrors Hermess _turns_since_memory, _iters_since_skill)
         self._user_turn_count: int = 0
         self._tool_iter_count: int = 0
+        # Total user turns ever seen in this rail instance (for flush_min_turns guard)
+        self._total_turn_count: int = 0
         self._review_task: Optional[asyncio.Task] = None
         self._last_result: Optional[ReviewResult] = None
-        # Snapshot of messages captured at end of invoke (before context cleared)
-        self._messages_snapshot: List[Dict[str, Any]] = []
+
+    # ── Session-resume hydration ──────────────────────────────────────────────
+
+    def hydrate_from_history(self, messages: List[Dict[str, Any]]) -> None:
+        """Restore correct nudge cadence from a prior conversation history.
+
+        Call this when attaching the rail to a RESUMED session (e.g. gateway
+        platforms that create a fresh agent per message).  Mirrors Hermess
+        gateway session hydration in conversation_loop.py:
+
+            prior_user_turns = sum(1 for m in history if m["role"] == "user")
+            agent._turns_since_memory = prior_user_turns % memory_nudge_interval
+
+        Uses modulo so the counter does NOT immediately fire on the very first
+        message of a resumed session — the original cadence is preserved.
+        """
+        if self._total_turn_count > 0:
+            # Already in an active session — don't overwrite
+            return
+        prior_user_turns = sum(
+            1 for m in messages if isinstance(m, dict) and m.get("role") == "user"
+        )
+        self._total_turn_count = prior_user_turns
+        if prior_user_turns > 0 and self._config.memory_nudge_interval > 0:
+            self._user_turn_count = prior_user_turns % self._config.memory_nudge_interval
+        # Skill iteration counter is NOT hydrated — it tracks current-session tool calls only
+        # (matches Hermess: _iters_since_skill is not hydrated from history)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -59,7 +116,6 @@ class BackgroundReviewRail(DeepAgentRail):
         """Resolve LLM model for review. Falls back to agent model."""
         if self._config.review_model:
             return self._config.review_model
-        # Try to read model name from agent
         agent = ctx.agent
         for attr in ("model", "_model", "model_name"):
             val = getattr(agent, attr, None)
@@ -84,13 +140,49 @@ class BackgroundReviewRail(DeepAgentRail):
             result.append({"role": role, "content": content})
         return result
 
+    @staticmethod
+    def _extract_tool_name(ctx: AgentCallbackContext) -> str:
+        """Best-effort extraction of the called tool's name from the context."""
+        for attr_path in (
+            ("inputs", "tool_call"),
+            ("inputs", "tool"),
+            ("inputs", "tool_use"),
+            ("outputs", "tool_call"),
+        ):
+            obj: Any = ctx
+            for attr in attr_path:
+                obj = getattr(obj, attr, None)
+                if obj is None:
+                    break
+            if obj is not None:
+                name = getattr(obj, "name", None) or getattr(obj, "tool_name", None)
+                if not name and hasattr(obj, "function"):
+                    fn = getattr(obj, "function", None)
+                    name = fn.get("name") if isinstance(fn, dict) else None
+                if name:
+                    return str(name)
+        return str(getattr(getattr(ctx, "inputs", None), "tool_name", "") or "")
+
+    @staticmethod
+    def _is_interrupted(ctx: AgentCallbackContext) -> bool:
+        """Check whether the invoke was interrupted (best-effort).
+
+        Mirrors Hermess: review only fires when 'final_response and not interrupted'
+        (conversation_loop.py line 4328).
+        """
+        for src in (ctx, getattr(ctx, "inputs", None), getattr(ctx, "outputs", None)):
+            if src is None:
+                continue
+            if getattr(src, "interrupted", None) is True:
+                return True
+        return False
+
     # ── Hooks ─────────────────────────────────────────────────────────────────
 
     async def after_model_call(self, ctx: AgentCallbackContext) -> None:
         """Increment user-turn counter when assistant produces a text response."""
         if not self._config.enabled:
             return
-        # Detect a non-tool assistant message (mirrors Hermess _turns_since_memory logic)
         msg = getattr(ctx.inputs, "response_message", None) or getattr(
             ctx.inputs, "message", None
         )
@@ -99,25 +191,54 @@ class BackgroundReviewRail(DeepAgentRail):
             tool_calls = getattr(msg, "tool_calls", None)
             if role == "assistant" and not tool_calls:
                 self._user_turn_count += 1
+                self._total_turn_count += 1
 
     async def after_tool_call(self, ctx: AgentCallbackContext) -> None:
-        """Increment tool-iteration counter on every tool completion."""
+        """Increment/reset counters on every tool completion.
+
+        Counter reset mirrors Hermess tool_executor.py reset-on-parse:
+          memory tool called  → _user_turn_count = 0  (memory was actively used)
+          skill tool called   → _tool_iter_count = 0  (skill was actively used)
+
+        Then unconditionally increment _tool_iter_count toward nudge threshold.
+        """
         if not self._config.enabled:
             return
+
+        tool_name = self._extract_tool_name(ctx)
+
+        if tool_name in _MEMORY_TOOL_NAMES:
+            self._user_turn_count = 0
+            logger.debug("BackgroundReviewRail: memory tool fired — reset user_turn_count")
+        if tool_name in _SKILL_TOOL_NAMES:
+            self._tool_iter_count = 0
+            logger.debug("BackgroundReviewRail: skill tool fired — reset tool_iter_count")
+
         if self._config.skill_nudge_interval > 0:
             self._tool_iter_count += 1
 
     async def after_invoke(self, ctx: AgentCallbackContext) -> None:
         """At the end of each invoke:
 
-        1. Wait for any in-flight review task (serialisation).
-        2. Check trigger conditions.
-        3. Snapshot messages and spawn background review task.
+        1. Skip if session was interrupted.
+        2. Skip if session hasn't reached flush_min_turns yet.
+        3. Wait for any in-flight review task (serialisation).
+        4. Check trigger conditions.
+        5. Snapshot messages and spawn background review task.
         """
         if not self._config.enabled:
             return
 
-        # Serialise: wait for previous review to finish before starting a new one
+        # ── Guard: skip if interrupted ──────────────────────────────────────
+        if self._is_interrupted(ctx):
+            logger.debug("BackgroundReviewRail: skipping review — invoke was interrupted")
+            return
+
+        # ── Guard: minimum session turns before any review fires ────────────
+        if self._total_turn_count < self._config.flush_min_turns:
+            return
+
+        # Serialise: wait for previous review to finish
         if self._review_task and not self._review_task.done():
             try:
                 await asyncio.wait_for(self._review_task, timeout=5.0)
@@ -151,7 +272,6 @@ class BackgroundReviewRail(DeepAgentRail):
         if should_review_skills:
             self._tool_iter_count = 0
 
-        # Snapshot messages before they may be cleared
         messages_snapshot = self._capture_messages(ctx)
         session_id = self._get_session_id(ctx)
         model = self._get_model(ctx)
@@ -163,7 +283,6 @@ class BackgroundReviewRail(DeepAgentRail):
             session_id=session_id,
         )
 
-        # Spawn background task — does NOT block the agent
         self._review_task = asyncio.create_task(
             self._run_review(messages_snapshot, trigger, model, session_id)
         )
@@ -182,7 +301,12 @@ class BackgroundReviewRail(DeepAgentRail):
         model: str,
         session_id: str,
     ) -> None:
-        """Background coroutine. Mirrors Hermess _run_review_in_thread()."""
+        """Background coroutine. Mirrors Hermess _run_review_in_thread().
+
+        On completion, prints a user-facing summary line:
+          '💾 Self-improvement review: <summary>'
+        (mirrors Hermess background_review.py agent._safe_print() call)
+        """
         try:
             result = await run_background_review(
                 messages_snapshot=messages_snapshot,
@@ -193,6 +317,8 @@ class BackgroundReviewRail(DeepAgentRail):
             )
             self._last_result = result
             if result.actions:
+                # User-facing summary line (mirrors Hermess _safe_print)
+                print(f"\n💾 Self-improvement review: {result.summary_line}", flush=True)
                 logger.info(
                     "BackgroundReview completed: %s [%.1fs]",
                     result.summary_line,
@@ -210,15 +336,16 @@ class BackgroundReviewRail(DeepAgentRail):
         if self._review_task and not self._review_task.done():
             self._review_task.cancel()
 
-    # ── Public accessors (for tests and observability) ────────────────────────
+    # ── Public accessors ──────────────────────────────────────────────────────
 
     def last_review_result(self) -> Optional[ReviewResult]:
         """Return the result of the most recently completed review, or None."""
         return self._last_result
 
     def pending_counts(self) -> Dict[str, int]:
-        """Return current trigger counters (useful for debugging)."""
+        """Return current trigger counters (useful for debugging/testing)."""
         return {
             "user_turns_since_review": self._user_turn_count,
             "tool_iters_since_review": self._tool_iter_count,
+            "total_turns_seen": self._total_turn_count,
         }
