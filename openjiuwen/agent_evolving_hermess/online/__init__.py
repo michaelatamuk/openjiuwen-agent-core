@@ -14,7 +14,7 @@ from __future__ import annotations
 
 # ── Online track ──────────────────────────────────────────────────────────────
 from openjiuwen.agent_evolving_hermess.online.background_review_rail import BackgroundReviewRail
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts import (
+from online.review_executor.stages.stage02_prompt_selector.prompts import (
     COMBINED_REVIEW_PROMPT,
     MEMORY_REVIEW_PROMPT,
     SKILL_REVIEW_PROMPT,

@@ -4,7 +4,7 @@
 
 Faithful translations of Hermess's three review prompts into the Jiuwen context.
 """
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts.skill import SKILL_REVIEW_PROMPT
+from online.review_executor.stages.stage02_prompt_selector.prompts.skill import SKILL_REVIEW_PROMPT
 
 
 COMBINED_REVIEW_PROMPT = """\

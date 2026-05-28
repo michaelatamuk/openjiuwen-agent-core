@@ -6,9 +6,9 @@ Faithful translations of Hermess's three review prompts into the Jiuwen context.
 """
 from __future__ import annotations
 
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts.combined import COMBINED_REVIEW_PROMPT
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts.memory import MEMORY_REVIEW_PROMPT
-from openjiuwen.agent_evolving_hermess.online.background_review_prompts.skill import SKILL_REVIEW_PROMPT
+from online.review_executor.stages.stage02_prompt_selector.prompts.combined import COMBINED_REVIEW_PROMPT
+from online.review_executor.stages.stage02_prompt_selector.prompts.memory import MEMORY_REVIEW_PROMPT
+from online.review_executor.stages.stage02_prompt_selector.prompts.skill import SKILL_REVIEW_PROMPT
 from openjiuwen.agent_evolving_hermess.online.types import ReviewMode
 
 
