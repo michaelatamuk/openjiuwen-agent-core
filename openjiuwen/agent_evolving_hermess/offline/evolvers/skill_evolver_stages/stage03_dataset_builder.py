@@ -11,6 +11,7 @@ from openjiuwen.agent_evolving_hermess.offline.dataset_builder import (
 )
 from openjiuwen.agent_evolving_hermess.offline.external_importers import (
     build_dataset_from_external,
+    build_dataset_from_trajectories,
 )
 
 
@@ -26,7 +27,7 @@ def build_or_load_dataset(
 ) -> Tuple[EvalDataset, Optional[Path]]:
     """Build a new eval dataset or reuse the most recent cached one.
 
-    Handles all four eval_source branches: cached, synthetic, external, golden.
+    Handles all five eval_source branches: cached, synthetic, external, trajectory, golden.
     Returns (dataset, cached_path) where cached_path is non-None iff a cached
     dataset was reused.
     Raises ValueError if the resulting training split is empty.
@@ -61,6 +62,24 @@ def build_or_load_dataset(
         if not dataset.train:
             console.print(
                 "[yellow]WARNING: No external examples — falling back to synthetic.[/yellow]"
+            )
+            builder = SyntheticDatasetBuilder(config)
+            dataset = builder.generate(skill_raw, artifact_type="skill")
+            dataset.save(dataset_dir)
+
+    elif eval_source == "trajectory":
+        console.print("[bold]Building dataset from saved trajectories…[/bold]")
+        dataset = build_dataset_from_trajectories(
+            skill_name=skill_name,
+            skill_text=skill_raw,
+            output_path=dataset_dir,
+            model=config.eval_model,
+            trajectory_dir=config.trajectory_dir,
+            min_reward=config.trajectory_min_reward,
+        )
+        if not dataset.train:
+            console.print(
+                "[yellow]WARNING: No trajectory examples — falling back to synthetic.[/yellow]"
             )
             builder = SyntheticDatasetBuilder(config)
             dataset = builder.generate(skill_raw, artifact_type="skill")

@@ -32,6 +32,8 @@ def _make_config(
     output_dir: str,
     run_pytest: bool,
     skills_root: Optional[str],
+    trajectory_dir: Optional[str] = None,
+    trajectory_min_reward: float = 0.0,
 ) -> EvolverConfig:
     config = EvolverConfig(
         iterations=iterations,
@@ -40,9 +42,12 @@ def _make_config(
         judge_model=optimizer_model,
         output_dir=Path(output_dir),
         run_pytest=run_pytest,
+        trajectory_min_reward=trajectory_min_reward,
     )
     if skills_root:
         config.skills_root = Path(skills_root)
+    if trajectory_dir:
+        config.trajectory_dir = Path(trajectory_dir)
     return config
 
 
@@ -62,10 +67,23 @@ def _make_config(
 )
 @click.option(
     "--eval-source",
-    type=click.Choice(["synthetic", "external", "golden"]),
+    type=click.Choice(["synthetic", "external", "trajectory", "golden"]),
     default="synthetic",
     show_default=True,
     help="Where to source the evaluation dataset from.",
+)
+@click.option(
+    "--trajectory-dir",
+    type=click.Path(),
+    default=None,
+    help="Folder of saved trajectory JSON files (when --eval-source=trajectory).",
+)
+@click.option(
+    "--trajectory-min-reward",
+    default=0.0,
+    show_default=True,
+    type=float,
+    help="Skip trajectory steps with reward below this value (when --eval-source=trajectory).",
 )
 @click.option(
     "--external-sources",
@@ -137,6 +155,8 @@ def main(
     iterations: int,
     eval_source: str,
     external_sources: tuple,
+    trajectory_dir: Optional[str],
+    trajectory_min_reward: float,
     skills_root: Optional[str],
     output_dir: str,
     optimizer_model: str,
@@ -153,7 +173,11 @@ def main(
     if skill and evolve_all:
         raise click.UsageError("--skill and --all are mutually exclusive.")
 
-    config = _make_config(iterations, optimizer_model, eval_model, output_dir, run_pytest, skills_root)
+    config = _make_config(
+        iterations, optimizer_model, eval_model, output_dir, run_pytest, skills_root,
+        trajectory_dir=trajectory_dir,
+        trajectory_min_reward=trajectory_min_reward,
+    )
 
     # ── Resolve skill list for --all ─────────────────────────────────────────
     if evolve_all:

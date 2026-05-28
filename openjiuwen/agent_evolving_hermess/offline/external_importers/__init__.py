@@ -1,5 +1,6 @@
 from .secret_patterns import SECRET_PATTERNS
 from .jiuwen_session_importer import JiuwenSessionImporter
 from .claude_code_importer import ClaudeCodeImporter
-from .relevance_filter import RelevanceFilter
-from .dataset_builder import build_dataset_from_external
+from .skill_example_extractor import SkillExampleExtractor
+from .trajectory_importer import TrajectoryImporter
+from .dataset_builder import build_dataset_from_external, build_dataset_from_trajectories

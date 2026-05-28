@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -39,6 +40,10 @@ class EvolverConfig:
     # ── Benchmark gating ─────────────────────────────────────────────────────
     run_pytest: bool = False                       # Run pytest after evolution?
     pytest_timeout: int = 300                      # pytest timeout in seconds
+
+    # ── Trajectory dataset (eval_source="trajectory") ────────────────────────
+    trajectory_dir: Optional[Path] = field(default=None)  # Folder of saved trajectory JSON files
+    trajectory_min_reward: float = 0.0             # Skip steps with reward below this value
 
     # ── Output ────────────────────────────────────────────────────────────────
     output_dir: Path = field(default_factory=lambda: Path("./skill_evolver_output"))
