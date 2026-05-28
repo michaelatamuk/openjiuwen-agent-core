@@ -3,26 +3,57 @@
 """CLI entry point for the offline GEPA skill evolver.
 
 Mirrors hermes-agent-self-evolution evolve_skill CLI exactly, plus:
-  --dry-run    Validate setup and print what would happen — no LLM calls.
-  --reuse-dataset  Reuse the most recently cached dataset instead of regenerating.
+  --dry-run         Validate setup and print what would happen — no LLM calls.
+  --reuse-dataset   Reuse the most recently cached dataset instead of regenerating.
+  --min-improvement Minimum fitness improvement required before accepting evolved skill.
+  --all             Evolve ALL skills under skills-root in one invocation.
 
 Usage:
     python -m openjiuwen.agent_evolving_hermess --skill my-skill --iterations 10
+    python -m openjiuwen.agent_evolving_hermess --all --min-improvement 0.05
     python -m openjiuwen.agent_evolving_hermess.cli --skill my-skill --dry-run
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Optional
 
 import click
 
 from openjiuwen.agent_evolving_hermess.config import EvolverConfig
-from openjiuwen.agent_evolving_hermess.evolve import evolve
+from openjiuwen.agent_evolving_hermess.evolve import batch_evolve, evolve
+
+
+def _make_config(
+    iterations: int,
+    optimizer_model: str,
+    eval_model: str,
+    output_dir: str,
+    run_pytest: bool,
+    skills_root: Optional[str],
+) -> EvolverConfig:
+    config = EvolverConfig(
+        iterations=iterations,
+        optimizer_model=optimizer_model,
+        eval_model=eval_model,
+        judge_model=optimizer_model,
+        output_dir=Path(output_dir),
+        run_pytest=run_pytest,
+    )
+    if skills_root:
+        config.skills_root = Path(skills_root)
+    return config
 
 
 @click.command()
-@click.option("--skill", required=True, help="Skill name to evolve.")
+@click.option("--skill", default=None, help="Skill name to evolve (mutually exclusive with --all).")
+@click.option(
+    "--all", "evolve_all",
+    is_flag=True,
+    default=False,
+    help="Evolve ALL non-archived skills under --skills-root in one invocation.",
+)
 @click.option(
     "--iterations",
     default=10,
@@ -89,8 +120,20 @@ from openjiuwen.agent_evolving_hermess.evolve import evolve
     default=False,
     help="Reuse the most recently cached dataset instead of regenerating (saves LLM cost).",
 )
+@click.option(
+    "--min-improvement",
+    default=0.0,
+    show_default=True,
+    type=float,
+    help=(
+        "Minimum fitness improvement required before accepting the evolved skill. "
+        "E.g. 0.05 requires at least +5% improvement; 0.0 (default) accepts any positive delta. "
+        "Negative values (e.g. -0.02) accept up to 2% regression."
+    ),
+)
 def main(
-    skill: str,
+    skill: Optional[str],
+    evolve_all: bool,
     iterations: int,
     eval_source: str,
     external_sources: tuple,
@@ -101,73 +144,117 @@ def main(
     run_pytest: bool,
     dry_run: bool,
     reuse_dataset: bool,
+    min_improvement: float,
 ) -> None:
     """Evolve a Jiuwen SKILL.md using GEPA genetic prompt optimisation."""
-    config = EvolverConfig(
-        iterations=iterations,
-        optimizer_model=optimizer_model,
-        eval_model=eval_model,
-        judge_model=optimizer_model,
-        output_dir=Path(output_dir),
-        run_pytest=run_pytest,
-    )
-    if skills_root:
-        config.skills_root = Path(skills_root)
 
-    # ── Dry-run mode: validate without LLM calls ─────────────────────────────
-    # Mirrors Hermess evolve_skill.py lines 73-78
+    if not skill and not evolve_all:
+        raise click.UsageError("Provide --skill <name> or --all.")
+    if skill and evolve_all:
+        raise click.UsageError("--skill and --all are mutually exclusive.")
+
+    config = _make_config(iterations, optimizer_model, eval_model, output_dir, run_pytest, skills_root)
+
+    # ── Resolve skill list for --all ─────────────────────────────────────────
+    if evolve_all:
+        from openjiuwen.agent_evolving_hermess.skill_store import skill_list
+
+        skill_names = asyncio.run(skill_list(config.skills_root, include_archived=False))
+        if not skill_names:
+            click.echo(f"No skills found under {config.skills_root}.")
+            return
+        click.echo(f"Evolving {len(skill_names)} skill(s): {', '.join(skill_names)}\n")
+    else:
+        skill_names = [skill]  # type: ignore[list-item]
+
+    # ── Dry-run mode ─────────────────────────────────────────────────────────
     if dry_run:
-        from openjiuwen.agent_evolving_hermess.skill_module import find_skill
         from openjiuwen.agent_evolving_hermess.constraints import ConstraintValidator
-        from openjiuwen.agent_evolving_hermess.skill_module import load_skill
+        from openjiuwen.agent_evolving_hermess.skill_module import find_skill, load_skill
 
-        click.echo(f"\n[DRY RUN] Validating setup for skill '{skill}'")
-        click.echo(f"  Skills root     : {config.skills_root}")
-        click.echo(f"  Eval source     : {eval_source}")
-        click.echo(f"  Iterations      : {iterations}")
-        click.echo(f"  Optimizer model : {optimizer_model}")
-        click.echo(f"  Eval model      : {eval_model}")
+        any_failed = False
+        for name in skill_names:
+            click.echo(f"\n[DRY RUN] Validating '{name}'")
+            click.echo(f"  Skills root     : {config.skills_root}")
+            click.echo(f"  Eval source     : {eval_source}")
+            click.echo(f"  Iterations      : {iterations}")
+            click.echo(f"  Optimizer model : {optimizer_model}")
+            click.echo(f"  Eval model      : {eval_model}")
+            click.echo(f"  Min improvement : {min_improvement:+.4f}")
 
-        skill_path = find_skill(skill, config.skills_root)
-        if skill_path is None:
-            click.echo(f"\n[red]✗ Skill '{skill}' not found under {config.skills_root}[/red]")
+            skill_path = find_skill(name, config.skills_root)
+            if skill_path is None:
+                click.echo(f"  ✗ Skill '{name}' not found under {config.skills_root}")
+                any_failed = True
+                continue
+
+            skill_data = load_skill(skill_path)
+            validator = ConstraintValidator(config)
+            checks = validator.validate_all(skill_data["raw"], artifact_type="skill")
+            failures = [c for c in checks if not c.passed]
+
+            if failures:
+                for f in failures:
+                    click.echo(f"  ✗ {f.constraint_name}: {f.message}")
+                any_failed = True
+            else:
+                click.echo(f"  Skill found     : {skill_path}")
+                click.echo(f"  Skill size      : {len(skill_data['raw'])} chars")
+                click.echo(f"  Constraints     : ALL PASSED")
+                click.echo(f"  Would generate eval dataset (source: {eval_source})")
+                click.echo(f"  Would run GEPA optimization ({iterations} iterations)")
+                click.echo(f"  Would apply min_improvement gate ({min_improvement:+.4f})")
+                click.echo(f"  Would save results to {config.output_dir / name}")
+
+        if any_failed:
+            click.echo("\n[DRY RUN] Some validations FAILED.")
             raise SystemExit(1)
-
-        skill_data = load_skill(skill_path)
-        validator = ConstraintValidator(config)
-        checks = validator.validate_all(skill_data["raw"], artifact_type="skill")
-        failures = [c for c in checks if not c.passed]
-
-        if failures:
-            for f in failures:
-                click.echo(f"  ✗ {f.constraint_name}: {f.message}")
-            click.echo("\n[DRY RUN] Baseline constraints FAILED.")
-            raise SystemExit(1)
-
-        click.echo(f"\n  Skill found     : {skill_path}")
-        click.echo(f"  Skill size      : {len(skill_data['raw'])} chars")
-        click.echo(f"  Constraints     : ALL PASSED")
-        click.echo(f"\n  Would generate eval dataset (source: {eval_source})")
-        click.echo(f"  Would run GEPA optimization ({iterations} iterations)")
-        click.echo(f"  Would validate constraints and save results to {config.output_dir / skill}")
-        click.echo("\n[DRY RUN] Setup validated successfully — no LLM calls made.")
+        click.echo("\n[DRY RUN] All validations passed — no LLM calls made.")
         return
 
-    # ── Normal evolution run ─────────────────────────────────────────────────
-    metrics = evolve(
-        skill_name=skill,
+    # ── Single skill ─────────────────────────────────────────────────────────
+    if not evolve_all:
+        metrics = evolve(
+            skill_name=skill_names[0],
+            eval_source=eval_source,
+            external_sources=list(external_sources) if external_sources else None,
+            iterations=iterations,
+            config=config,
+            reuse_dataset=reuse_dataset,
+            min_improvement=min_improvement,
+        )
+        _print_summary([metrics])
+        return
+
+    # ── Batch (--all) ─────────────────────────────────────────────────────────
+    all_metrics = batch_evolve(
+        skill_names=skill_names,
         eval_source=eval_source,
         external_sources=list(external_sources) if external_sources else None,
         iterations=iterations,
         config=config,
         reuse_dataset=reuse_dataset,
+        min_improvement=min_improvement,
     )
+    _print_summary(all_metrics)
 
-    click.echo("\n── Evolution complete ──────────────────────────────")
-    click.echo(f"  Baseline score  : {metrics['baseline_score']:.4f}")
-    click.echo(f"  Evolved score   : {metrics['evolved_score']:.4f}")
-    click.echo(f"  Improvement     : {metrics['improvement']:+.4f}")
-    click.echo(f"  Output dir      : {config.output_dir / skill}")
+
+def _print_summary(results: list) -> None:
+    click.echo("\n── Evolution summary ────────────────────────────────")
+    for m in results:
+        name = m.get("skill_name", "?")
+        if "error" in m:
+            click.echo(f"  {name}: ERROR — {m['error']}")
+        else:
+            accepted = "✓" if m.get("accepted", True) else "✗"
+            click.echo(
+                f"  {accepted} {name}: "
+                f"baseline={m.get('baseline_score', 0):.4f} "
+                f"evolved={m.get('evolved_score', 0):.4f} "
+                f"improvement={m.get('improvement', 0):+.4f} "
+                f"({'ACCEPTED' if m.get('accepted', True) else 'REJECTED'})"
+            )
+    click.echo("")
 
 
 if __name__ == "__main__":

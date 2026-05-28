@@ -29,15 +29,29 @@ from openjiuwen.agent_evolving_hermess.background_review_prompts import (
 )
 from openjiuwen.agent_evolving_hermess.config import BackgroundReviewConfig, EvolverConfig
 from openjiuwen.agent_evolving_hermess.memory_store import MemoryStore
-from openjiuwen.agent_evolving_hermess.provenance import make_write_metadata
+from openjiuwen.agent_evolving_hermess.provenance import (
+    background_review_context,
+    get_write_origin,
+    make_write_metadata,
+    set_write_origin,
+)
 from openjiuwen.agent_evolving_hermess.review_executor import run_background_review
 from openjiuwen.agent_evolving_hermess.skill_store import (
+    SKILL_STATE_ACTIVE,
+    SKILL_STATE_ARCHIVED,
+    SKILL_STATE_STALE,
+    UsageSidecar,
     build_skills_system_prompt,
+    skill_archive,
     skill_create,
+    skill_delete,
     skill_edit,
+    skill_get_usage,
     skill_list,
     skill_patch,
     skill_read,
+    skill_restore,
+    skill_set_pinned,
 )
 from openjiuwen.agent_evolving_hermess.types import (
     ReviewAction,
@@ -57,11 +71,12 @@ from openjiuwen.agent_evolving_hermess.dataset_builder import (
     GoldenDatasetLoader,
     SyntheticDatasetBuilder,
 )
-from openjiuwen.agent_evolving_hermess.evolve import evolve
+from openjiuwen.agent_evolving_hermess.evolve import batch_evolve, evolve
 from openjiuwen.agent_evolving_hermess.external_importers import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
     RelevanceFilter,
+    SECRET_PATTERNS,
     build_dataset_from_external,
 )
 from openjiuwen.agent_evolving_hermess.fitness import (
@@ -77,29 +92,47 @@ from openjiuwen.agent_evolving_hermess.skill_module import (
 )
 
 __all__ = [
-    # Online track
+    # Online track — rail + config
     "BackgroundReviewRail",
     "BackgroundReviewConfig",
     "ReviewMode",
     "ReviewTrigger",
     "ReviewAction",
     "ReviewResult",
+    # Memory
     "MemoryStore",
     "run_background_review",
+    # Provenance — ContextVar-based write-origin tracking
     "make_write_metadata",
+    "get_write_origin",
+    "set_write_origin",
+    "background_review_context",
+    # Prompts
     "select_prompt",
     "MEMORY_REVIEW_PROMPT",
     "SKILL_REVIEW_PROMPT",
     "COMBINED_REVIEW_PROMPT",
+    # Skill store — CRUD
     "skill_read",
     "skill_create",
     "skill_edit",
     "skill_patch",
+    "skill_delete",
     "skill_list",
     "build_skills_system_prompt",
+    # Skill store — lifecycle
+    "skill_archive",
+    "skill_restore",
+    "skill_get_usage",
+    "skill_set_pinned",
+    "UsageSidecar",
+    "SKILL_STATE_ACTIVE",
+    "SKILL_STATE_STALE",
+    "SKILL_STATE_ARCHIVED",
     # Offline track
     "EvolverConfig",
     "evolve",
+    "batch_evolve",
     "SkillModule",
     "find_skill",
     "load_skill",
@@ -116,5 +149,6 @@ __all__ = [
     "JiuwenSessionImporter",
     "ClaudeCodeImporter",
     "RelevanceFilter",
+    "SECRET_PATTERNS",
     "build_dataset_from_external",
 ]

@@ -5,14 +5,25 @@
 Mirrors Hermess MemoryStore exactly.
 Two stores: "memory" (agent observations) and "user" (user profile).
 Uses fcntl file locking and atomic writes.
+
+New vs original implementation:
+  - Frozen snapshot pattern (load_from_disk / get_snapshot_block):
+      System prompt uses a snapshot taken at session start that never changes
+      mid-session, ensuring byte-identical prefix cache hits across all turns.
+      Mirrors Hermess memory_tool.py _system_prompt_snapshot design.
+  - Drift detection:
+      detect_drift() notices when a memory file is modified externally
+      between load and the current call, creating a .bak.<timestamp> backup.
+      Mirrors Hermess memory_tool.py external-drift detection (lines 516-569).
 """
 from __future__ import annotations
 
 import fcntl
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, List, Optional, Tuple
+from typing import IO, Dict, List, Optional, Tuple
 
 _ENTRY_DELIMITER = "\n§\n"
 
@@ -44,7 +55,13 @@ def _read_entries(path: Path) -> List[str]:
     raw = path.read_text(encoding="utf-8")
     if not raw.strip():
         return []
-    return [e.strip() for e in raw.split(_ENTRY_DELIMITER) if e.strip()]
+    # Load-time deduplication, preserving order (mirrors Hermess line 158)
+    seen: Dict[str, None] = {}
+    for e in raw.split(_ENTRY_DELIMITER):
+        e = e.strip()
+        if e:
+            seen[e] = None
+    return list(seen.keys())
 
 
 def _write_entries(path: Path, entries: List[str]) -> None:
@@ -52,7 +69,23 @@ def _write_entries(path: Path, entries: List[str]) -> None:
 
 
 class MemoryStore:
-    """File-backed key-value memory. Mirrors Hermess MemoryStore."""
+    """File-backed key-value memory. Mirrors Hermess MemoryStore.
+
+    Frozen snapshot:
+        Call ``load_from_disk()`` once at session start.  The snapshot is
+        stored in ``_system_prompt_snapshot`` and never updated mid-session,
+        ensuring prefix-cache stability.  Subsequent ``add/replace/remove``
+        calls mutate the live disk state but NOT the snapshot.
+
+        Use ``get_snapshot_block()`` to inject the frozen state into the
+        system prompt, and ``build_memory_context_block()`` to get the
+        *current* live state (e.g. for tool call responses).
+
+    Drift detection:
+        Call ``detect_drift(target)`` to check whether a memory file was
+        modified externally since it was loaded.  If drift is detected, a
+        ``.bak.<timestamp>`` backup is created and the method returns True.
+    """
 
     def __init__(
         self,
@@ -70,6 +103,12 @@ class MemoryStore:
             "memory": self._root / "MEMORY.md.lock",
             "user": self._root / "USER.md.lock",
         }
+        # Frozen snapshot: taken at load_from_disk(), never updated mid-session
+        self._system_prompt_snapshot: Optional[str] = None
+        # File mtimes at snapshot time, used for drift detection
+        self._snapshot_mtimes: Dict[str, Optional[float]] = {"memory": None, "user": None}
+
+    # ── Locking ───────────────────────────────────────────────────────────────
 
     def _acquire(self, target: str) -> IO:
         lock_path = self._lock_paths[target]
@@ -82,6 +121,66 @@ class MemoryStore:
         fcntl.flock(fh, fcntl.LOCK_UN)
         fh.close()
 
+    # ── Frozen snapshot ───────────────────────────────────────────────────────
+
+    def load_from_disk(self) -> None:
+        """Load memory from disk and freeze a system-prompt snapshot.
+
+        Call once at session start (e.g. in gateway hydration).
+        The snapshot is byte-identical across the entire session so the
+        prefix cache key never changes.
+
+        Subsequent ``add/replace/remove`` writes mutate disk but not the snapshot.
+        """
+        self._snapshot_mtimes = {
+            t: (self._paths[t].stat().st_mtime if self._paths[t].exists() else None)
+            for t in ("memory", "user")
+        }
+        self._system_prompt_snapshot = self.build_memory_context_block()
+
+    def get_snapshot_block(self) -> str:
+        """Return the frozen system-prompt snapshot (from ``load_from_disk()``).
+
+        Returns the *current live* block if load_from_disk() was never called,
+        so callers don't need a try/except.
+        """
+        if self._system_prompt_snapshot is not None:
+            return self._system_prompt_snapshot
+        return self.build_memory_context_block()
+
+    # ── Drift detection ───────────────────────────────────────────────────────
+
+    def detect_drift(self, target: str) -> bool:
+        """Check whether ``target`` file was modified externally since load.
+
+        If drift is detected:
+          1. Creates a ``.bak.<timestamp>`` backup of the current file.
+          2. Returns True.
+
+        Returns False if no drift, or if load_from_disk() was never called.
+        """
+        if self._snapshot_mtimes.get(target) is None:
+            return False
+        path = self._paths.get(target)
+        if not path or not path.exists():
+            return False
+        current_mtime = path.stat().st_mtime
+        if current_mtime <= self._snapshot_mtimes[target]:  # type: ignore[operator]
+            return False
+        # Drift detected — create backup
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        backup = path.parent / f"{path.name}.bak.{ts}"
+        try:
+            import shutil
+            shutil.copy2(str(path), str(backup))
+        except OSError:
+            pass
+        # Update mtime record so we don't keep re-backing-up
+        self._snapshot_mtimes[target] = current_mtime
+        return True
+
+    # ── Mutations ─────────────────────────────────────────────────────────────
+
     def add(self, target: str, content: str) -> Tuple[bool, str]:
         content = content.strip()
         if not content:
@@ -92,8 +191,9 @@ class MemoryStore:
         fh = self._acquire(target)
         try:
             entries = _read_entries(self._paths[target])
+            # Exact duplicate rejection (mirrors Hermess memory_tool.py lines 321-323)
             if content in entries:
-                return False, "Exact duplicate — already stored."
+                return False, "Entry already exists (no duplicate added)."
             new_total = (
                 sum(len(e) for e in entries)
                 + len(content)
@@ -151,6 +251,8 @@ class MemoryStore:
             self._release(fh)
         return True, f"Removed entry from {target}."
 
+    # ── Reads ─────────────────────────────────────────────────────────────────
+
     def read_all(self, target: str) -> List[str]:
         if target not in self._paths:
             return []
@@ -161,8 +263,10 @@ class MemoryStore:
 
         Mirrors Hermess build_memory_context_block() in system_prompt.py:
         both MEMORY.md and USER.md entries are combined and wrapped in a
-        <memory-context> ... </memory-context> XML fence that the model
-        reads as persistent recall.
+        <memory-context> ... </memory-context> XML fence.
+
+        This reflects LIVE disk state.  Use ``get_snapshot_block()`` for the
+        session-start frozen snapshot needed for prefix-cache stability.
 
         Returns empty string if both stores are empty.
         """
