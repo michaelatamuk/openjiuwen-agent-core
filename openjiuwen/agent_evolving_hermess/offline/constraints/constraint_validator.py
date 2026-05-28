@@ -12,15 +12,10 @@ from typing import TYPE_CHECKING, List, Optional
 
 import yaml
 
+from openjiuwen.agent_evolving_hermess.offline.constraints.constraint_result import ConstraintResult
+
 if TYPE_CHECKING:
     from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
-
-
-@dataclass
-class ConstraintResult:
-    passed: bool
-    constraint_name: str
-    message: str
 
 
 class ConstraintValidator:
