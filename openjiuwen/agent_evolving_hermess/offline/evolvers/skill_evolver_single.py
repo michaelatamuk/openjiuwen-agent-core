@@ -31,7 +31,7 @@ from .skill_evolver_stages.stage05_gepa_optimizer import run_gepa_optimization
 from .skill_evolver_stages.stage06_evolved_skill_extractor import extract_evolved_skill
 from .skill_evolver_stages.stage07_evolved_constraint_validator import validate_evolved_constraints
 from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
-from .skill_evolver_stages.stage09_acceptance_gate import apply_acceptance_gate
+from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
 from ..config import EvolverConfig
@@ -96,6 +96,7 @@ def evolve_single_skill(
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
     optimized_module, optimizer_name, elapsed = run_gepa_optimization(
         baseline_module, trainset, valset, config, console,
+        skill_name=skill_name,
     )
 
     # ── Step 6: Extract evolved skill text ───────────────────────────────────
@@ -111,9 +112,11 @@ def evolve_single_skill(
         baseline_module, optimized_module, dataset, config, console, prior_metrics,
     )
 
-    # ── Step 9: min_improvement acceptance gate ───────────────────────────────
-    accepted = apply_acceptance_gate(
-        improvement, min_improvement, evolved_text, cross_run_delta, output_dir, console,
+    # ── Step 9: acceptance gate (threshold or Thompson Sampling) ─────────────
+    gate = make_acceptance_gate(config, min_improvement)
+    accepted, ts_conf = gate.decide(
+        improvement, evolved_score, skill_name,
+        evolved_text, cross_run_delta, output_dir, console,
     )
 
     # ── Step 10: Display results table ───────────────────────────────────────
@@ -132,4 +135,5 @@ def evolve_single_skill(
         config, optimizer_name, eval_source, cached_path,
         skill["raw"], evolved_text, evolved_checks,
         elapsed, output_dir, console,
+        ts_confidence=ts_conf,
     )

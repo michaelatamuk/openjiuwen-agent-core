@@ -34,6 +34,13 @@ def _make_config(
     skills_root: Optional[str],
     trajectory_dir: Optional[str] = None,
     trajectory_min_reward: float = 0.0,
+    ts_skill_scheduler: bool = False,
+    ts_example_selector: bool = False,
+    ts_example_batch_size: int = 0,
+    ts_acceptance_gate: bool = False,
+    ts_acceptance_confidence: float = 0.75,
+    ts_acceptance_n_samples: int = 100,
+    ts_state_dir: Optional[str] = None,
 ) -> EvolverConfig:
     config = EvolverConfig(
         iterations=iterations,
@@ -43,11 +50,19 @@ def _make_config(
         output_dir=Path(output_dir),
         run_pytest=run_pytest,
         trajectory_min_reward=trajectory_min_reward,
+        ts_skill_scheduler=ts_skill_scheduler,
+        ts_example_selector=ts_example_selector,
+        ts_example_batch_size=ts_example_batch_size,
+        ts_acceptance_gate=ts_acceptance_gate,
+        ts_acceptance_confidence=ts_acceptance_confidence,
+        ts_acceptance_n_samples=ts_acceptance_n_samples,
     )
     if skills_root:
         config.skills_root = Path(skills_root)
     if trajectory_dir:
         config.trajectory_dir = Path(trajectory_dir)
+    if ts_state_dir:
+        config.ts_state_dir = Path(ts_state_dir)
     return config
 
 
@@ -153,6 +168,73 @@ def _make_config(
         "Negative values (e.g. -0.02) accept up to 2% regression."
     ),
 )
+# ── Thompson Sampling flags ───────────────────────────────────────────────────
+@click.option(
+    "--ts-skill-scheduler",
+    is_flag=True,
+    default=False,
+    help=(
+        "[Level 1 TS] Order skills in --all batches by Thompson Sampling priority "
+        "instead of round-robin. Skills with stronger improvement history run first."
+    ),
+)
+@click.option(
+    "--ts-example-selector",
+    is_flag=True,
+    default=False,
+    help=(
+        "[Level 2 TS] Select training examples via Thompson Sampling instead of "
+        "using the full trainset. Concentrates GEPA on the most discriminating examples."
+    ),
+)
+@click.option(
+    "--ts-example-batch-size",
+    default=0,
+    show_default=True,
+    type=int,
+    help=(
+        "[Level 2 TS] Number of examples to select per GEPA run (requires --ts-example-selector). "
+        "0 (default) = full trainset (TS ordering only, no reduction)."
+    ),
+)
+@click.option(
+    "--ts-acceptance-gate",
+    is_flag=True,
+    default=False,
+    help=(
+        "[Level 3 TS] Replace the hard improvement threshold with a Thompson Sampling gate "
+        "that also requires P(candidate > deployed) >= --ts-acceptance-confidence."
+    ),
+)
+@click.option(
+    "--ts-acceptance-confidence",
+    default=0.75,
+    show_default=True,
+    type=float,
+    help=(
+        "[Level 3 TS] Minimum win-probability required to accept a candidate "
+        "(requires --ts-acceptance-gate). Default 0.75 = 75%% confidence."
+    ),
+)
+@click.option(
+    "--ts-acceptance-n-samples",
+    default=100,
+    show_default=True,
+    type=int,
+    help=(
+        "[Level 3 TS] Monte Carlo draws for TS confidence estimate "
+        "(requires --ts-acceptance-gate). Higher = more accurate but slower."
+    ),
+)
+@click.option(
+    "--ts-state-dir",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Directory to persist Thompson Sampling arm state across CLI invocations. "
+        "Defaults to skills-root for Level 1 and output-dir for Levels 2/3."
+    ),
+)
 def main(
     skill: Optional[str],
     evolve_all: bool,
@@ -169,6 +251,13 @@ def main(
     dry_run: bool,
     reuse_dataset: bool,
     min_improvement: float,
+    ts_skill_scheduler: bool,
+    ts_example_selector: bool,
+    ts_example_batch_size: int,
+    ts_acceptance_gate: bool,
+    ts_acceptance_confidence: float,
+    ts_acceptance_n_samples: int,
+    ts_state_dir: Optional[str],
 ) -> None:
     """Evolve a Jiuwen SKILL.md using GEPA genetic prompt optimisation."""
 
@@ -181,6 +270,13 @@ def main(
         iterations, optimizer_model, eval_model, output_dir, run_pytest, skills_root,
         trajectory_dir=trajectory_dir,
         trajectory_min_reward=trajectory_min_reward,
+        ts_skill_scheduler=ts_skill_scheduler,
+        ts_example_selector=ts_example_selector,
+        ts_example_batch_size=ts_example_batch_size,
+        ts_acceptance_gate=ts_acceptance_gate,
+        ts_acceptance_confidence=ts_acceptance_confidence,
+        ts_acceptance_n_samples=ts_acceptance_n_samples,
+        ts_state_dir=ts_state_dir,
     )
 
     # ── Resolve skill list for --all ─────────────────────────────────────────
@@ -209,6 +305,11 @@ def main(
             click.echo(f"  Optimizer model : {optimizer_model}")
             click.echo(f"  Eval model      : {eval_model}")
             click.echo(f"  Min improvement : {min_improvement:+.4f}")
+            click.echo(f"  TS L1 scheduler : {'ON' if config.ts_skill_scheduler else 'off'}")
+            click.echo(f"  TS L2 examples  : {'ON' if config.ts_example_selector else 'off'}"
+                       + (f" (batch={config.ts_example_batch_size or 'all'})" if config.ts_example_selector else ""))
+            click.echo(f"  TS L3 gate      : {'ON' if config.ts_acceptance_gate else 'off'}"
+                       + (f" (conf={config.ts_acceptance_confidence:.0%})" if config.ts_acceptance_gate else ""))
 
             skill_path = find_skill(name, config.skills_root)
             if skill_path is None:

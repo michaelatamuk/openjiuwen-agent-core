@@ -7,6 +7,7 @@ import dspy
 
 from openjiuwen.agent_evolving_hermess.offline.config import EvolverConfig
 from openjiuwen.agent_evolving_hermess.offline.skills import SkillModule
+from openjiuwen.agent_evolving_hermess.offline.evolvers.selection import make_example_selector
 
 
 def run_gepa_optimization(
@@ -15,12 +16,31 @@ def run_gepa_optimization(
     valset: List,
     config: EvolverConfig,
     console,
+    skill_name: str = "unknown",
 ) -> Tuple[SkillModule, str, float]:
     """Run GEPA (or MIPROv2 fallback) to optimise the skill module.
 
+    When ``config.ts_example_selector`` is True, the training examples are
+    chosen by a Level 2 Thompson Sampling selector instead of using the full
+    set.  After GEPA completes the per-example fitness scores are fed back to
+    update the selector's Beta arms so future runs concentrate on the most
+    discriminating examples.
+
     Returns (optimized_module, optimizer_name, elapsed_seconds).
     """
-    console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)…")
+    # ── Level 2: select training examples via factory ─────────────────────────
+    selector = make_example_selector(trainset, skill_name, config)
+    selected_trainset = selector.select()
+
+    ts_active = getattr(config, "ts_example_selector", False)
+    if ts_active and len(selected_trainset) < len(trainset):
+        console.print(
+            f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)… "
+            f"[dim][TS: {len(selected_trainset)}/{len(trainset)} examples][/dim]"
+        )
+    else:
+        console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)…")
+
     t0 = time.time()
     optimizer_name = "GEPA"
 
@@ -30,7 +50,7 @@ def run_gepa_optimization(
             max_steps=config.iterations,
         )
         optimized_module = optimizer.compile(
-            baseline_module, trainset=trainset, valset=valset
+            baseline_module, trainset=selected_trainset, valset=valset
         )
     except Exception as gepa_err:
         console.print(
@@ -39,11 +59,24 @@ def run_gepa_optimization(
         optimizer_name = "MIPROv2"
         optimizer = dspy.MIPROv2(metric=skill_fitness_metric, auto="light")
         optimized_module = optimizer.compile(
-            baseline_module, trainset=trainset, valset=valset
+            baseline_module, trainset=selected_trainset, valset=valset
         )
 
     elapsed = time.time() - t0
     console.print(f"[green]✓ Optimisation complete in {elapsed:.1f}s[/green]")
+
+    # ── Update example selector arms with per-example fitness ─────────────────
+    if ts_active:
+        fitnesses: List[float] = []
+        for ex in selected_trainset:
+            try:
+                pred = optimized_module(task_input=ex.task_input)
+                f = skill_fitness_metric(ex, pred)
+            except Exception:
+                f = 0.0
+            fitnesses.append(f)
+        selector.update(selected_trainset, fitnesses)
+
     return optimized_module, optimizer_name, elapsed
 
 

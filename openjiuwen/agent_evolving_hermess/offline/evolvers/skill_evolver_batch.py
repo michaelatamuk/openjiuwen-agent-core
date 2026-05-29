@@ -13,12 +13,17 @@ New vs original plan:
   - min_improvement acceptance gate: if improvement < threshold, the evolved
     skill is saved as evolved_REGRESSION.md and a warning is printed, but
     it is NOT written to evolved_skill.md (avoids regressing active skills)
+  - Thompson Sampling skill scheduler (Level 1): when config.ts_skill_scheduler
+    is True, skills are evolved in priority order determined by a Beta(α, β)
+    sample drawn per skill.  Skills with a stronger improvement track record
+    are scheduled first; unexplored skills still surface occasionally.
 """
 from __future__ import annotations
 
 from typing import List, Optional
 
 from .skill_evolver_single import evolve_single_skill
+from .selection import make_skill_scheduler
 from ..config import EvolverConfig
 
 
@@ -31,20 +36,32 @@ def evolve_skills_batch(
     reuse_dataset: bool = False,
     min_improvement: float = 0.0,
 ) -> List[dict]:
-    """Evolve multiple skills sequentially.
+    """Evolve multiple skills, optionally using TS-based priority ordering.
 
     Returns a list of metrics dicts (one per skill).  If a skill fails,
     its entry contains ``{"skill_name": name, "error": "<message>"}``.
+
+    When ``config.ts_skill_scheduler`` is True the skills are run in the
+    order determined by a single Thompson Sampling draw (highest expected
+    improvement first).  Outcomes are recorded after each run so that state
+    accumulates across multiple ``--all`` invocations.
 
     Args:
         skill_names: List of skill names to evolve.
         (all other args: same as evolve())
 
     Returns:
-        List of metrics dicts in the same order as skill_names.
+        List of metrics dicts in the order the skills were actually run.
     """
+    if config is None:
+        config = EvolverConfig()
+
+    # ── Level 1: schedule skill order via factory ─────────────────────────────
+    scheduler = make_skill_scheduler(config, list(skill_names))
+    ordered_names = scheduler.schedule(list(skill_names))
+
     results = []
-    for name in skill_names:
+    for name in ordered_names:
         try:
             m = evolve_single_skill(
                 skill_name=name,
@@ -57,5 +74,10 @@ def evolve_skills_batch(
             )
         except Exception as exc:
             m = {"skill_name": name, "error": str(exc)}
+
+        # Record outcome so TS arm history persists for future batch runs
+        improvement = m.get("improvement", 0.0) if "error" not in m else 0.0
+        scheduler.record(name, improvement)
+
         results.append(m)
     return results

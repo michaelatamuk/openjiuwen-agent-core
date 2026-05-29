@@ -45,6 +45,17 @@ class EvolverConfig:
     trajectory_dir: Optional[Path] = field(default=None)  # Folder of saved trajectory JSON files
     trajectory_min_reward: float = 0.0             # Skip steps with reward below this value
 
+    # ── Thompson Sampling ─────────────────────────────────────────────────────
+    # Each flag independently enables the TS variant for its decision level.
+    # When False (default) the existing deterministic behaviour is preserved.
+    ts_skill_scheduler: bool = False          # Level 1: TS batch skill ordering
+    ts_example_selector: bool = False         # Level 2: TS training-example selection
+    ts_example_batch_size: int = 0            # 0 = full trainset; N = top-N TS subset
+    ts_acceptance_gate: bool = False          # Level 3: TS candidate acceptance
+    ts_acceptance_confidence: float = 0.75   # Min TS win-prob to accept (Level 3)
+    ts_acceptance_n_samples: int = 100        # Monte Carlo draws for TS confidence
+    ts_state_dir: Optional[Path] = field(default=None)  # Arm state dir (default: skills_root)
+
     # ── Output ────────────────────────────────────────────────────────────────
     output_dir: Path = field(default_factory=lambda: Path("./skill_evolver_output"))
     create_pr: bool = False                        # Create a git PR with result?

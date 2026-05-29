@@ -27,6 +27,7 @@ def save_outputs(
     elapsed: float,
     output_dir: Path,
     console,
+    ts_confidence: Optional[float] = None,
 ) -> dict:
     """Write all output artefacts and return the metrics dict.
 
@@ -53,6 +54,7 @@ def save_outputs(
         "baseline_chars": len(skill_raw),
         "evolved_chars": len(evolved_text),
         "elapsed_seconds": round(elapsed, 1),
+        "ts_acceptance_confidence": round(ts_confidence, 4) if ts_confidence is not None else None,
         "constraint_checks": [
             {"name": c.constraint_name, "passed": c.passed, "message": c.message}
             for c in evolved_checks
