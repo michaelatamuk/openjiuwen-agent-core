@@ -7,7 +7,7 @@ name = "openjiuwen"
 version = "0.1.13"
 description = "openJiuwen agent-core is a feature-rich AI agent SDK for developing, running, tuning, and improving your AI agents."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     'Development Status :: 4 - Beta',
     'Programming Language :: Python',
@@ -17,7 +17,6 @@ classifiers = [
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
-    'Programming Language :: Python :: 3.14',
 ]
 dependencies = [
     # HTTP clients
@@ -85,6 +84,7 @@ obs = ["aioboto3>=11.0.0"]
 zmq = ["pyzmq>=26.0.0", "tornado>=6.1"]
 sandbox = ["agent-sandbox>=0.0.26"]
 mem0 = ["mem0ai>=1.0.0"]
+agentarts = ["agentarts-sdk>=0.1.2,<0.2"]
 mobile-gui = [
     # Install: pip install 'openjiuwen[mobile-gui]'
     "uiautomator2>=3.2.0",
