@@ -103,7 +103,7 @@ def evolve_single_skill(
     evolved_text = extract_evolved_skill(optimized_module, skill)
 
     # ── Step 7: Validate evolved constraints ─────────────────────────────────
-    evolved_checks = validate_evolved_constraints(
+    evolved_checks, constraints_passed = validate_evolved_constraints(
         evolved_text, skill["raw"], config, output_dir, console,
     )
 
@@ -113,11 +113,16 @@ def evolve_single_skill(
     )
 
     # ── Step 9: acceptance gate (threshold or Thompson Sampling) ─────────────
-    gate = make_acceptance_gate(config, min_improvement)
-    accepted, ts_conf = gate.decide(
-        improvement, evolved_score, skill_name,
-        evolved_text, cross_run_delta, output_dir, console,
-    )
+    if not constraints_passed:
+        # Constraint failure is a normal rejection — not an error.
+        # Skip the TS gate and mark as not accepted so steps 10-11 still run.
+        accepted, ts_conf = False, None
+    else:
+        gate = make_acceptance_gate(config, min_improvement)
+        accepted, ts_conf = gate.decide(
+            improvement, evolved_score, skill_name,
+            evolved_text, cross_run_delta, output_dir, console,
+        )
 
     # ── Step 10: Display results table ───────────────────────────────────────
     display_results_table(

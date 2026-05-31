@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintValidator
@@ -13,12 +13,12 @@ def validate_evolved_constraints(
     config: EvolverConfig,
     output_dir: Path,
     console,
-) -> List:
+) -> Tuple[List, bool]:
     """Validate the evolved skill text against all constraints.
 
-    On failure: saves evolved_FAILED.md to output_dir, prints each failure,
-    then raises ValueError so the evolution run is rejected.
-    On success: prints confirmation and returns the full checks list.
+    On failure: saves evolved_FAILED.md to output_dir and prints each failure.
+    On success: prints confirmation.
+    Always returns (checks, passed) — never raises.
     """
     validator = ConstraintValidator(config)
     checks = validator.validate_all(
@@ -33,6 +33,6 @@ def validate_evolved_constraints(
                 f"[red]✗ EVOLVED CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]"
             )
         console.print(f"[dim]Saved failed variant to {failed_path}[/dim]")
-        raise ValueError("Evolved skill fails constraints — evolution rejected.")
+        return checks, False
     console.print("[green]✓ Evolved constraints passed[/green]")
-    return checks
+    return checks, True
