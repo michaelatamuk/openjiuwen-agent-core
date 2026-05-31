@@ -13,13 +13,15 @@ Usage
 
 Available scenarios
 -------------------
-    code-review   — Python code review (bugs, style, performance, security)
-    api-security  — REST API security review (auth, injection, SSRF, crypto)
-    ml-review     — ML/data-science code review (data leakage, CV strategy, metrics)
-    rtos-review   — Embedded C / FreeRTOS review (ISR safety, volatile, stack, barriers)
-                    ★ Low baseline: ~0.10-0.20
-    paper-review  — Research paper peer review (HARKing, p-hacking, power, effect size)
-                    ★ Low baseline: ~0.10-0.20 (non-software, recommended for demos)
+    code-review       — Python code review (bugs, style, performance, security)
+    api-security      — REST API security review (auth, injection, SSRF, crypto)
+    ml-review         — ML/data-science code review (data leakage, CV strategy, metrics)
+    rtos-review       — Embedded C / FreeRTOS review (ISR safety, volatile, stack, barriers)
+                        ★ Low baseline: ~0.10-0.20
+    paper-review      — Research paper peer review (HARKing, p-hacking, power, effect size)
+                        ★ Low baseline: ~0.10-0.20 (non-software, recommended for demos)
+    contract-review   — Commercial contract review (penalties, force majeure, IP, non-compete)
+                        ★ Low baseline: ~0.05-0.15 (non-software, non-technical)
 """
 from __future__ import annotations
 
@@ -107,6 +109,12 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _PR_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.paper_review.golden_examples.all import \
         GOLDEN_EXAMPLES as _PR_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.contract_review.skill.body import \
+        SKILL_BODY as _CT_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.contract_review.skill.frontmatter import \
+        SKILL_FRONTMATTER as _CT_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.contract_review.golden_examples.all import \
+        GOLDEN_EXAMPLES as _CT_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -143,6 +151,13 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_PR_FM,
             golden_examples=_PR_EXAMPLES,
             description="Research paper peer review — HARKing, p-hacking, power, effect size",
+        ),
+        "contract-review": Scenario(
+            name="contract-review",
+            skill_body=_CT_BODY,
+            skill_frontmatter=_CT_FM,
+            golden_examples=_CT_EXAMPLES,
+            description="Commercial contract review — penalties, force majeure, IP, non-compete",
         ),
     }
 
