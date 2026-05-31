@@ -16,7 +16,7 @@ Usage:
 """
 from pathlib import Path
 
-from openjiuwen.agent_evolving_hermess.offline import (
+from openjiuwen.agent_evolving_hermes.offline import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
     build_dataset_from_external,
@@ -105,7 +105,7 @@ def example_relevance_filter_standalone():
     skill_text = "Guidelines for reviewing git diffs and pull requests."
 
     # Stage 1: heuristic filter (no LLM cost)
-    from openjiuwen.agent_evolving_hermess.offline.external_importers.relevance_filter import _is_relevant_to_skill
+    from openjiuwen.agent_evolving_hermes.offline.external_importers.relevance_filter import _is_relevant_to_skill
     for msg in messages:
         relevant = _is_relevant_to_skill(msg["task_input"], skill_name, skill_text)
         mark = "✓" if relevant else "✗"

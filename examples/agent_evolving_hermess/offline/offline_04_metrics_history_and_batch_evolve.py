@@ -23,7 +23,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from openjiuwen.agent_evolving_hermess.offline.cli import main as cli_main
+from openjiuwen.agent_evolving_hermes.offline.cli import main as cli_main
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

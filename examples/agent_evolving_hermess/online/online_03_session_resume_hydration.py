@@ -26,7 +26,7 @@ Usage:
     python examples/agent_evolving_hermess/05_session_resume_hydration.py
 """
 import asyncio
-from openjiuwen.agent_evolving_hermess.online import BackgroundReviewConfig, BackgroundReviewRail
+from openjiuwen.agent_evolving_hermes.online import BackgroundReviewConfig, BackgroundReviewRail
 
 
 def simulate_history(num_user_turns: int):
