@@ -23,7 +23,7 @@ def step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path) -> N
         for label, path in runs:
             print(f"    {label:{label_w}}→  {path}/{skill_name}/")
     else:
-        print("    (no training passes ran — baseline evaluation only)")
+        print("    (no training passes ran — pre-training evaluation only)")
     print(f"    {'TS state':{label_w}}→  {ts_state_dir}/")
 
     print()

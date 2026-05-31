@@ -26,9 +26,12 @@ def evaluate_on_holdout(
     judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     holdout = dataset.holdout or dataset.val
 
-    def _score(module: SkillModule) -> float:
+    n_holdout = len(holdout)
+
+    def _score(module: SkillModule, label: str) -> float:
         scores = []
-        for ex in holdout:
+        for i, ex in enumerate(holdout, start=1):
+            sc = 0.0
             try:
                 pred = module(task_input=ex.task_input)
                 s = judge.score(
@@ -37,15 +40,23 @@ def evaluate_on_holdout(
                     agent_output=getattr(pred, "output", ""),
                     skill_text=module._skill_text_value,
                 )
-                scores.append(s.composite)
+                sc = s.composite
             except Exception:
-                scores.append(0.0)
+                pass
+            scores.append(sc)
+            console.print(f"  [{i}/{n_holdout}] {label} → {sc:.4f}")
         return sum(scores) / len(scores) if scores else 0.0
 
-    console.print("[bold]Evaluating baseline on holdout…[/bold]")
-    baseline_score = _score(baseline_module)
-    console.print("[bold]Evaluating evolved on holdout…[/bold]")
-    evolved_score = _score(optimized_module)
+    console.print(
+        f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+        f"[dim]({n_holdout} examples — likely instant: LLM cache hits)[/dim]"
+    )
+    baseline_score = _score(baseline_module, "pre-train skill")
+    console.print(
+        f"[bold]Evaluating evolved skill on holdout…[/bold] "
+        f"[dim]({n_holdout} examples × ~20–30s each — evolved skill is new, no cache)[/dim]"
+    )
+    evolved_score = _score(optimized_module, "evolved skill")
     improvement = evolved_score - baseline_score
 
     cross_run_delta: Optional[float] = None

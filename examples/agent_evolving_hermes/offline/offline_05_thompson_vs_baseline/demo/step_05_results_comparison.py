@@ -30,17 +30,17 @@ def step(
         ]
         if m is not None
     ]
-    _banner("COMPARISON — Baseline  ·  " + ("  ·  ".join(ran) if ran else "(baseline only)"))
+    _banner("COMPARISON — Pre-train  ·  " + ("  ·  ".join(ran) if ran else "(pre-training only)"))
 
     # ── Ordered column list: (header, metrics | None) ─────────────────────
-    cols: list[tuple[str, Optional[dict]]] = [("Baseline", None)]
+    cols: list[tuple[str, Optional[dict]]] = [("Pre-train", None)]
     if metrics_no_ts  is not None: cols.append(("No-TS",   metrics_no_ts))
     if metrics_l2     is not None: cols.append(("L2 only", metrics_l2))
     if metrics_l3     is not None: cols.append(("L3 only", metrics_l3))
     if metrics_l2_l3  is not None: cols.append(("L2+L3",   metrics_l2_l3))
 
     if len(cols) == 1:
-        print(f"\n  Baseline holdout score: {baseline_score:.4f}  (no training modes ran)")
+        print(f"\n  Pre-training score: {baseline_score:.4f}  (no training modes ran)")
         return
 
     W = 11
@@ -61,8 +61,8 @@ def step(
         score_row += f"  {val:>{W}.4f}"
     print(score_row)
 
-    # ── Δ over baseline ───────────────────────────────────────────────────
-    delta_row = f"  {'Δ over baseline':32s}"
+    # ── Δ over pre-train ──────────────────────────────────────────────────
+    delta_row = f"  {'Δ over pre-train':32s}"
     for _, m in cols:
         if m is None:
             delta_row += f"  {'—':>{W}}"

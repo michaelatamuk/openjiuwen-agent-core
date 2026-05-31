@@ -13,7 +13,7 @@ def step(skills_root, SKILL_NAME, SKILL_BODY, SKILL_FRONTMATTER, GOLDEN_EXAMPLES
     # ── Step 1: Write baseline skill + golden dataset ─────────────────────────
     skill_path = _write_skill(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY)
     golden_dir = _write_golden_dataset(skills_root, SKILL_NAME, GOLDEN_EXAMPLES)
-    print(f"\nBaseline skill    : {skill_path}")
+    print(f"\nPre-training skill: {skill_path}")
     print(f"Golden dataset    : {golden_dir}")
 
     if verbose:

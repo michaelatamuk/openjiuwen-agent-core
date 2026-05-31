@@ -46,7 +46,7 @@ def step(skills_root: Path, skill_name: str, model: str,
     float
         Composite holdout score in [0, 1].
     """
-    _banner("⓪ BASELINE — holdout evaluation (no training)")
+    _banner("⓪ PRE-TRAINING — holdout evaluation (no GEPA training)")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     console = Console(quiet=not verbose)
@@ -82,9 +82,12 @@ def step(skills_root: Path, skill_name: str, model: str,
     # ── Score on holdout (single pass — no "evolved" module needed) ───────
     judge = LLMJudge(model=model, max_skill_size=config.max_skill_size)
     holdout = dataset.holdout or dataset.val
+    total = len(holdout)
 
+    print(f"\n  Evaluating {total} holdout examples with LLM-as-judge (~20–30s each)…")
     scores: list[float] = []
-    for ex in holdout:
+    for i, ex in enumerate(holdout, start=1):
+        score = 0.0
         try:
             pred = baseline_module(task_input=ex.task_input)
             fs = judge.score(
@@ -93,12 +96,14 @@ def step(skills_root: Path, skill_name: str, model: str,
                 agent_output=getattr(pred, "output", ""),
                 skill_text=baseline_module._skill_text_value,
             )
-            scores.append(fs.composite)
+            score = fs.composite
         except Exception:
-            scores.append(0.0)
+            pass
+        scores.append(score)
+        print(f"  [{i}/{total}] pre-train skill → {score:.4f}")
 
     baseline_score = round(sum(scores) / len(scores), 4) if scores else 0.0
 
-    print(f"\n  Baseline holdout score: {baseline_score:.4f}  "
+    print(f"  Pre-training score: {baseline_score:.4f}  "
           f"({len(scores)} holdout examples)")
     return baseline_score

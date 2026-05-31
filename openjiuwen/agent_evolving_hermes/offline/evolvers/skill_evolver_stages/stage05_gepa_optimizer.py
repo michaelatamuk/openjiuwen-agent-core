@@ -41,6 +41,10 @@ def run_gepa_optimization(
         )
     else:
         console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)…")
+    console.print(
+        f"[dim]  ↳ ~{config.iterations + 2} candidate skills will be scored below;"
+        f" each 'Average Metric: X / N (Y%)' line = keyword-match score (not LLM-judge)[/dim]"
+    )
 
     t0 = time.time()
     optimizer_name = "GEPA"
