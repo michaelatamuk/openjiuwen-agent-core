@@ -41,7 +41,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, output_l2_on
     )
     _print_metrics(metrics_l2)
 
-    evolved_l2 = _read_latest_evolved(output_l2_only, SKILL_NAME)
-    _print_skill("  Evolved skill (L2 only)", evolved_l2 or "[not produced]")
+    if verbose:
+        evolved_l2 = _read_latest_evolved(output_l2_only, SKILL_NAME)
+        _print_skill("  Evolved skill (L2 only)", evolved_l2 or "[not produced]")
 
     return metrics_l2

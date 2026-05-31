@@ -43,7 +43,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_l3_only, ts_state_di
     _print_metrics(metrics_l3)
     _print_ts_insights(ts_state_dir, SKILL_NAME)
 
-    evolved_l3 = _read_latest_evolved(output_l3_only, SKILL_NAME)
-    _print_skill("  Evolved skill (L3 only)", evolved_l3 or "[not produced]")
+    if verbose:
+        evolved_l3 = _read_latest_evolved(output_l3_only, SKILL_NAME)
+        _print_skill("  Evolved skill (L3 only)", evolved_l3 or "[not produced]")
 
     return metrics_l3

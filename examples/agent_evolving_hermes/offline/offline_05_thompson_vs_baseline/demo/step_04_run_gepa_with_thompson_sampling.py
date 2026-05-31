@@ -47,7 +47,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMP
     _print_metrics(metrics_ts)
     _print_ts_insights(ts_state_dir, SKILL_NAME)
 
-    evolved_ts = _read_latest_evolved(output_ts, SKILL_NAME)
-    _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]")
+    if verbose:
+        evolved_ts = _read_latest_evolved(output_ts, SKILL_NAME)
+        _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]")
 
     return metrics_ts

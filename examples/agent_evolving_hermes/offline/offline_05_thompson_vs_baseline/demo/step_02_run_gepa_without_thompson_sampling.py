@@ -34,7 +34,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose: bool
     )
     _print_metrics(metrics_no_ts)
 
-    evolved_no_ts = _read_latest_evolved(output_no_ts, SKILL_NAME)
-    _print_skill("  Evolved skill (no TS)", evolved_no_ts or "[not produced]")
+    if verbose:
+        evolved_no_ts = _read_latest_evolved(output_no_ts, SKILL_NAME)
+        _print_skill("  Evolved skill (no TS)", evolved_no_ts or "[not produced]")
 
     return metrics_no_ts

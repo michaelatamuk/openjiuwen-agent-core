@@ -17,7 +17,9 @@ Available scenarios
     api-security  — REST API security review (auth, injection, SSRF, crypto)
     ml-review     — ML/data-science code review (data leakage, CV strategy, metrics)
     rtos-review   — Embedded C / FreeRTOS review (ISR safety, volatile, stack, barriers)
-                    ★ Recommended for demos: baseline score ~0.10-0.20 (very low)
+                    ★ Low baseline: ~0.10-0.20
+    paper-review  — Research paper peer review (HARKing, p-hacking, power, effect size)
+                    ★ Low baseline: ~0.10-0.20 (non-software, recommended for demos)
 """
 from __future__ import annotations
 
@@ -99,6 +101,12 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _RT_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.rtos_review.golden_examples.all import \
         GOLDEN_EXAMPLES as _RT_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.paper_review.skill.body import \
+        SKILL_BODY as _PR_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.paper_review.skill.frontmatter import \
+        SKILL_FRONTMATTER as _PR_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.paper_review.golden_examples.all import \
+        GOLDEN_EXAMPLES as _PR_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -128,6 +136,13 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_RT_FM,
             golden_examples=_RT_EXAMPLES,
             description="Embedded C / FreeRTOS review — ISR safety, volatile, stack, barriers",
+        ),
+        "paper-review": Scenario(
+            name="paper-review",
+            skill_body=_PR_BODY,
+            skill_frontmatter=_PR_FM,
+            golden_examples=_PR_EXAMPLES,
+            description="Research paper peer review — HARKing, p-hacking, power, effect size",
         ),
     }
 

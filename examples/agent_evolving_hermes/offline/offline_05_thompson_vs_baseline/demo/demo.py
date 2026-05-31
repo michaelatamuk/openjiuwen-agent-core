@@ -53,6 +53,7 @@ def run_demo(params: DemoParams) -> None:
     step_01_save_skill_and_dataset(
         params.skills_root, params.skill_name,
         params.skill_body, params.skill_frontmatter, params.golden_examples,
+        verbose=params.verbose,
     )
 
     # ── Step 0: Evaluate baseline on holdout (NO training) ───────────────
@@ -109,15 +110,16 @@ def run_demo(params: DemoParams) -> None:
         )
         runs.append(("L2+L3", params.output_l2_l3))
 
-    # ── Step 5: Comparison table ──────────────────────────────────────────
-    step_05_comparison(
-        baseline_score,
-        metrics_no_ts=metrics_no_ts,
-        metrics_l2=metrics_l2,
-        metrics_l3=metrics_l3,
-        metrics_l2_l3=metrics_l2_l3,
-        ts_batch_size=params.ts_batch_size,
-    )
+    # ── Step 5: Comparison table (skip when ≤ 1 mode ran — no value in repeating) ──
+    if len(runs) >= 2:
+        step_05_comparison(
+            baseline_score,
+            metrics_no_ts=metrics_no_ts,
+            metrics_l2=metrics_l2,
+            metrics_l3=metrics_l3,
+            metrics_l2_l3=metrics_l2_l3,
+            ts_batch_size=params.ts_batch_size,
+        )
 
     # ── Step 6: Where to look ─────────────────────────────────────────────
     step_06_final_prints(params.skill_name, runs, params.ts_state_dir)
