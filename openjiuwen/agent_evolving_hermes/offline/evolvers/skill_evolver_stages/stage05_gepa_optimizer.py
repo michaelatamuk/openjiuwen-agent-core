@@ -47,7 +47,7 @@ def run_gepa_optimization(
     try:
         optimizer = dspy.GEPA(
             metric=skill_fitness_metric,
-            max_steps=config.iterations,
+            max_full_evals=config.iterations,
         )
         optimized_module = optimizer.compile(
             baseline_module, trainset=selected_trainset, valset=valset
