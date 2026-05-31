@@ -48,6 +48,7 @@ def run_gepa_optimization(
         optimizer = dspy.GEPA(
             metric=skill_fitness_metric,
             max_full_evals=config.iterations,
+            reflection_lm=dspy.settings.lm,
         )
         optimized_module = optimizer.compile(
             baseline_module, trainset=selected_trainset, valset=valset
@@ -84,6 +85,8 @@ def skill_fitness_metric(
     example: dspy.Example,
     prediction: dspy.Prediction,
     trace=None,
+    pred_name=None,
+    pred_trace=None,
 ) -> float:
     """Fast keyword-overlap metric for GEPA's inner optimisation loop.
 
