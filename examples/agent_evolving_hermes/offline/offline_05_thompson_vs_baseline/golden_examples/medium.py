@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# GOLDEN DATASET — 12 hand-crafted examples: 4 easy · 4 medium · 4 hard
+# GOLDEN DATASET — 20 hand-crafted examples: 4 easy · 8 medium · 8 hard
 #
 # Design rationale: easy examples are visible even to a shallow skill.
 # Medium and hard examples (security bugs, concurrency, N+1) only surface in
@@ -95,4 +95,101 @@ example_04 = {
     }
 
 
-GOLDEN_EXAMPLES_MEDIUM = [ example_01, example_02, example_03, example_04 ]
+example_05 = {
+    "task_input": (
+        "Review this shell helper:\n\n"
+        "import subprocess\n\n"
+        "def run_command(user_input: str) -> str:\n"
+        "    result = subprocess.run(\n"
+        "        f'echo {user_input}',\n"
+        "        shell=True, capture_output=True, text=True\n"
+        "    )\n"
+        "    return result.stdout"
+    ),
+    "expected_behavior": (
+        "Must identify the command injection vulnerability. The f-string "
+        "inserts `user_input` directly into a shell command with `shell=True`. "
+        "A value like `; rm -rf /` executes as a second command. "
+        "Fix: pass arguments as a list without `shell=True` — "
+        "`subprocess.run(['echo', user_input], capture_output=True, text=True)`. "
+        "If `shell=True` is truly required, sanitise with `shlex.quote(user_input)`. "
+        "This is a critical OS command injection risk."
+    ),
+    "difficulty": "medium",
+    "category": "security",
+    "source": "golden",
+}
+
+example_06 = {
+    "task_input": (
+        "Review this class definition:\n\n"
+        "class UserProfile:\n"
+        "    tags = []\n"
+        "    settings = {}\n\n"
+        "    def add_tag(self, tag):\n"
+        "        self.tags.append(tag)\n\n"
+        "    def set_setting(self, key, value):\n"
+        "        self.settings[key] = value"
+    ),
+    "expected_behavior": (
+        "Must identify that `tags` and `settings` are class-level mutable "
+        "attributes shared across ALL instances — adding a tag for user A "
+        "also adds it for user B. Fix: initialise them in `__init__`: "
+        "`self.tags = []` and `self.settings = {}`. "
+        "This is a classic Python gotcha; the fix must be in `__init__`, "
+        "not at class level."
+    ),
+    "difficulty": "medium",
+    "category": "python-gotchas",
+    "source": "golden",
+}
+
+example_07 = {
+    "task_input": (
+        "Review this generator consumer:\n\n"
+        "def process_data(source):\n"
+        "    gen = (x * 2 for x in source)\n"
+        "    first_pass  = list(gen)\n"
+        "    second_pass = list(gen)\n"
+        "    return first_pass, second_pass"
+    ),
+    "expected_behavior": (
+        "Must flag that generators can only be iterated once. "
+        "After `first_pass = list(gen)` the generator is exhausted; "
+        "`second_pass = list(gen)` silently returns an empty list. "
+        "Fix: materialise once — `data = list(x * 2 for x in source)` — "
+        "and reuse `data`, or recreate the generator for each pass. "
+        "No exception is raised; the bug produces silent wrong results."
+    ),
+    "difficulty": "medium",
+    "category": "python-gotchas",
+    "source": "golden",
+}
+
+example_08 = {
+    "task_input": (
+        "Review this float comparison:\n\n"
+        "def is_tax_rate_valid(rate: float) -> bool:\n"
+        "    return rate == 0.1 or rate == 0.2 or rate == 0.3\n\n"
+        "def apply_discount(price: float, discount: float) -> float:\n"
+        "    if price - discount == 0:\n"
+        "        return 0\n"
+        "    return price - discount"
+    ),
+    "expected_behavior": (
+        "Must flag the floating-point equality comparisons. Due to IEEE 754, "
+        "`0.1 + 0.2 != 0.3` in Python. Direct `==` on floats is unreliable. "
+        "Fix: use `math.isclose(rate, 0.1)` with an appropriate `rel_tol` "
+        "or `abs_tol`. For currency/tax calculations use `decimal.Decimal` "
+        "to avoid floating-point errors entirely. "
+        "The `price - discount == 0` check has the same problem."
+    ),
+    "difficulty": "medium",
+    "category": "correctness",
+    "source": "golden",
+}
+
+GOLDEN_EXAMPLES_MEDIUM = [
+    example_01, example_02, example_03, example_04,
+    example_05, example_06, example_07, example_08,
+]

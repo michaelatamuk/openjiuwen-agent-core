@@ -12,7 +12,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMPLES, output_ts, ts_state_dir):
+def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMPLES, output_ts, ts_state_dir,
+         verbose: bool = False):
     _banner("③ GEPA — with Thompson Sampling (Level 2 + Level 3)")
     print(f"  Level 2 — Example Selector  : selects top {TS_BATCH_SIZE} of "
           f"{int(len(GOLDEN_EXAMPLES)*0.5)} train examples per iteration")
@@ -29,6 +30,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMP
         iterations   = ITERATIONS,
         optimizer_model = MODEL,
         eval_model      = MODEL,
+        max_prompt_growth=0.5,   # allow up to 50% growth; baseline skill is intentionally short
+        verbose=verbose,
         # Thompson Sampling — Level 2 + Level 3 ON
         ts_skill_scheduler   = False,          # L1 only matters for --all runs
         ts_example_selector  = True,

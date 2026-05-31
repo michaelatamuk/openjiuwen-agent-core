@@ -59,3 +59,6 @@ class EvolverConfig:
     # ── Output ────────────────────────────────────────────────────────────────
     output_dir: Path = field(default_factory=lambda: Path("./skill_evolver_output"))
     create_pr: bool = False                        # Create a git PR with result?
+
+    # ── Verbosity ─────────────────────────────────────────────────────────────
+    verbose: bool = False                          # True = show DSPy INFO training logs

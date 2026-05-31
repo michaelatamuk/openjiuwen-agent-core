@@ -10,7 +10,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts):
+def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose: bool = False):
     _banner("② GEPA — without Thompson Sampling")
     print("  Example selector : all training examples, equal weight")
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
@@ -22,6 +22,8 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts):
         iterations=ITERATIONS,
         optimizer_model=MODEL,
         eval_model=MODEL,
+        max_prompt_growth=0.5,   # allow up to 50% growth; baseline skill is intentionally short
+        verbose=verbose,
         # Thompson Sampling — all OFF
         ts_skill_scheduler=False,
         ts_example_selector=False,
