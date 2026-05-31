@@ -1,6 +1,9 @@
 
 from __future__ import annotations
 
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_params import DemoParams
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_00_evaluate_holdout import \
+    step as step_00_evaluate_holdout
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_01_save_skill_and_dataset import \
     step as step_01_save_skill_and_dataset
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_02_run_gepa_without_thompson_sampling import \
@@ -19,48 +22,102 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     step as step_06_final_prints
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Main demo
-# ══════════════════════════════════════════════════════════════════════════════
+def run_demo(params: DemoParams) -> None:
+    """Run the full Thompson Sampling vs baseline demonstration.
 
-def run_demo(skills_root, output_no_ts, output_l2_only, output_l3_only, output_l2_l3, ts_state_dir,
-             SKILL_NAME, SKILL_BODY, SKILL_FRONTMATTER, ITERATIONS,
-             TS_BATCH_SIZE, MODEL, GOLDEN_EXAMPLES, verbose: bool = False) -> None:
+    Flow
+    ----
+    1. Save baseline skill + golden dataset to disk.
+    2. Evaluate the baseline skill on holdout (no training).
+    3. For each mode in ``params.run_modes`` (in order):
+       a. Restore the baseline skill.
+       b. Run the corresponding GEPA pass.
+       c. Record the evolved metrics.
+    4. Print the side-by-side comparison table (if any modes ran).
+    5. Print output-file locations.
 
-    # ── Step 1: Write baseline skill + golden dataset ─────────────────────────
-    step_01_save_skill_and_dataset(skills_root, SKILL_NAME, SKILL_BODY, SKILL_FRONTMATTER, GOLDEN_EXAMPLES)
+    Controlling which passes run
+    ----------------------------
+    ``params.run_modes`` is a list of mode strings.  Valid values:
 
-    # ── Step 2: GEPA run — No TS ──────────────────────────────────────────────
-    metrics_no_ts = step_02_run_gepa_without_thompson_sampling(
-        skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose=verbose)
+    * ``"no_ts"``   — plain GEPA, all training examples, threshold gate
+    * ``"l2_only"`` — TS Example Selector; focuses on discriminating examples
+    * ``"l3_only"`` — TS Acceptance Gate; requires P(better) ≥ 0.75
+    * ``"l2_l3"``   — both TS levels active simultaneously
 
-    # ── Step 3: Restore baseline skill ───────────────────────────────────────
-    step_03_restore_baseline_skill(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY)
+    Pass ``[]`` to run only the baseline holdout evaluation (no GEPA training).
+    Pass ``["no_ts"]`` to run just the No-TS pass, etc.
+    """
 
-    # ── Step 4b: GEPA run — L2 only (Example Selector, no Acceptance Gate) ───
-    metrics_l2 = step_04b_run_gepa_l2_only(
-        skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE,
-        output_l2_only, ts_state_dir, verbose=verbose)
+    # ── Step 1: Write baseline skill + golden dataset ─────────────────────
+    step_01_save_skill_and_dataset(
+        params.skills_root, params.skill_name,
+        params.skill_body, params.skill_frontmatter, params.golden_examples,
+    )
 
-    # ── Step 3: Restore baseline skill ───────────────────────────────────────
-    step_03_restore_baseline_skill(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY)
+    # ── Step 0: Evaluate baseline on holdout (NO training) ───────────────
+    baseline_score: float = step_00_evaluate_holdout(
+        params.skills_root, params.skill_name, params.model,
+        params.output_baseline, params.verbose,
+    )
 
-    # ── Step 4c: GEPA run — L3 only (Acceptance Gate, all examples) ──────────
-    metrics_l3 = step_04c_run_gepa_l3_only(
-        skills_root, SKILL_NAME, MODEL, ITERATIONS,
-        output_l3_only, ts_state_dir, verbose=verbose)
+    # ── Training passes ───────────────────────────────────────────────────
+    metrics_no_ts  = None
+    metrics_l2     = None
+    metrics_l3     = None
+    metrics_l2_l3  = None
+    runs: list[tuple[str, object]] = []
 
-    # ── Step 3: Restore baseline skill ───────────────────────────────────────
-    step_03_restore_baseline_skill(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY)
+    def _restore() -> None:
+        step_03_restore_baseline_skill(
+            params.skills_root, params.skill_name,
+            params.skill_frontmatter, params.skill_body,
+        )
 
-    # ── Step 4: GEPA run — L2 + L3 (full Thompson Sampling) ──────────────────
-    metrics_l2_l3 = step_04_run_gepa_with_thompson_sampling(
-        skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE,
-        GOLDEN_EXAMPLES, output_l2_l3, ts_state_dir, verbose=verbose)
+    if "no_ts" in params.run_modes:
+        _restore()
+        metrics_no_ts = step_02_run_gepa_without_thompson_sampling(
+            params.skills_root, params.skill_name, params.model,
+            params.iterations, params.output_no_ts, verbose=params.verbose,
+        )
+        runs.append(("No-TS", params.output_no_ts))
 
-    # ── Step 5: Five-way comparison table ────────────────────────────────────
-    step_05_comparison(metrics_no_ts, metrics_l2, metrics_l3, metrics_l2_l3, TS_BATCH_SIZE)
+    if "l2_only" in params.run_modes:
+        _restore()
+        metrics_l2 = step_04b_run_gepa_l2_only(
+            params.skills_root, params.skill_name, params.model,
+            params.iterations, params.ts_batch_size,
+            params.output_l2_only, params.ts_state_dir, verbose=params.verbose,
+        )
+        runs.append(("L2-only", params.output_l2_only))
 
-    # ── Step 6: Where to look ─────────────────────────────────────────────────
-    step_06_final_prints(SKILL_NAME, output_no_ts, output_l2_only, output_l3_only, output_l2_l3, ts_state_dir)
+    if "l3_only" in params.run_modes:
+        _restore()
+        metrics_l3 = step_04c_run_gepa_l3_only(
+            params.skills_root, params.skill_name, params.model,
+            params.iterations, params.output_l3_only, params.ts_state_dir,
+            verbose=params.verbose,
+        )
+        runs.append(("L3-only", params.output_l3_only))
 
+    if "l2_l3" in params.run_modes:
+        _restore()
+        metrics_l2_l3 = step_04_run_gepa_with_thompson_sampling(
+            params.skills_root, params.skill_name, params.model,
+            params.iterations, params.ts_batch_size, params.golden_examples,
+            params.output_l2_l3, params.ts_state_dir, verbose=params.verbose,
+        )
+        runs.append(("L2+L3", params.output_l2_l3))
+
+    # ── Step 5: Comparison table ──────────────────────────────────────────
+    step_05_comparison(
+        baseline_score,
+        metrics_no_ts=metrics_no_ts,
+        metrics_l2=metrics_l2,
+        metrics_l3=metrics_l3,
+        metrics_l2_l3=metrics_l2_l3,
+        ts_batch_size=params.ts_batch_size,
+    )
+
+    # ── Step 6: Where to look ─────────────────────────────────────────────
+    step_06_final_prints(params.skill_name, runs, params.ts_state_dir)

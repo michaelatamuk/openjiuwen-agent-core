@@ -1,0 +1,148 @@
+# coding: utf-8
+"""Scenario dataclass and registry for the Thompson Sampling vs baseline GEPA demo.
+
+A Scenario bundles a skill definition with its golden benchmark examples
+so the runner can select any pair by name.
+
+Usage
+-----
+    from scenarios.scenario import get_scenario
+
+    scenario = get_scenario("api-security")
+    run_demo(..., scenario=scenario)
+
+Available scenarios
+-------------------
+    code-review   — Python code review (bugs, style, performance, security)
+    api-security  — REST API security review (auth, injection, SSRF, crypto)
+    ml-review     — ML/data-science code review (data leakage, CV strategy, metrics)
+    rtos-review   — Embedded C / FreeRTOS review (ISR safety, volatile, stack, barriers)
+                    ★ Recommended for demos: baseline score ~0.10-0.20 (very low)
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List
+
+
+@dataclass
+class Scenario:
+    """A complete evolution scenario: baseline skill + golden benchmark examples.
+
+    Attributes
+    ----------
+    name:
+        Identifier used as the skill directory key (e.g. ``"api-security"``).
+        Must be a valid filesystem directory component.
+    skill_body:
+        Body text of the SKILL.md file (the part after the ``---`` frontmatter).
+    skill_frontmatter:
+        Frontmatter content between the ``---`` delimiters (YAML key-value pairs).
+    golden_examples:
+        List of golden example dicts.  Each dict must have at least
+        ``task_input``, ``expected_behavior``, ``difficulty``, and ``source``.
+    description:
+        One-line human-readable description shown in the runner banner.
+    """
+
+    name: str
+    skill_body: str
+    skill_frontmatter: str
+    golden_examples: List[Dict[str, Any]]
+    description: str = ""
+
+    # ── Derived helpers ────────────────────────────────────────────────────────
+
+    def example_counts(self) -> Dict[str, int]:
+        """Return a dict mapping difficulty label → count."""
+        counts: Dict[str, int] = {}
+        for ex in self.golden_examples:
+            d = ex.get("difficulty", "unknown")
+            counts[d] = counts.get(d, 0) + 1
+        return counts
+
+    def summary_line(self) -> str:
+        counts = self.example_counts()
+        parts = " / ".join(
+            f"{counts.get(d, 0)} {d}"
+            for d in ("easy", "medium", "hard")
+            if counts.get(d, 0)
+        )
+        return f"{self.name}  —  {len(self.golden_examples)} examples ({parts})"
+
+
+# ── Registry ───────────────────────────────────────────────────────────────────
+
+def _load_scenarios() -> Dict[str, Scenario]:
+    """Import each scenario lazily so missing dependencies don't break others."""
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.code_review.skill.body import \
+        SKILL_BODY as _CR_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.code_review.skill.frontmatter import \
+        SKILL_FRONTMATTER as _CR_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.code_review.golden_examples.all import \
+        GOLDEN_EXAMPLES as _CR_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.api_security.skill.body import \
+        SKILL_BODY as _AS_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.api_security.skill.frontmatter import \
+        SKILL_FRONTMATTER as _AS_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.api_security.golden_examples.all import \
+        GOLDEN_EXAMPLES as _AS_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.ml_review.skill.body import \
+        SKILL_BODY as _ML_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.ml_review.skill.frontmatter import \
+        SKILL_FRONTMATTER as _ML_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.ml_review.golden_examples.all import \
+        GOLDEN_EXAMPLES as _ML_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.rtos_review.skill.body import \
+        SKILL_BODY as _RT_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.rtos_review.skill.frontmatter import \
+        SKILL_FRONTMATTER as _RT_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.rtos_review.golden_examples.all import \
+        GOLDEN_EXAMPLES as _RT_EXAMPLES
+
+    return {
+        "code-review": Scenario(
+            name="code-review",
+            skill_body=_CR_BODY,
+            skill_frontmatter=_CR_FM,
+            golden_examples=_CR_EXAMPLES,
+            description="Python code review — bugs, style, performance, security",
+        ),
+        "api-security": Scenario(
+            name="api-security",
+            skill_body=_AS_BODY,
+            skill_frontmatter=_AS_FM,
+            golden_examples=_AS_EXAMPLES,
+            description="REST API security review — auth, injection, SSRF, crypto",
+        ),
+        "ml-review": Scenario(
+            name="ml-review",
+            skill_body=_ML_BODY,
+            skill_frontmatter=_ML_FM,
+            golden_examples=_ML_EXAMPLES,
+            description="ML/data-science code review — data leakage, CV strategy, metrics",
+        ),
+        "rtos-review": Scenario(
+            name="rtos-review",
+            skill_body=_RT_BODY,
+            skill_frontmatter=_RT_FM,
+            golden_examples=_RT_EXAMPLES,
+            description="Embedded C / FreeRTOS review — ISR safety, volatile, stack, barriers",
+        ),
+    }
+
+
+def get_scenario(name: str) -> Scenario:
+    """Return the Scenario for *name*, raising ValueError if unknown."""
+    registry = _load_scenarios()
+    if name not in registry:
+        available = ", ".join(f'"{k}"' for k in sorted(registry))
+        raise ValueError(
+            f"Unknown scenario {name!r}. Available scenarios: {available}"
+        )
+    return registry[name]
+
+
+def list_scenarios() -> List[Scenario]:
+    """Return all registered scenarios sorted by name."""
+    return sorted(_load_scenarios().values(), key=lambda s: s.name)
