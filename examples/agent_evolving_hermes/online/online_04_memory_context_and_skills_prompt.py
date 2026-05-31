@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 6: Memory context block + skills system prompt injection.
 
-Two new helpers that mirror Hermess's system prompt assembly:
+Two new helpers that mirror Hermes's system prompt assembly:
 
 1.  MemoryStore.build_memory_context_block()
     → Wraps MEMORY.md + USER.md entries in <memory-context> fences
@@ -11,7 +11,7 @@ Two new helpers that mirror Hermess's system prompt assembly:
     → Builds a compact skill index from all SKILL.md files
     → Ready to inject into the STABLE tier of the agent system prompt
 
-Hermess injects both into the system prompt so the model has:
+Hermes injects both into the system prompt so the model has:
   - Persistent recall of user preferences and past observations
   - An index of available skills to invoke
 

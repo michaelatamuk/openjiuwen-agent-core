@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 09 — Memory frozen snapshot pattern and drift detection.
 
-Demonstrates the Hermess-style additions to MemoryStore:
+Demonstrates the Hermes-style additions to MemoryStore:
 
   1. load_from_disk() — builds a frozen system-prompt snapshot
   2. get_snapshot_block() — returns the stable frozen state
@@ -10,7 +10,7 @@ Demonstrates the Hermess-style additions to MemoryStore:
   4. detect_drift() — detects external modification of a memory file
      and creates a .bak.<timestamp> backup
 
-Background: Hermess uses a frozen snapshot to keep the system prompt
+Background: Hermes uses a frozen snapshot to keep the system prompt
 byte-identical across all turns within a session, which maximises
 prompt-prefix cache hits.  Live mutations (add/replace/remove) update
 the disk but NOT the snapshot.  The fresh snapshot is only built once,

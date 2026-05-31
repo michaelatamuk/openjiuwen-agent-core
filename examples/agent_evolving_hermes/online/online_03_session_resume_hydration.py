@@ -14,7 +14,7 @@ Without hydration, this means:
 
 The Fix: hydrate_from_history()
 --------------------------------
-Mirrors Hermess gateway session hydration in conversation_loop.py:
+Mirrors Hermes gateway session hydration in conversation_loop.py:
 
     prior_user_turns = sum(1 for m in history if m["role"] == "user")
     agent._turns_since_memory = prior_user_turns % memory_nudge_interval

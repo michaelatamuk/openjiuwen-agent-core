@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 3: Offline GEPA skill evolution.
 
-Mirrors Hermess's GEPA (Genetic Evolution of Prompt Artifacts) offline track.
+Mirrors Hermes's GEPA (Genetic Evolution of Prompt Artifacts) offline track.
 
 What this does:
   1. Loads a SKILL.md from ~/.jiuwen/skills/<skill_name>/SKILL.md

@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 08 — Skill provenance tracking and full lifecycle management.
 
-Demonstrates the Hermess-style features added to skill_store and provenance:
+Demonstrates the Hermes-style features added to skill_store and provenance:
 
   1. background_review_context() — marks skill writes as 'agent'-created
   2. get_write_origin() — reads the current ContextVar value

@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 1: Online background review — basic usage.
 
-Mirrors Hermess's background review daemon thread pattern.
+Mirrors Hermes's background review daemon thread pattern.
 
 What this does:
   After every 10 tool calls (skill_nudge_interval=10) OR
@@ -22,7 +22,7 @@ from openjiuwen.agent_evolving_hermes.online import BackgroundReviewConfig, Back
 
 async def main():
     # ── 1. Create the rail with default configuration ─────────────────────────
-    # Defaults mirror Hermess: 10-turn memory nudge, 10-tool skill nudge.
+    # Defaults mirror Hermes: 10-turn memory nudge, 10-tool skill nudge.
     config = BackgroundReviewConfig(
         enabled=True,
         skill_nudge_interval=10,     # review skills every 10 tool calls

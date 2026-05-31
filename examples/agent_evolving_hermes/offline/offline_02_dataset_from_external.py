@@ -1,7 +1,7 @@
 # coding: utf-8
 """Example 4: Build eval dataset from external session logs.
 
-Mirrors Hermess's two-stage relevance filter:
+Mirrors Hermes's two-stage relevance filter:
   Stage 1 (cheap): keyword heuristic — does the message mention the skill name
                    or keywords from the skill text?
   Stage 2 (LLM):  ScoreRelevance DSPy signature — is the message truly relevant?

@@ -1,14 +1,14 @@
 # coding: utf-8
 """Example 7: CLI --dry-run and --reuse-dataset flags.
 
-New CLI flags added to match Hermess evolve_skill CLI:
+New CLI flags added to match Hermes evolve_skill CLI:
 
 --dry-run
     Validates the skill exists and passes baseline constraints.
     Prints exactly what WOULD happen without making any LLM calls.
     Zero cost. Use before a real run to catch config errors.
 
-    Mirrors Hermess evolve_skill.py lines 73-78:
+    Mirrors Hermes evolve_skill.py lines 73-78:
         if dry_run:
             console.print("DRY RUN — setup validated successfully.")
             console.print("  Would generate eval dataset ...")
