@@ -10,11 +10,9 @@
 # 5 holdout examples give the TS Level 3 acceptance gate enough statistical
 # power to reach 75% confidence when there is a genuine improvement.
 # ══════════════════════════════════════════════════════════════════════════════
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.golden_examples.easy import \
-    GOLDEN_EXAMPLES_EASY
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.golden_examples.hard import \
-    GOLDEN_EXAMPLES_HARD
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.golden_examples.medium import \
-    GOLDEN_EXAMPLES_MEDIUM
+from .easy import GOLDEN_EXAMPLES_EASY
+from .medium import GOLDEN_EXAMPLES_MEDIUM
+from .hard import GOLDEN_EXAMPLES_HARD
+
 
 GOLDEN_EXAMPLES = GOLDEN_EXAMPLES_EASY + GOLDEN_EXAMPLES_MEDIUM + GOLDEN_EXAMPLES_HARD
