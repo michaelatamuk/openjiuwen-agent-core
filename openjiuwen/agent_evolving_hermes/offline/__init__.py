@@ -28,7 +28,6 @@ from .evolvers import evolve_skills_batch, evolve_single_skill
 from .external_importers import (
     ClaudeCodeImporter,
     JiuwenSessionImporter,
-    RelevanceFilter,
     SECRET_PATTERNS,
     build_dataset_from_external,
 )
@@ -61,7 +60,6 @@ __all__ = [
     "SyntheticDatasetBuilder",
     "JiuwenSessionImporter",
     "ClaudeCodeImporter",
-    "RelevanceFilter",
     "SECRET_PATTERNS",
     "build_dataset_from_external",
 ]

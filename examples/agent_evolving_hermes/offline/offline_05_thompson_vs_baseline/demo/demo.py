@@ -14,8 +14,6 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     step as step_05_three_way_comparison
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_06_final_prints import (
     step as step_06_final_prints)
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.skill.skill_body import SKILL_BODY
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.skill.skill_frontmatter import SKILL_FRONTMATTER
 
 
 # ══════════════════════════════════════════════════════════════════════════════
