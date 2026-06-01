@@ -1,3 +1,12 @@
 {
-
+    "scenarios": [
+        "paper-review"
+    ],
+    "run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
+    "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
+    "model": "deepseek/deepseek-chat",
+    "api_base": "https://api.deepseek.com",
+    "iterations": 5,
+    "ts_batch_size": 4,
+    "verbose": false
 }

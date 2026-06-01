@@ -34,7 +34,7 @@ class Demo:
         ----
         1. Save baseline skill + golden dataset to disk.
         2. Evaluate the baseline skill on holdout (no training).
-        3. For each mode in ``params.run_modes`` (in order):
+        3. For each mode in ``self.config.run_modes`` (in order):
            a. Restore the baseline skill.
            b. Run the corresponding GEPA pass.
            c. Record the evolved metrics.
@@ -43,28 +43,28 @@ class Demo:
 
         Controlling which passes run
         ----------------------------
-        ``params.run_modes`` is a list of mode strings.  Valid values:
+        Set ``run_modes`` in ``config.json``.  Valid values:
 
         * ``"no_ts"``   — plain GEPA, all training examples, threshold gate
         * ``"l2_only"`` — TS Example Selector; focuses on discriminating examples
         * ``"l3_only"`` — TS Acceptance Gate; requires P(better) ≥ 0.75
         * ``"l2_l3"``   — both TS levels active simultaneously
 
-        Pass ``[]`` to run only the baseline holdout evaluation (no GEPA training).
-        Pass ``["no_ts"]`` to run just the No-TS pass, etc.
+        Use ``[]`` to run only the baseline holdout evaluation (no GEPA training).
         """
+        cfg = self.config
 
         # ── Step 1: Write baseline skill + golden dataset ─────────────────────
         step_01_save_skill_and_dataset(
             params.skills_root, params.skill_name,
             params.skill_body, params.skill_frontmatter, params.golden_examples,
-            verbose=params.verbose,
+            verbose=cfg.verbose,
         )
 
         # ── Step 0: Evaluate baseline on holdout (NO training) ───────────────
         baseline_score: float = step_00_evaluate_holdout(
-            params.skills_root, params.skill_name, params.model,
-            params.output_baseline, params.verbose,
+            params.skills_root, params.skill_name, cfg.model,
+            params.output_baseline, cfg.verbose,
         )
 
         # ── Training passes ───────────────────────────────────────────────────
@@ -80,42 +80,42 @@ class Demo:
                 params.skill_frontmatter, params.skill_body,
             )
 
-        if "no_ts" in params.run_modes:
+        if "no_ts" in cfg.run_modes:
             _restore()
             metrics_no_ts = step_02_run_gepa_without_thompson_sampling(
-                params.skills_root, params.skill_name, params.model,
-                params.iterations, params.output_no_ts, verbose=params.verbose,
+                params.skills_root, params.skill_name, cfg.model,
+                cfg.iterations, params.output_no_ts, verbose=cfg.verbose,
             )
             runs.append(("No-TS", params.output_no_ts))
 
-        if "l2_only" in params.run_modes:
+        if "l2_only" in cfg.run_modes:
             _restore()
             metrics_l2 = step_04b_run_gepa_l2_only(
-                params.skills_root, params.skill_name, params.model,
-                params.iterations, params.ts_batch_size,
-                params.output_l2_only, params.ts_state_dir, verbose=params.verbose,
+                params.skills_root, params.skill_name, cfg.model,
+                cfg.iterations, cfg.ts_batch_size,
+                params.output_l2_only, params.ts_state_dir, verbose=cfg.verbose,
             )
             runs.append(("L2-only", params.output_l2_only))
 
-        if "l3_only" in params.run_modes:
+        if "l3_only" in cfg.run_modes:
             _restore()
             metrics_l3 = step_04c_run_gepa_l3_only(
-                params.skills_root, params.skill_name, params.model,
-                params.iterations, params.output_l3_only, params.ts_state_dir,
-                verbose=params.verbose,
+                params.skills_root, params.skill_name, cfg.model,
+                cfg.iterations, params.output_l3_only, params.ts_state_dir,
+                verbose=cfg.verbose,
             )
             runs.append(("L3-only", params.output_l3_only))
 
-        if "l2_l3" in params.run_modes:
+        if "l2_l3" in cfg.run_modes:
             _restore()
             metrics_l2_l3 = step_04_run_gepa_with_thompson_sampling(
-                params.skills_root, params.skill_name, params.model,
-                params.iterations, params.ts_batch_size, params.golden_examples,
-                params.output_l2_l3, params.ts_state_dir, verbose=params.verbose,
+                params.skills_root, params.skill_name, cfg.model,
+                cfg.iterations, cfg.ts_batch_size, params.golden_examples,
+                params.output_l2_l3, params.ts_state_dir, verbose=cfg.verbose,
             )
             runs.append(("L2+L3", params.output_l2_l3))
 
-        # ── Step 5: Comparison table (skip when ≤ 1 mode ran — no value in repeating) ──
+        # ── Step 5: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(runs) >= 2:
             step_05_comparison(
                 baseline_score,
@@ -123,7 +123,7 @@ class Demo:
                 metrics_l2=metrics_l2,
                 metrics_l3=metrics_l3,
                 metrics_l2_l3=metrics_l2_l3,
-                ts_batch_size=params.ts_batch_size,
+                ts_batch_size=cfg.ts_batch_size,
             )
 
         # ── Step 6: Where to look ─────────────────────────────────────────────

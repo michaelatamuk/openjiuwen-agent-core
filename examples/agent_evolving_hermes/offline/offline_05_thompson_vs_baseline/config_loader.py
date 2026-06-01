@@ -1,0 +1,43 @@
+# coding: utf-8
+"""Load DemoConfig from config.json."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_config import (
+    ALL_MODES,
+    DemoConfig,
+)
+
+# Default location: config.json sits next to runner.py, one level above demo/
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.json"
+
+
+def load_config(config_path: Path | None = None) -> DemoConfig:
+    """Read *config_path* (default: ``config.json`` next to ``runner.py``) and
+    return a fully populated :class:`DemoConfig`.
+
+    The environment variable ``DEEPSEEK_API_KEY`` overrides the ``api_key``
+    field in the JSON file when set.
+    """
+    path = Path(config_path) if config_path is not None else _DEFAULT_CONFIG_PATH
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config file not found: {path}\n"
+            "Create it or pass an explicit path to load_config()."
+        )
+
+    data: dict = json.loads(path.read_text(encoding="utf-8"))
+
+    return DemoConfig(
+        scenario_names=data["scenarios"],
+        run_modes=data.get("run_modes", list(ALL_MODES)),
+        api_key=os.environ.get("DEEPSEEK_API_KEY", data.get("api_key", "")),
+        model=data["model"],
+        api_base=data.get("api_base", "https://api.deepseek.com"),
+        iterations=int(data.get("iterations", 5)),
+        ts_batch_size=int(data.get("ts_batch_size", 4)),
+        verbose=bool(data.get("verbose", False)),
+    )

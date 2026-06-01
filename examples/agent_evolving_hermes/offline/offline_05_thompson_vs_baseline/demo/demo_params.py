@@ -1,19 +1,19 @@
 # coding: utf-8
-"""DemoParams — single parameters object passed to run_demo."""
+"""DemoParams — per-scenario data for a single demo run."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
-
-# Valid run-mode identifiers understood by run_demo.
-# Use a subset (or empty list) to run only selected passes.
-ALL_MODES: List[str] = ["no_ts", "l2_only", "l3_only", "l2_l3"]
 
 
 @dataclass
 class DemoParams:
-    """All parameters for a single demo run.
+    """Scenario-specific data for one run.
+
+    Shared settings (model, iterations, run modes, …) live in
+    :class:`~demo.demo_config.DemoConfig` and are loaded from
+    ``config.json`` by :func:`demo.config_loader.load_config`.
 
     Parameters
     ----------
@@ -26,30 +26,9 @@ class DemoParams:
     golden_examples:
         List of golden example dicts.  Each must have ``task_input``,
         ``expected_behavior``, ``difficulty``, and ``source``.
-    model:
-        DSPy model string, e.g. ``"deepseek/deepseek-chat"``.
     workdir:
         Root working directory.  All output subdirectories are derived
         from this path (see properties below).
-    iterations:
-        Number of GEPA optimisation iterations per training pass.
-    ts_batch_size:
-        Number of examples the Thompson Sampling example-selector picks
-        per batch (used by ``l2_only`` and ``l2_l3`` modes).
-    verbose:
-        ``True`` → show full DSPy INFO training logs; ``False`` (default)
-        suppresses them.
-    run_modes:
-        Which GEPA training passes to include in this run.
-        Each string corresponds to one pass:
-
-        * ``"no_ts"``   — plain GEPA, all examples, threshold acceptance
-        * ``"l2_only"`` — TS Example Selector only
-        * ``"l3_only"`` — TS Acceptance Gate only
-        * ``"l2_l3"``   — both TS levels active
-
-        Pass ``[]`` to evaluate the baseline on holdout without any training.
-        Defaults to all four passes.
     """
 
     # ── Scenario ─────────────────────────────────────────────────────────────
@@ -58,17 +37,8 @@ class DemoParams:
     skill_frontmatter: str
     golden_examples: List[Dict[str, Any]]
 
-    # ── LLM ──────────────────────────────────────────────────────────────────
-    model: str
-
     # ── Paths ─────────────────────────────────────────────────────────────────
     workdir: Path
-
-    # ── GEPA config ───────────────────────────────────────────────────────────
-    iterations: int = 5
-    ts_batch_size: int = 4
-    verbose: bool = False
-    run_modes: List[str] = field(default_factory=lambda: list(ALL_MODES))
 
     def __post_init__(self) -> None:
         self.workdir = Path(self.workdir)
