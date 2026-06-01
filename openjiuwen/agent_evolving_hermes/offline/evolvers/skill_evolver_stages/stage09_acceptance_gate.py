@@ -28,7 +28,7 @@ def apply_acceptance_gate(
     accepted = improvement >= min_improvement
     if not accepted:
         regression_path = output_dir / "evolved_REGRESSION.md"
-        regression_path.write_text(evolved_text)
+        regression_path.write_text(evolved_text, encoding="utf-8")
         console.print(
             f"[yellow]⚠ Improvement {improvement:+.4f} < threshold {min_improvement:+.4f} "
             f"— not deploying (saved to evolved_REGRESSION.md)[/yellow]"

@@ -27,7 +27,7 @@ def validate_evolved_constraints(
     failures = [c for c in checks if not c.passed]
     if failures:
         failed_path = output_dir / "evolved_FAILED.md"
-        failed_path.write_text(evolved_text)
+        failed_path.write_text(evolved_text, encoding="utf-8")
         for f in failures:
             console.print(
                 f"[red]✗ EVOLVED CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]"

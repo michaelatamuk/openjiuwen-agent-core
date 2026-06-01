@@ -86,7 +86,7 @@ class ThresholdAcceptanceGate:
         accepted = improvement >= self._min
 
         if not accepted:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text)
+            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
             console.print(
                 f"[yellow]⚠ Improvement {improvement:+.4f} < threshold "
                 f"{self._min:+.4f} — not deploying "
@@ -239,14 +239,14 @@ class ThompsonAcceptanceGate:
 
         # ── Console output ────────────────────────────────────────────────────
         if not hard_pass:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text)
+            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
             console.print(
                 f"[yellow]⚠ Hard gate failed: improvement {improvement:+.4f} < "
                 f"threshold {self._min:+.4f} "
                 f"(saved to evolved_REGRESSION.md)[/yellow]"
             )
         elif not ts_pass:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text)
+            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
             console.print(
                 f"[yellow]⚠ Thompson gate failed: confidence "
                 f"{ts_conf:.0%} < {self._confidence:.0%} required "

@@ -61,10 +61,10 @@ def save_outputs(
         ],
     }
 
-    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     if accepted:
-        (output_dir / "evolved_skill.md").write_text(evolved_text)
-    (output_dir / "baseline_skill.md").write_text(skill_raw)
+        (output_dir / "evolved_skill.md").write_text(evolved_text, encoding="utf-8")
+    (output_dir / "baseline_skill.md").write_text(skill_raw, encoding="utf-8")
 
     _append_metrics_history(skill_name, config.output_dir, metrics)
 
