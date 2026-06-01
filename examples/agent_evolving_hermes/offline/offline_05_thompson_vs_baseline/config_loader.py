@@ -31,7 +31,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
 
     data: dict = json.loads(path.read_text(encoding="utf-8"))
 
-    return DemoConfig(
+    config = DemoConfig(
         scenario_names=data["scenarios"],
         run_modes=data.get("run_modes", list(ALL_MODES)),
         api_key=os.environ.get("DEEPSEEK_API_KEY", data.get("api_key", "")),
@@ -41,3 +41,15 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         ts_batch_size=int(data.get("ts_batch_size", 4)),
         verbose=bool(data.get("verbose", False)),
     )
+
+    print(f"{'═' * 70}")
+    print(f"Model             : {config.model}  ({config.api_base})")
+    print(f"GEPA iterations   : {config.iterations}")
+    print(f"TS batch size     : {config.ts_batch_size}")
+    print(f"Verbose           : {config.verbose}")
+    print()
+
+    os.environ.setdefault("DEEPSEEK_API_KEY", config.api_key)
+    os.environ.setdefault("DEEPSEEK_API_BASE", config.api_base)
+
+    return config
