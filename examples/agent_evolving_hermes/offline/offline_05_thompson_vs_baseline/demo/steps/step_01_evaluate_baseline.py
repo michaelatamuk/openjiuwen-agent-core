@@ -7,14 +7,14 @@ from pathlib import Path
 from rich.console import Console
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
-from offline import EvolverConfig, LLMJudge
-from offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
+from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, LLMJudge
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
     find_and_load_skill,
 )
-from offline.evolvers.skill_evolver_stages.stage03_dataset_builder import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder import (
     build_or_load_dataset,
 )
-from offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
     configure_dspy_and_prepare_sets,
 )
 

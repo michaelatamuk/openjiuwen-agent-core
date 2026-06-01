@@ -7,7 +7,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill import _print_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
     _read_latest_evolved
-from offline import EvolverConfig, evolve_single_skill
+from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
 def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool = False):

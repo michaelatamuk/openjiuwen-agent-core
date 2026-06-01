@@ -34,8 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from offline.evolvers.config import EvolverConfig
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
 
 # ── Per-example Beta arm ──────────────────────────────────────────────────────

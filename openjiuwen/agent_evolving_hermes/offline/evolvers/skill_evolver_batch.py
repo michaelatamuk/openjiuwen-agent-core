@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from offline.evolvers.skill_evolver_config import EvolverConfig
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from .skill_evolver_single import evolve_single_skill
 from .selection import make_skill_scheduler
 

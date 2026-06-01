@@ -13,8 +13,7 @@ import yaml
 
 from openjiuwen.agent_evolving_hermes.offline.constraints.constraint_result import ConstraintResult
 
-if TYPE_CHECKING:
-    from offline.evolvers.config import EvolverConfig
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
 
 class ConstraintValidator:

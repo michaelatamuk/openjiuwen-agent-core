@@ -6,7 +6,7 @@ from typing import List, Set, Tuple
 
 import dspy
 
-from offline.evolvers.skill_evolver_config import EvolverConfig
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection import make_example_selector
 
