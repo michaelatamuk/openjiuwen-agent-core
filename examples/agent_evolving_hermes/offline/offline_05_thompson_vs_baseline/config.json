@@ -2,7 +2,16 @@
     "scenarios": [
         "paper-review"
     ],
+    "_scenarios": [
+        "paper-review",
+        "contract-review",
+        "rtos-review",
+        "ml-review",
+        "api-security",
+        "code-review"
+    ],
     "run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
+    "_run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
     "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
     "model": "deepseek/deepseek-chat",
     "api_base": "https://api.deepseek.com",
