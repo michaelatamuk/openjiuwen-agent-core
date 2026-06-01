@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from offline.evolvers.config import EvolverConfig
+from offline.evolvers.skill_evolver_config import EvolverConfig
 
 
 def save_outputs(

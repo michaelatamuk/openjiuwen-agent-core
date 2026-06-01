@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from offline.evolvers.skill_evolver_config import EvolverConfig
 from .skill_evolver_single import evolve_single_skill
 from .selection import make_skill_scheduler
-from offline.evolvers.config import EvolverConfig
 
 
 def evolve_skills_batch(
