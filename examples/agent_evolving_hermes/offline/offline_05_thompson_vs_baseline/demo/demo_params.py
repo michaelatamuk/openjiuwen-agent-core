@@ -1,5 +1,5 @@
 # coding: utf-8
-"""DemoParams — single configuration object passed to run_demo."""
+"""DemoParams — single parameters object passed to run_demo."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ ALL_MODES: List[str] = ["no_ts", "l2_only", "l3_only", "l2_l3"]
 
 @dataclass
 class DemoParams:
-    """All configuration for a single demo run.
+    """All parameters for a single demo run.
 
     Parameters
     ----------
