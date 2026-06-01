@@ -15,7 +15,7 @@ def load_skill(skill_path: Path) -> Dict[str, str]:
 
     Returns dict with keys: raw, frontmatter_text, frontmatter, body, name, description.
     """
-    raw = skill_path.read_text(encoding="utf-8")
+    raw = skill_path.read_text(encoding="utf-8", errors="replace")
     if raw.startswith("---"):
         end = raw.find("\n---", 3)
         if end != -1:
