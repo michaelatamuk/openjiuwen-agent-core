@@ -39,6 +39,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         api_base=data.get("api_base", "https://api.deepseek.com"),
         iterations=int(data.get("iterations", 5)),
         ts_batch_size=int(data.get("ts_batch_size", 4)),
+        n_runs=int(data.get("n_runs", 1)),
         verbose=bool(data.get("verbose", False)),
     )
 
@@ -46,6 +47,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
     print(f"Model             : {config.model}  ({config.api_base})")
     print(f"GEPA iterations   : {config.iterations}")
     print(f"TS batch size     : {config.ts_batch_size}")
+    print(f"Runs per mode     : {config.n_runs}")
     print(f"Verbose           : {config.verbose}")
     print()
 

@@ -66,6 +66,10 @@ class Demo:
         if len(trainings_results.runs) >= 2:
             step_06_results_comparison(
                 baseline_score,
+                scores_no_ts=trainings_results.scores_no_ts or None,
+                scores_l2_l3=trainings_results.scores_l2_l3 or None,
+                scores_l2=trainings_results.scores_l2 or None,
+                scores_l3=trainings_results.scores_l3 or None,
                 metrics_no_ts=trainings_results.metrics_no_ts,
                 metrics_l2_l3=trainings_results.metrics_l2_l3,
                 metrics_l2=trainings_results.metrics_l2,

@@ -17,5 +17,6 @@
     "api_base": "https://api.deepseek.com",
     "iterations": 5,
     "ts_batch_size": 4,
+    "n_runs": 3,
     "verbose": false
 }

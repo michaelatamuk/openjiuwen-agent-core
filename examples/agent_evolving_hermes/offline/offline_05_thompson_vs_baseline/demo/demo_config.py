@@ -38,6 +38,12 @@ class DemoConfig:
     ts_batch_size:
         Number of examples the TS example-selector picks per batch
         (used by ``l2_only`` and ``l2_l3`` modes).
+    n_runs:
+        How many independent GEPA runs to execute per mode.  With
+        ``n_runs=1`` (default) the comparison table shows single values.
+        With ``n_runs≥2`` it shows mean ± std and a bootstrap 95% CI
+        so you can see whether one mode is reliably better or just got
+        lucky on a single run.
     verbose:
         ``True`` → show full DSPy INFO training logs.
     """
@@ -49,4 +55,5 @@ class DemoConfig:
     api_base: str = "https://api.deepseek.com"
     iterations: int = 5
     ts_batch_size: int = 4
+    n_runs: int = 1
     verbose: bool = False

@@ -1,76 +1,101 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.stats import (
+    bootstrap_ci_diff,
+    mean,
+    std,
+)
 
 
-def step(baseline_score: float, *, metrics_no_ts:  Optional[dict] = None, metrics_l2_l3:  Optional[dict] = None,
-         metrics_l2: Optional[dict] = None, metrics_l3: Optional[dict] = None, ts_batch_size:  int = 4,) -> None:
-    """Print a side-by-side comparison for whichever training modes ran.
+def step(
+    baseline_score: float,
+    *,
+    scores_no_ts:  Optional[List[float]] = None,
+    scores_l2_l3:  Optional[List[float]] = None,
+    scores_l2:     Optional[List[float]] = None,
+    scores_l3:     Optional[List[float]] = None,
+    metrics_no_ts:  Optional[dict] = None,
+    metrics_l2_l3:  Optional[dict] = None,
+    metrics_l2:     Optional[dict] = None,
+    metrics_l3:     Optional[dict] = None,
+    ts_batch_size:  int = 4,
+) -> None:
+    """Print comparison for whichever training modes ran.
 
-    ``baseline_score`` is the pre-training holdout score (from step_00).
-    Only columns for modes whose metrics dict is non-None are rendered.
+    When ``n_runs == 1`` the table shows single values (original
+    behaviour).  When ``n_runs > 1`` it shows mean ± std, a per-run
+    detail table (learning-curve proxy), and bootstrap 95% CIs.
     """
-    ran = [
-        label
-        for label, m in [
-            ("No-TS",   metrics_no_ts),
-            ("L2 only", metrics_l2),
-            ("L3 only", metrics_l3),
-            ("L2+L3",   metrics_l2_l3),
-        ]
-        if m is not None
-    ]
-    _banner("COMPARISON — Pre-train  ·  " + ("  ·  ".join(ran) if ran else "(pre-training only)"))
+    # ── Collect present modes ──────────────────────────────────────────────
+    mode_data: list[tuple[str, list[float], Optional[dict]]] = []
+    if scores_no_ts:  mode_data.append(("No-TS",   scores_no_ts,  metrics_no_ts))
+    if scores_l2:     mode_data.append(("L2 only", scores_l2,     metrics_l2))
+    if scores_l3:     mode_data.append(("L3 only", scores_l3,     metrics_l3))
+    if scores_l2_l3:  mode_data.append(("L2+L3",   scores_l2_l3,  metrics_l2_l3))
 
-    # ── Ordered column list: (header, metrics | None) ─────────────────────
-    cols: list[tuple[str, Optional[dict]]] = [("Pre-train", None)]
-    if metrics_no_ts  is not None: cols.append(("No-TS",   metrics_no_ts))
-    if metrics_l2     is not None: cols.append(("L2 only", metrics_l2))
-    if metrics_l3     is not None: cols.append(("L3 only", metrics_l3))
-    if metrics_l2_l3  is not None: cols.append(("L2+L3",   metrics_l2_l3))
+    ran_labels = [label for label, _, _ in mode_data]
+    _banner("COMPARISON — Pre-train  ·  " + (
+        "  ·  ".join(ran_labels) if ran_labels else "(pre-training only)"
+    ))
 
-    if len(cols) == 1:
+    if not mode_data:
         print(f"\n  Pre-training score: {baseline_score:.4f}  (no training modes ran)")
         return
 
-    W = 11
+    n_runs = len(mode_data[0][1])  # all modes ran the same number of times
+    multi = n_runs > 1
+
+    # ── Column widths ──────────────────────────────────────────────────────
+    W = 13 if multi else 11
+
+    # Ordered columns: Pre-train column first, then each mode
+    cols: list[tuple[str, Optional[list[float]], Optional[dict]]] = [
+        ("Pre-train", None, None)
+    ] + mode_data
 
     # ── Header ────────────────────────────────────────────────────────────
     header  = f"\n  {'':32s}"
     divider = f"  {'─'*32}"
-    for label, _ in cols:
+    for label, _, _ in cols:
         header  += f"  {label:>{W}}"
         divider += f"  {'─'*W}"
     print(header)
     print(divider)
 
-    # ── Holdout scores ────────────────────────────────────────────────────
+    # ── Holdout score ─────────────────────────────────────────────────────
     score_row = f"  {'Holdout score':32s}"
-    for _, m in cols:
-        val = baseline_score if m is None else m.get("evolved_score", 0.0)
-        score_row += f"  {val:>{W}.4f}"
+    for _, scores, _ in cols:
+        if scores is None:
+            score_row += f"  {baseline_score:>{W}.4f}"
+        elif multi:
+            m = mean(scores)
+            s = std(scores)
+            score_row += f"  {f'{m:.4f} ±{s:.4f}':>{W}}"
+        else:
+            score_row += f"  {scores[0]:>{W}.4f}"
     print(score_row)
 
     # ── Δ over pre-train ──────────────────────────────────────────────────
     delta_row = f"  {'Δ over pre-train':32s}"
-    for _, m in cols:
-        if m is None:
+    for _, scores, _ in cols:
+        if scores is None:
             delta_row += f"  {'—':>{W}}"
         else:
-            d = m.get("evolved_score", 0.0) - baseline_score
+            d = mean(scores) - baseline_score
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
     print(delta_row)
 
-    # ── Accepted ──────────────────────────────────────────────────────────
-    acc_row = f"  {'Accepted':32s}"
-    for _, m in cols:
-        if m is None:
+    # ── Accepted (last run) ───────────────────────────────────────────────
+    acc_row = f"  {'Accepted (last run)' if multi else 'Accepted':32s}"
+    for _, scores, m in cols:
+        if scores is None:
             acc_row += f"  {'—':>{W}}"
         else:
-            acc_row += f"  {'✓ yes' if m.get('accepted') else '✗ no':>{W}}"
+            acc_row += f"  {'✓ yes' if m and m.get('accepted') else '✗ no':>{W}}"
     print(acc_row)
 
     # ── Config rows ───────────────────────────────────────────────────────
@@ -89,8 +114,8 @@ def step(baseline_score: float, *, metrics_no_ts:  Optional[dict] = None, metric
 
     gate_row = f"  {'Acceptance gate':32s}"
     sel_row  = f"  {'Example selector':32s}"
-    for label, m in cols:
-        if m is None:
+    for label, scores, _ in cols:
+        if scores is None:
             gate_row += f"  {'—':>{W}}"
             sel_row  += f"  {'—':>{W}}"
         else:
@@ -100,8 +125,63 @@ def step(baseline_score: float, *, metrics_no_ts:  Optional[dict] = None, metric
     print(sel_row)
 
     # ── Winner ────────────────────────────────────────────────────────────
-    training = {label: m.get("evolved_score", 0.0) for label, m in cols[1:]}
-    best_score = max(training.values())
-    ties = [k for k, v in training.items() if v == best_score]
+    training_means = {label: mean(scores) for label, scores, _ in mode_data}
+    best_score = max(training_means.values())
+    ties = [k for k, v in training_means.items() if v == best_score]
     winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
-    print(f"\n  ▶  Best evolution: {winner_str}  (holdout {best_score:.4f})")
+    print(f"\n  ▶  Best evolution: {winner_str}  (mean holdout {best_score:.4f})")
+
+    if not multi:
+        return
+
+    # ══════════════════════════════════════════════════════════════════════
+    # MULTI-RUN SECTION
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Per-run table (learning-curve proxy) ──────────────────────────────
+    print(f"\n  Run-by-run results ({n_runs} independent runs):")
+    header2  = f"  {'':22s}"
+    divider2 = f"  {'─'*22}"
+    for label, _, _ in cols:
+        header2  += f"  {label:>{W}}"
+        divider2 += f"  {'─'*W}"
+    print(header2)
+    print(divider2)
+
+    for i in range(n_runs):
+        row = f"  {f'Run {i+1}':22s}"
+        for _, scores, _ in cols:
+            val = baseline_score if scores is None else scores[i]
+            row += f"  {val:>{W}.4f}"
+        print(row)
+
+    print(f"  {'─'*22}" + f"  {'─'*W}" * len(cols))
+    mean_row = f"  {'Mean':22s}"
+    std_row  = f"  {'Std dev':22s}"
+    for _, scores, _ in cols:
+        if scores is None:
+            mean_row += f"  {baseline_score:>{W}.4f}"
+            std_row  += f"  {'—':>{W}}"
+        else:
+            mean_row += f"  {mean(scores):>{W}.4f}"
+            std_row  += f"  {std(scores):>{W}.4f}"
+    print(mean_row)
+    print(std_row)
+
+    # ── Bootstrap CI vs No-TS ─────────────────────────────────────────────
+    if scores_no_ts and len(mode_data) > 1:
+        print(f"\n  Bootstrap 95% CI vs No-TS ({n_runs} runs, paired):")
+        for label, scores, _ in mode_data:
+            if label == "No-TS":
+                continue
+            d_mean, lo, hi = bootstrap_ci_diff(scores_no_ts, scores)
+            sign = "+" if d_mean >= 0 else ""
+            ci_str = f"[{'+' if lo >= 0 else ''}{lo:.4f}, {'+' if hi >= 0 else ''}{hi:.4f}]"
+            # Significant if CI entirely above 0 (better) or below 0 (worse)
+            if lo > 0:
+                verdict = "★ reliably better"
+            elif hi < 0:
+                verdict = "✗ reliably worse"
+            else:
+                verdict = "~ inconclusive"
+            print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
