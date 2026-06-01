@@ -7,7 +7,6 @@ Mirrors hermes-agent-self-evolution evolution/core/constraints.py exactly.
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 
 import yaml
@@ -15,7 +14,7 @@ import yaml
 from openjiuwen.agent_evolving_hermes.offline.constraints.constraint_result import ConstraintResult
 
 if TYPE_CHECKING:
-    from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+    from offline.evolvers.config import EvolverConfig
 
 
 class ConstraintValidator:

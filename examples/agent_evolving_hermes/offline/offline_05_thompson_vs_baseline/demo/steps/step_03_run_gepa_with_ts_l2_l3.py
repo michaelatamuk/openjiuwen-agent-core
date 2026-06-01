@@ -24,7 +24,7 @@ def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, out
     print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
     print()
 
-    config_ts = EvolverConfig(
+    evolver_config = EvolverConfig(
         skills_root = skills_root,
         output_dir = output_ts,
         iterations = itrations,
@@ -42,7 +42,7 @@ def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, out
         ts_state_dir = ts_state_dir,
     )
     metrics_ts = evolve_single_skill(
-        skill_name, "golden", config=config_ts, min_improvement=0.0
+        skill_name, "golden", config=evolver_config, min_improvement=0.0
     )
     _print_metrics(metrics_ts)
     _print_ts_insights(ts_state_dir, skill_name)

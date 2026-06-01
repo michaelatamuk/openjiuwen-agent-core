@@ -21,7 +21,7 @@ from typing import Optional
 
 import click
 
-from .config import EvolverConfig
+from offline.evolvers.skill_evolver_config import EvolverConfig
 from .evolvers import evolve_skills_batch, evolve_single_skill
 
 

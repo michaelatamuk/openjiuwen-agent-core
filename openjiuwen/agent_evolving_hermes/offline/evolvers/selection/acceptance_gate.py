@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+    from offline.evolvers.config import EvolverConfig
 
 
 # ── Shared Beta arm ───────────────────────────────────────────────────────────

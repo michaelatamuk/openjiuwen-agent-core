@@ -21,7 +21,7 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_on
     print("  Level 3 — Acceptance Gate   : OFF (threshold only, improvement ≥ 0.0)")
     print()
 
-    config_l2 = EvolverConfig(
+    evolver_config = EvolverConfig(
         skills_root = skills_root,
         output_dir = output_l2_only,
         iterations = iterations,
@@ -31,13 +31,13 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_on
         verbose=verbose,
         # Thompson Sampling — Level 2 ON, Level 3 OFF
         ts_skill_scheduler = False,
-        ts_example_selector= True,
+        ts_example_selector = True,
         ts_example_batch_size = ts_batch_size,
         ts_acceptance_gate = False,
         ts_state_dir = ts_state_dir,
     )
     metrics_l2 = evolve_single_skill(
-        skill_name, "golden", config=config_l2, min_improvement=0.0
+        skill_name, "golden", config=evolver_config, min_improvement=0.0
     )
     _print_metrics(metrics_l2)
 

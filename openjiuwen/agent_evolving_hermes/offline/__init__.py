@@ -12,7 +12,7 @@ Track — Offline (GEPA skill evolver)
 from __future__ import annotations
 
 # ── Offline track ─────────────────────────────────────────────────────────────
-from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+from offline.evolvers.skill_evolver_config import EvolverConfig
 
 from openjiuwen.agent_evolving_hermes.offline.constraints import (
     ConstraintResult,

@@ -24,7 +24,7 @@ from typing import List, Optional
 
 from .skill_evolver_single import evolve_single_skill
 from .selection import make_skill_scheduler
-from ..config import EvolverConfig
+from offline.evolvers.config import EvolverConfig
 
 
 def evolve_skills_batch(

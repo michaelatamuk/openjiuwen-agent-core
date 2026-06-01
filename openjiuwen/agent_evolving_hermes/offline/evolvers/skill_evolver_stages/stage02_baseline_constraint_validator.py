@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+from offline.evolvers.config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintValidator
 
 

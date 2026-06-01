@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import List, Optional
 
-from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+from offline.evolvers.config import EvolverConfig
 
 
 def save_outputs(

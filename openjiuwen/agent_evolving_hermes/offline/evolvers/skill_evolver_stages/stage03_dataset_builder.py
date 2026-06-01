@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+from offline.evolvers.config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import (
     EvalDataset,
     GoldenDatasetLoader,

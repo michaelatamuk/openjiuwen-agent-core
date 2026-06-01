@@ -32,10 +32,10 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+    from offline.evolvers.config import EvolverConfig
 
 
 # ── Per-example Beta arm ──────────────────────────────────────────────────────

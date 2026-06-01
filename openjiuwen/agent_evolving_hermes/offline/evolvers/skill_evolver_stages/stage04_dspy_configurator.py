@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import dspy
 
-from openjiuwen.agent_evolving_hermes.offline.config import EvolverConfig
+from offline.evolvers.config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 

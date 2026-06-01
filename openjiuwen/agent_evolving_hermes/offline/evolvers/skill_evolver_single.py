@@ -34,7 +34,7 @@ from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
 from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
-from ..config import EvolverConfig
+from .skill_evolver_config import EvolverConfig
 
 
 def evolve_single_skill(

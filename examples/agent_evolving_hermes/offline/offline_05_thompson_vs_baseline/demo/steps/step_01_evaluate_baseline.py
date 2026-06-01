@@ -50,7 +50,7 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
 
     console = Console(quiet=not verbose)
 
-    config = EvolverConfig(
+    evolver_config = EvolverConfig(
         skills_root=skills_root,
         output_dir=output_dir,
         optimizer_model=model,
@@ -59,7 +59,7 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
     )
 
     # ── Load skill from disk (written by step_01) ─────────────────────────
-    skill, _ = find_and_load_skill(skill_name, config, console)
+    skill, _ = find_and_load_skill(skill_name, evolver_config, console)
 
     # ── Build golden dataset (saved to output_dir/dataset/) ───────────────
     dataset, _ = build_or_load_dataset(
@@ -67,7 +67,7 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
         skill_raw=skill["raw"],
         eval_source="golden",
         external_sources=None,
-        config=config,
+        config=evolver_config,
         output_dir=output_dir,
         reuse_dataset=False,
         console=console,
@@ -75,11 +75,11 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
 
     # ── Instantiate baseline DSPy module ──────────────────────────────────
     baseline_module, _, _ = configure_dspy_and_prepare_sets(
-        skill["raw"], dataset, config
+        skill["raw"], dataset, evolver_config
     )
 
     # ── Score on holdout (single pass — no "evolved" module needed) ───────
-    judge = LLMJudge(model=model, max_skill_size=config.max_skill_size)
+    judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)
     holdout = dataset.holdout or dataset.val
     total = len(holdout)
 

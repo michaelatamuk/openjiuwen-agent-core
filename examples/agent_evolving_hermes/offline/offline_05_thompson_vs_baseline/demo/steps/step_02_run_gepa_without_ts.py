@@ -16,7 +16,7 @@ def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
     print()
 
-    config_no_ts = EvolverConfig(
+    evolver_config = EvolverConfig(
         skills_root=skills_root,
         output_dir=output_no_ts,
         iterations=iterations,
@@ -30,7 +30,7 @@ def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool
         ts_acceptance_gate=False,
     )
     metrics_no_ts = evolve_single_skill(
-        skill_name, "golden", config=config_no_ts, min_improvement=0.0
+        skill_name, "golden", config=evolver_config, min_improvement=0.0
     )
     _print_metrics(metrics_no_ts)
 
