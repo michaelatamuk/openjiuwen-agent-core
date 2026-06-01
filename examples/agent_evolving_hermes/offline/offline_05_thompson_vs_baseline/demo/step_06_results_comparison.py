@@ -10,9 +10,9 @@ def step(
     baseline_score: float,
     *,
     metrics_no_ts:  Optional[dict] = None,
+    metrics_l2_l3:  Optional[dict] = None,
     metrics_l2:     Optional[dict] = None,
     metrics_l3:     Optional[dict] = None,
-    metrics_l2_l3:  Optional[dict] = None,
     ts_batch_size:  int = 4,
 ) -> None:
     """Print a side-by-side comparison for whichever training modes ran.
