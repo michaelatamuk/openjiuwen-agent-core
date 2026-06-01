@@ -19,8 +19,7 @@ from offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
 )
 
 
-def step(skills_root: Path, skill_name: str, model: str,
-         output_dir: Path, verbose: bool = False) -> float:
+def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbose: bool = False) -> float:
     """Score the *current* skill on holdout; return the composite score.
 
     No GEPA optimisation is performed — only the LLM-as-judge evaluation

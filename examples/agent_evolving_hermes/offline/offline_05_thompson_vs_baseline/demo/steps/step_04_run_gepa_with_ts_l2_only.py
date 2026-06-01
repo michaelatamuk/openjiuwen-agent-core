@@ -10,10 +10,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, output_l2_only, ts_state_dir,
+def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_only, ts_state_dir,
          verbose: bool = False):
     _banner("④-L2 GEPA — Level 2 only (Example Selector, no Acceptance Gate)")
-    print(f"  Level 2 — Example Selector  : selects top {TS_BATCH_SIZE} of "
+    print(f"  Level 2 — Example Selector  : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
     print("    TS learns which examples best distinguish good vs bad evolved skills")
     print("    → hard examples (security, concurrency) accumulate higher α")
@@ -22,27 +22,27 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, output_l2_on
     print()
 
     config_l2 = EvolverConfig(
-        skills_root  = skills_root,
-        output_dir   = output_l2_only,
-        iterations   = ITERATIONS,
-        optimizer_model = MODEL,
-        eval_model      = MODEL,
+        skills_root = skills_root,
+        output_dir = output_l2_only,
+        iterations = iterations,
+        optimizer_model = model,
+        eval_model = model,
         max_prompt_growth=0.5,
         verbose=verbose,
         # Thompson Sampling — Level 2 ON, Level 3 OFF
-        ts_skill_scheduler    = False,
-        ts_example_selector   = True,
-        ts_example_batch_size = TS_BATCH_SIZE,
-        ts_acceptance_gate    = False,
-        ts_state_dir          = ts_state_dir,
+        ts_skill_scheduler = False,
+        ts_example_selector= True,
+        ts_example_batch_size = ts_batch_size,
+        ts_acceptance_gate = False,
+        ts_state_dir = ts_state_dir,
     )
     metrics_l2 = evolve_single_skill(
-        SKILL_NAME, "golden", config=config_l2, min_improvement=0.0
+        skill_name, "golden", config=config_l2, min_improvement=0.0
     )
     _print_metrics(metrics_l2)
 
     if verbose:
-        evolved_l2 = _read_latest_evolved(output_l2_only, SKILL_NAME)
+        evolved_l2 = _read_latest_evolved(output_l2_only, skill_name)
         _print_skill("  Evolved skill (L2 only)", evolved_l2 or "[not produced]")
 
     return metrics_l2

@@ -6,15 +6,8 @@ from typing import Optional
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
 
 
-def step(
-    baseline_score: float,
-    *,
-    metrics_no_ts:  Optional[dict] = None,
-    metrics_l2_l3:  Optional[dict] = None,
-    metrics_l2:     Optional[dict] = None,
-    metrics_l3:     Optional[dict] = None,
-    ts_batch_size:  int = 4,
-) -> None:
+def step(baseline_score: float, *, metrics_no_ts:  Optional[dict] = None, metrics_l2_l3:  Optional[dict] = None,
+         metrics_l2: Optional[dict] = None, metrics_l3: Optional[dict] = None, ts_batch_size:  int = 4,) -> None:
     """Print a side-by-side comparison for whichever training modes ran.
 
     ``baseline_score`` is the pre-training holdout score (from step_00).
@@ -83,15 +76,15 @@ def step(
     # ── Config rows ───────────────────────────────────────────────────────
     _GATE = {
         "No-TS":   "threshold",
+        "L2+L3":   "TS gate",
         "L2 only": "threshold",
         "L3 only": "TS gate",
-        "L2+L3":   "TS gate",
     }
     _SEL = {
         "No-TS":   "all train",
+        "L2+L3":   f"top {ts_batch_size} (TS)",
         "L2 only": f"top {ts_batch_size} (TS)",
         "L3 only": "all train",
-        "L2+L3":   f"top {ts_batch_size} (TS)",
     }
 
     gate_row = f"  {'Acceptance gate':32s}"

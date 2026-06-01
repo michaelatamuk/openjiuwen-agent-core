@@ -12,11 +12,11 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMPLES, output_ts, ts_state_dir,
+def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, output_ts, ts_state_dir,
          verbose: bool = False):
     _banner("③ GEPA — with Thompson Sampling (Level 2 + Level 3)")
-    print(f"  Level 2 — Example Selector  : selects top {TS_BATCH_SIZE} of "
-          f"{int(len(GOLDEN_EXAMPLES)*0.5)} train examples per iteration")
+    print(f"  Level 2 — Example Selector  : selects top {ts_batch_size} of "
+          f"{int(len(examples)*0.5)} train examples per iteration")
     print("    TS learns which examples best distinguish good vs bad evolved skills")
     print("    → hard examples (security, concurrency) accumulate higher α")
     print()
@@ -25,30 +25,30 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, TS_BATCH_SIZE, GOLDEN_EXAMP
     print()
 
     config_ts = EvolverConfig(
-        skills_root  = skills_root,
-        output_dir   = output_ts,
-        iterations   = ITERATIONS,
-        optimizer_model = MODEL,
-        eval_model      = MODEL,
+        skills_root = skills_root,
+        output_dir = output_ts,
+        iterations = itrations,
+        optimizer_model = model,
+        eval_model = model,
         max_prompt_growth=0.5,   # allow up to 50% growth; baseline skill is intentionally short
         verbose=verbose,
         # Thompson Sampling — Level 2 + Level 3 ON
-        ts_skill_scheduler   = False,          # L1 only matters for --all runs
-        ts_example_selector  = True,
-        ts_example_batch_size = TS_BATCH_SIZE,
-        ts_acceptance_gate   = True,
+        ts_skill_scheduler = False,          # L1 only matters for --all runs
+        ts_example_selector = True,
+        ts_example_batch_size = ts_batch_size,
+        ts_acceptance_gate = True,
         ts_acceptance_confidence = 0.75,
-        ts_acceptance_n_samples  = 100,
+        ts_acceptance_n_samples = 100,
         ts_state_dir = ts_state_dir,
     )
     metrics_ts = evolve_single_skill(
-        SKILL_NAME, "golden", config=config_ts, min_improvement=0.0
+        skill_name, "golden", config=config_ts, min_improvement=0.0
     )
     _print_metrics(metrics_ts)
-    _print_ts_insights(ts_state_dir, SKILL_NAME)
+    _print_ts_insights(ts_state_dir, skill_name)
 
     if verbose:
-        evolved_ts = _read_latest_evolved(output_ts, SKILL_NAME)
+        evolved_ts = _read_latest_evolved(output_ts, skill_name)
         _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]")
 
     return metrics_ts

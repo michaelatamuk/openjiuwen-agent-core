@@ -10,7 +10,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose: bool = False):
+def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool = False):
     _banner("② GEPA — without Thompson Sampling")
     print("  Example selector : all training examples, equal weight")
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
@@ -19,9 +19,9 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose: bool
     config_no_ts = EvolverConfig(
         skills_root=skills_root,
         output_dir=output_no_ts,
-        iterations=ITERATIONS,
-        optimizer_model=MODEL,
-        eval_model=MODEL,
+        iterations=iterations,
+        optimizer_model=model,
+        eval_model=model,
         max_prompt_growth=0.5,   # allow up to 50% growth; baseline skill is intentionally short
         verbose=verbose,
         # Thompson Sampling — all OFF
@@ -30,12 +30,12 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_no_ts, verbose: bool
         ts_acceptance_gate=False,
     )
     metrics_no_ts = evolve_single_skill(
-        SKILL_NAME, "golden", config=config_no_ts, min_improvement=0.0
+        skill_name, "golden", config=config_no_ts, min_improvement=0.0
     )
     _print_metrics(metrics_no_ts)
 
     if verbose:
-        evolved_no_ts = _read_latest_evolved(output_no_ts, SKILL_NAME)
+        evolved_no_ts = _read_latest_evolved(output_no_ts, skill_name)
         _print_skill("  Evolved skill (no TS)", evolved_no_ts or "[not produced]")
 
     return metrics_no_ts

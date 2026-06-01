@@ -5,13 +5,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_trainings import DemoTrainings
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_trainings_results import \
     DemoTrainingsResults
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_01_evaluate_baseline import \
-    step as step_01_evaluate_baseline
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_00_save_skill_and_dataset import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_save_skill_and_dataset import \
     step as step_00_save_skill_and_dataset
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_06_results_comparison import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_evaluate_baseline import \
+    step as step_01_evaluate_baseline
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_06_results_comparison import \
     step as step_06_results_comparison
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.step_07_final_prints import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_07_final_prints import \
     step as step_07_final_prints
 
 

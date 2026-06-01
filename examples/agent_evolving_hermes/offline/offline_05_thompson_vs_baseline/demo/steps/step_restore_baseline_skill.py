@@ -5,5 +5,5 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _write_skill
 
 
-def step(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY) -> None:
-    _write_skill(skills_root, SKILL_NAME, SKILL_FRONTMATTER, SKILL_BODY)
+def step(skills_root, skill_name, skill_frontmatter, skill_body) -> None:
+    _write_skill(skills_root, skill_name, skill_frontmatter, skill_body)

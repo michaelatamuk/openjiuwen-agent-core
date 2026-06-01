@@ -12,8 +12,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_l3_only, ts_state_dir,
-         verbose: bool = False):
+def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_dir, verbose: bool = False):
     _banner("④-L3 GEPA — Level 3 only (Acceptance Gate, all examples equal weight)")
     print("  Level 2 — Example Selector  : OFF (all training examples, equal weight)")
     print()
@@ -22,29 +21,29 @@ def step(skills_root, SKILL_NAME, MODEL, ITERATIONS, output_l3_only, ts_state_di
     print()
 
     config_l3 = EvolverConfig(
-        skills_root  = skills_root,
-        output_dir   = output_l3_only,
-        iterations   = ITERATIONS,
-        optimizer_model = MODEL,
-        eval_model      = MODEL,
+        skills_root = skills_root,
+        output_dir = output_l3_only,
+        iterations = iterations,
+        optimizer_model = model,
+        eval_model = model,
         max_prompt_growth=0.5,
         verbose=verbose,
         # Thompson Sampling — Level 2 OFF, Level 3 ON
-        ts_skill_scheduler       = False,
-        ts_example_selector      = False,
-        ts_acceptance_gate       = True,
+        ts_skill_scheduler = False,
+        ts_example_selector = False,
+        ts_acceptance_gate = True,
         ts_acceptance_confidence = 0.75,
-        ts_acceptance_n_samples  = 100,
-        ts_state_dir             = ts_state_dir,
+        ts_acceptance_n_samples = 100,
+        ts_state_dir = ts_state_dir,
     )
     metrics_l3 = evolve_single_skill(
-        SKILL_NAME, "golden", config=config_l3, min_improvement=0.0
+        skill_name, "golden", config=config_l3, min_improvement=0.0
     )
     _print_metrics(metrics_l3)
-    _print_ts_insights(ts_state_dir, SKILL_NAME)
+    _print_ts_insights(ts_state_dir, skill_name)
 
     if verbose:
-        evolved_l3 = _read_latest_evolved(output_l3_only, SKILL_NAME)
+        evolved_l3 = _read_latest_evolved(output_l3_only, skill_name)
         _print_skill("  Evolved skill (L3 only)", evolved_l3 or "[not produced]")
 
     return metrics_l3
