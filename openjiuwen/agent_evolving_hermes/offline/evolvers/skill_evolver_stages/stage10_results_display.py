@@ -9,6 +9,15 @@ except ImportError:
     _RICH = False
 
 
+_MO_DIM_NAMES: List[str] = [
+    "correctness",
+    "procedure_following",
+    "conciseness",
+    "completeness",
+    "specificity",
+]
+
+
 def display_results_table(
     skill_name: str,
     optimizer_name: str,
@@ -23,12 +32,19 @@ def display_results_table(
     evolved_chars: int,
     console,
     constraint_checks: Optional[List] = None,
+    multi_scores: Optional[dict] = None,
+    mo_weights: Optional[List[float]] = None,
 ) -> None:
     """Print a Rich table (or plain-text fallback) with the evolution results.
 
     *constraint_checks* may be either a list of ConstraintResult objects
     (with .constraint_name / .passed / .message attributes) or plain dicts
     with keys 'name', 'passed', 'message'.
+
+    *multi_scores* is a dict ``{"baseline": {dim: float}, "evolved": {dim: float}}``
+    produced by the multi-objective evaluator.  When present, per-dimension rows
+    are appended to the table.  *mo_weights* holds the current dynamic weight
+    vector (one float per dimension).
     """
     def _name(c) -> str:
         return c.constraint_name if hasattr(c, "constraint_name") else c["name"]
@@ -88,6 +104,28 @@ def display_results_table(
                     f"[{clr}]{icon} {_msg(c)}[/{clr}]",
                 )
 
+        if multi_scores is not None:
+            b_map = multi_scores.get("baseline", {})
+            e_map = multi_scores.get("evolved", {})
+            table.add_row("", "")  # visual separator
+            table.add_row(
+                "Sub-scores (multi)",
+                "[dim]baseline → evolved   delta[/dim]",
+            )
+            for dim in _MO_DIM_NAMES:
+                b = b_map.get(dim, 0.0)
+                e = e_map.get(dim, 0.0)
+                d = e - b
+                d_sign = "+" if d >= 0 else ""
+                d_color = "green" if d >= 0 else "red"
+                table.add_row(
+                    f"  {dim}",
+                    f"{b:.4f} → {e:.4f}  [{d_color}]{d_sign}{d:.4f}[/{d_color}]",
+                )
+            if mo_weights:
+                weights_str = "  ".join(f"{w:.2f}" for w in mo_weights)
+                table.add_row("  weights", weights_str)
+
         console.print(table)
     else:
         console.print(
@@ -102,3 +140,17 @@ def display_results_table(
             for c in constraint_checks:
                 icon = "✓" if _passed(c) else "✗"
                 console.print(f"  {icon} {_name(c)}: {_msg(c)}")
+        if multi_scores is not None:
+            b_map = multi_scores.get("baseline", {})
+            e_map = multi_scores.get("evolved", {})
+            console.print("\n  Sub-scores:")
+            for dim in _MO_DIM_NAMES:
+                b = b_map.get(dim, 0.0)
+                e = e_map.get(dim, 0.0)
+                d = e - b
+                sign = "+" if d >= 0 else ""
+                console.print(f"    {dim:24s}  {b:.4f} → {e:.4f}  {sign}{d:.4f}")
+            if mo_weights:
+                console.print(
+                    f"  weights: {', '.join(f'{w:.2f}' for w in mo_weights)}"
+                )

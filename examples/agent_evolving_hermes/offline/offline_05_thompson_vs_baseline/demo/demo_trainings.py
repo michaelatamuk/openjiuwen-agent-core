@@ -73,6 +73,7 @@ class DemoTrainings:
                     self._config.iterations, out, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    scoring_mode=getattr(self._config, "scoring_mode", "existing"),
                 )
                 scores_no_ts.append(m.get("evolved_score", 0.0))
                 metrics_no_ts = m
@@ -97,6 +98,7 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    scoring_mode=getattr(self._config, "scoring_mode", "existing"),
                 )
                 scores_l2_l3.append(m.get("evolved_score", 0.0))
                 metrics_l2_l3 = m
@@ -121,6 +123,7 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    scoring_mode=getattr(self._config, "scoring_mode", "existing"),
                 )
                 scores_l2.append(m.get("evolved_score", 0.0))
                 metrics_l2 = m
@@ -144,6 +147,7 @@ class DemoTrainings:
                     self._config.iterations, out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    scoring_mode=getattr(self._config, "scoring_mode", "existing"),
                 )
                 scores_l3.append(m.get("evolved_score", 0.0))
                 metrics_l3 = m

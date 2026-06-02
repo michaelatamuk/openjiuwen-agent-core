@@ -60,5 +60,10 @@ class EvolverConfig:
     output_dir: Path = field(default_factory=lambda: Path("./skill_evolver_output"))
     create_pr: bool = False                        # Create a git PR with result?
 
+    # ── Multi-objective scoring ───────────────────────────────────────────────
+    # "existing" — single-scalar composite score (default, unchanged behaviour)
+    # "multi"    — 5-dimension scoring with no-regression rule + dynamic weights
+    scoring_mode: str = "existing"
+
     # ── Verbosity ─────────────────────────────────────────────────────────────
     verbose: bool = False                          # True = show DSPy INFO training logs

@@ -31,6 +31,8 @@ from .skill_evolver_stages.stage05_gepa_optimizer import run_gepa_optimization
 from .skill_evolver_stages.stage06_evolved_skill_extractor import extract_evolved_skill
 from .skill_evolver_stages.stage07_evolved_constraint_validator import validate_evolved_constraints
 from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
+from .skill_evolver_stages.stage08_holdout_evaluator_judge_multi import MultiObjectiveFitnessScore
+from .multi_objective_state import MultiObjectiveState
 from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
@@ -112,10 +114,44 @@ def evolve_single_skill(
     )
 
     # ── Step 8: Evaluate on holdout ──────────────────────────────────────────
-    baseline_score, evolved_score, improvement, cross_run_delta = evaluate_on_holdout(
-        baseline_module, optimized_module, dataset, config, console, prior_metrics,
-        prior_baseline_score=prior_baseline_score,
-    )
+    baseline_score, evolved_score, improvement, cross_run_delta, multi_scores = \
+        evaluate_on_holdout(
+            baseline_module, optimized_module, dataset, config, console, prior_metrics,
+            prior_baseline_score=prior_baseline_score,
+            scoring_mode=getattr(config, "scoring_mode", "existing"),
+        )
+
+    # ── Step 8b: Multi-objective processing ──────────────────────────────────
+    mo_state = None
+    if getattr(config, "scoring_mode", "existing") == "multi" and multi_scores is not None:
+        # mo_state.json lives in config.output_dir (the mode root, e.g. output_no_ts/)
+        # so dynamic weights persist and accumulate across multiple GEPA runs.
+        mo_state_path = config.output_dir / "mo_state.json"
+        mo_state = MultiObjectiveState.load_or_create(mo_state_path)
+        b_list = [multi_scores["baseline"][d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+        e_list = [multi_scores["evolved"][d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+
+        # No-regression check — reject if any dimension drops > 0.02
+        nr_passed, failed_dims = mo_state.no_regression_passed(e_list, b_list)
+        if not nr_passed:
+            constraints_passed = False
+            console.print(
+                f"\n[red]No-regression check FAILED — "
+                f"{', '.join(failed_dims)} dropped > 0.02 vs baseline[/red]"
+            )
+        else:
+            console.print(
+                "\n[green]No-regression check ✓  all 5 dimensions passed[/green]"
+            )
+
+        # Replace scalar aggregate with dynamic-weight aggregate
+        evolved_score = mo_state.aggregate(e_list)
+        baseline_agg  = mo_state.aggregate(b_list)
+        improvement   = evolved_score - baseline_agg
+
+        # Update weight state (always, regardless of acceptance)
+        mo_state.update_weights(e_list, b_list)
+        mo_state.save(mo_state_path)
 
     # ── Step 9: acceptance gate (threshold or Thompson Sampling) ─────────────
     if not constraints_passed:
@@ -136,6 +172,8 @@ def evolve_single_skill(
         cross_run_delta, accepted, elapsed,
         len(skill["raw"]), len(evolved_text), console,
         constraint_checks=evolved_checks,
+        multi_scores=multi_scores,
+        mo_weights=mo_state.weights if mo_state is not None else None,
     )
 
     # ── Step 11: Save outputs ─────────────────────────────────────────────────

@@ -9,7 +9,8 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 
 def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool = False,
-         baseline_score=None, run_index: int = 1, n_runs: int = 1):
+         baseline_score=None, run_index: int = 1, n_runs: int = 1,
+         scoring_mode: str = "existing"):
     _banner("② GEPA — without Thompson Sampling", run_index=run_index, n_runs=n_runs)
     print("  Example selector : all training examples, equal weight")
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
@@ -27,6 +28,7 @@ def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool
         ts_skill_scheduler=False,
         ts_example_selector=False,
         ts_acceptance_gate=False,
+        scoring_mode=scoring_mode,
     )
     metrics_no_ts = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,

@@ -18,5 +18,8 @@
     "iterations": 5,
     "ts_batch_size": 4,
     "n_runs": 3,
-    "verbose": false
+    "verbose": false,
+    "scoring_mode": "multi",
+    "_scoring_mode": "existing|multi"
+
 }

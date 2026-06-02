@@ -57,3 +57,6 @@ class DemoConfig:
     ts_batch_size: int = 4
     n_runs: int = 1
     verbose: bool = False
+    # "existing" — single-scalar composite score (unchanged behaviour)
+    # "multi"    — 5-dimension scoring with no-regression + dynamic weights
+    scoring_mode: str = "existing"

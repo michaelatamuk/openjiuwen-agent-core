@@ -11,7 +11,8 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 
 def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_dir,
-         verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1):
+         verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
+         scoring_mode: str = "existing"):
     _banner("④-L3 GEPA — Level 3 only (Acceptance Gate, all examples equal weight)", run_index=run_index, n_runs=n_runs)
     print("  Level 2 — Example Selector  : OFF (all training examples, equal weight)")
     print()
@@ -34,6 +35,7 @@ def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_di
         ts_acceptance_confidence = 0.75,
         ts_acceptance_n_samples = 100,
         ts_state_dir = ts_state_dir,
+        scoring_mode=scoring_mode,
     )
     metrics_l3 = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
