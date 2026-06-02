@@ -48,6 +48,7 @@ def evolve_single_skill(
     reuse_dataset: bool = False,
     min_improvement: float = 0.0,
     prior_baseline_score: Optional[float] = None,
+    prior_multi_baseline_dims=None,
 ) -> dict:
     """Run one GEPA evolution pass on a skill.
 
@@ -63,9 +64,11 @@ def evolve_single_skill(
             saved as evolved_REGRESSION.md but NOT deployed to evolved_skill.md.
             Use 0.0 (default) to accept any positive improvement.
             Use a negative value (e.g. -0.05) to accept minor regressions.
-        prior_baseline_score: Pre-computed baseline holdout score from an earlier
-            evaluation pass.  When provided, stage08 skips re-evaluating the
-            baseline module (saves N × ~25 s of redundant LLM calls).
+        prior_baseline_score: Pre-computed single-score baseline from step_01.
+            When provided, stage08 skips re-evaluating the baseline module.
+        prior_multi_baseline_dims: Pre-computed per-dimension baseline scores
+            from step_01's multi evaluation.  When provided, stage08 skips
+            re-evaluating the baseline in multi mode.
 
     Returns:
         Metrics dict including baseline_score, evolved_score, improvement,
@@ -95,15 +98,11 @@ def evolve_single_skill(
     )
 
     # ── Step 4: Configure DSPy + prepare train/val sets ──────────────────────
-    baseline_module, trainset, valset = configure_dspy_and_prepare_sets(
-        skill["raw"], dataset, config,
-    )
+    baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config)
 
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
-    optimized_module, optimizer_name, elapsed = run_gepa_optimization(
-        baseline_module, trainset, valset, config, console,
-        skill_name=skill_name,
-    )
+    optimized_module, optimizer_name, elapsed = run_gepa_optimization(baseline_module, trainset, valset, config,
+                                                                      console, skill_name=skill_name)
 
     # ── Step 6: Extract evolved skill text ───────────────────────────────────
     evolved_text = extract_evolved_skill(optimized_module, skill)
@@ -118,12 +117,13 @@ def evolve_single_skill(
         evaluate_on_holdout(
             baseline_module, optimized_module, dataset, config, console, prior_metrics,
             prior_baseline_score=prior_baseline_score,
-            scoring_mode=getattr(config, "scoring_mode", "existing"),
+            scoring_mode=getattr(config, "scoring_mode", "single"),
+            prior_multi_baseline_dims=prior_multi_baseline_dims,
         )
 
     # ── Step 8b: Multi-objective processing ──────────────────────────────────
     mo_state = None
-    if getattr(config, "scoring_mode", "existing") == "multi" and multi_scores is not None:
+    if getattr(config, "scoring_mode", "single") == "multi" and multi_scores is not None:
         # mo_state.json lives in config.output_dir (the mode root, e.g. output_no_ts/)
         # so dynamic weights persist and accumulate across multiple GEPA runs.
         mo_state_path = config.output_dir / "mo_state.json"
@@ -144,10 +144,12 @@ def evolve_single_skill(
                 "\n[green]No-regression check ✓  all 5 dimensions passed[/green]"
             )
 
-        # Replace scalar aggregate with dynamic-weight aggregate
+        # Replace scalar aggregate with dynamic-weight aggregate.
+        # Both baseline and evolved use the same weights so improvement is consistent,
+        # and baseline_score stored in metrics matches the evolved_score scoring system.
         evolved_score = mo_state.aggregate(e_list)
-        baseline_agg  = mo_state.aggregate(b_list)
-        improvement   = evolved_score - baseline_agg
+        baseline_score = mo_state.aggregate(b_list)
+        improvement    = evolved_score - baseline_score
 
         # Update weight state (always, regardless of acceptance)
         mo_state.update_weights(e_list, b_list)

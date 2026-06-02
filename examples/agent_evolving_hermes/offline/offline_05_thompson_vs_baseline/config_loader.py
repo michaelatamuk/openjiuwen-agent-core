@@ -41,7 +41,6 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         ts_batch_size=int(data.get("ts_batch_size", 4)),
         n_runs=int(data.get("n_runs", 1)),
         verbose=bool(data.get("verbose", False)),
-        scoring_mode=str(data.get("scoring_mode", "existing")),
     )
 
     print(f"{'═' * 70}")
@@ -49,7 +48,6 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
     print(f"GEPA iterations   : {config.iterations}")
     print(f"TS batch size     : {config.ts_batch_size}")
     print(f"Runs per mode     : {config.n_runs}")
-    print(f"Scoring mode      : {config.scoring_mode}")
     print(f"Verbose           : {config.verbose}")
     print()
 

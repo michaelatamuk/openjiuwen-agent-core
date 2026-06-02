@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List
 
 # All valid run-mode identifiers, in canonical order.
-ALL_MODES: List[str] = ["no_ts", "l2_only", "l3_only", "l2_l3"]
+ALL_MODES: List[str] = ["no_ts", "l2_only", "l3_only", "l2_l3", "no_ts_multi"]
 
 
 @dataclass
@@ -24,7 +24,7 @@ class DemoConfig:
         returned by :func:`scenarios.scenario.list_scenarios`.
     run_modes:
         Which GEPA training passes to execute.  Valid values:
-        ``"no_ts"``, ``"l2_only"``, ``"l3_only"``, ``"l2_l3"``.
+        ``"no_ts"``, ``"l2_only"``, ``"l3_only"``, ``"l2_l3"``, ``"no_ts_multi"``.
         Pass ``[]`` for a baseline-only evaluation (no GEPA training).
     api_key:
         API key for the LLM provider (DeepSeek by default).
@@ -57,6 +57,3 @@ class DemoConfig:
     ts_batch_size: int = 4
     n_runs: int = 1
     verbose: bool = False
-    # "existing" — single-scalar composite score (unchanged behaviour)
-    # "multi"    — 5-dimension scoring with no-regression + dynamic weights
-    scoring_mode: str = "existing"

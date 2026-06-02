@@ -14,15 +14,17 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 def step(
     baseline_score: float,
     *,
-    scores_no_ts:  Optional[List[float]] = None,
-    scores_l2_l3:  Optional[List[float]] = None,
-    scores_l2:     Optional[List[float]] = None,
-    scores_l3:     Optional[List[float]] = None,
-    metrics_no_ts:  Optional[dict] = None,
-    metrics_l2_l3:  Optional[dict] = None,
-    metrics_l2:     Optional[dict] = None,
-    metrics_l3:     Optional[dict] = None,
-    ts_batch_size:  int = 4,
+    scores_no_ts:        Optional[List[float]] = None,
+    scores_l2_l3:        Optional[List[float]] = None,
+    scores_l2:           Optional[List[float]] = None,
+    scores_l3:           Optional[List[float]] = None,
+    scores_no_ts_multi:  Optional[List[float]] = None,
+    metrics_no_ts:        Optional[dict] = None,
+    metrics_l2_l3:        Optional[dict] = None,
+    metrics_l2:           Optional[dict] = None,
+    metrics_l3:           Optional[dict] = None,
+    metrics_no_ts_multi:  Optional[dict] = None,
+    ts_batch_size:        int = 4,
 ) -> None:
     """Print comparison for whichever training modes ran.
 
@@ -32,10 +34,11 @@ def step(
     """
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
-    if scores_no_ts:  mode_data.append(("No-TS",   scores_no_ts,  metrics_no_ts))
-    if scores_l2:     mode_data.append(("L2 only", scores_l2,     metrics_l2))
-    if scores_l3:     mode_data.append(("L3 only", scores_l3,     metrics_l3))
-    if scores_l2_l3:  mode_data.append(("L2+L3",   scores_l2_l3,  metrics_l2_l3))
+    if scores_no_ts:       mode_data.append(("No-TS",       scores_no_ts,       metrics_no_ts))
+    if scores_l2:          mode_data.append(("L2 only",     scores_l2,          metrics_l2))
+    if scores_l3:          mode_data.append(("L3 only",     scores_l3,          metrics_l3))
+    if scores_l2_l3:       mode_data.append(("L2+L3",       scores_l2_l3,       metrics_l2_l3))
+    if scores_no_ts_multi: mode_data.append(("No-TS-Multi", scores_no_ts_multi, metrics_no_ts_multi))
 
     ran_labels = [label for label, _, _ in mode_data]
     _banner("COMPARISON — Pre-train  ·  " + (
@@ -79,13 +82,17 @@ def step(
             score_row += f"  {scores[0]:>{W}.4f}"
     print(score_row)
 
-    # ── Δ over pre-train ──────────────────────────────────────────────────
-    delta_row = f"  {'Δ over pre-train':32s}"
-    for _, scores, _ in cols:
+    # ── Δ over mode baseline ───────────────────────────────────────────────
+    # Each mode compares against its own baseline_score (stored in its metrics).
+    # For single-scoring modes this equals the global pre-train score; for
+    # multi-objective modes it is the multi-judge aggregate of the same skill.
+    delta_row = f"  {'Δ over baseline':32s}"
+    for _, scores, m in cols:
         if scores is None:
             delta_row += f"  {'—':>{W}}"
         else:
-            d = mean(scores) - baseline_score
+            mode_baseline = m.get("baseline_score", baseline_score) if m else baseline_score
+            d = mean(scores) - mode_baseline
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
     print(delta_row)
 
@@ -100,16 +107,18 @@ def step(
 
     # ── Config rows ───────────────────────────────────────────────────────
     _GATE = {
-        "No-TS":   "threshold",
-        "L2+L3":   "TS gate",
-        "L2 only": "threshold",
-        "L3 only": "TS gate",
+        "No-TS":       "threshold",
+        "L2+L3":       "TS gate",
+        "L2 only":     "threshold",
+        "L3 only":     "TS gate",
+        "No-TS-Multi": "threshold",
     }
     _SEL = {
-        "No-TS":   "all train",
-        "L2+L3":   f"top {ts_batch_size} (TS)",
-        "L2 only": f"top {ts_batch_size} (TS)",
-        "L3 only": "all train",
+        "No-TS":       "all train",
+        "L2+L3":       f"top {ts_batch_size} (TS)",
+        "L2 only":     f"top {ts_batch_size} (TS)",
+        "L3 only":     "all train",
+        "No-TS-Multi": "all train",
     }
 
     gate_row = f"  {'Acceptance gate':32s}"

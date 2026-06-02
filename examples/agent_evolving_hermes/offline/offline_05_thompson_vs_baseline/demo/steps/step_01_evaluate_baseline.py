@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from rich.console import Console
 
@@ -17,14 +18,28 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
     configure_dspy_and_prepare_sets,
 )
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage08_holdout_evaluator import (
+    score_multi_baseline,
+)
+
+# Modes that require a multi-objective baseline pre-evaluation.
+_MULTI_MODES = {"no_ts_multi"}
 
 
-def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbose: bool = False) -> float:
-    """Score the *current* skill on holdout; return the composite score.
+def step(
+    skills_root: Path,
+    skill_name: str,
+    model: str,
+    output_dir: Path,
+    verbose: bool = False,
+    run_modes: Optional[List[str]] = None,
+) -> Tuple[float, Optional[Dict[str, float]]]:
+    """Score the baseline skill on holdout for every scoring system that will be used.
 
-    No GEPA optimisation is performed — only the LLM-as-judge evaluation
-    that GEPA would normally run as its very first action (measuring the
-    baseline before any training).
+    Evaluates the single-score baseline unconditionally.  If any mode in
+    *run_modes* requires multi-objective scoring (currently ``"no_ts_multi"``),
+    the 5-dimension baseline is also evaluated here so that GEPA runs never
+    need to re-evaluate the baseline themselves.
 
     Parameters
     ----------
@@ -39,16 +54,25 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
         subsequent GEPA runs to avoid rebuilding).
     verbose:
         ``True`` → show DSPy / Rich INFO logs during evaluation.
+    run_modes:
+        List of mode names from config.  Drives whether multi-objective
+        baseline evaluation is performed.  Pass ``None`` / ``[]`` to
+        skip multi evaluation.
 
     Returns
     -------
-    float
-        Composite holdout score in [0, 1].
+    (single_score, multi_dims)
+        ``single_score``  — composite holdout score in [0, 1] from the
+                            single LLM judge (always computed).
+        ``multi_dims``    — ``{dim: mean_score}`` from the multi-objective
+                            judge, or ``None`` when no multi mode was requested.
     """
-    _banner("① PRE-TRAINING — holdout evaluation (no GEPA training)")
+    needs_multi = bool(run_modes and _MULTI_MODES.intersection(run_modes))
+    modes_label = "single + multi" if needs_multi else "single"
+    _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    console = Console(quiet=not verbose)
+    console = Console()
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,
@@ -58,10 +82,9 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
         verbose=verbose,
     )
 
-    # ── Load skill from disk (written by step_01) ─────────────────────────
+    # ── Load skill + build dataset (shared by both scoring paths) ─────────
     skill, _ = find_and_load_skill(skill_name, evolver_config, console)
 
-    # ── Build golden dataset (saved to output_dir/dataset/) ───────────────
     dataset, _ = build_or_load_dataset(
         skill_name=skill_name,
         skill_raw=skill["raw"],
@@ -73,17 +96,16 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
         console=console,
     )
 
-    # ── Instantiate baseline DSPy module ──────────────────────────────────
     baseline_module, _, _ = configure_dspy_and_prepare_sets(
         skill["raw"], dataset, evolver_config
     )
 
-    # ── Score on holdout (single pass — no "evolved" module needed) ───────
+    # ── Single-score evaluation ───────────────────────────────────────────
     judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)
     holdout = dataset.holdout or dataset.val
     total = len(holdout)
 
-    print(f"\n  Evaluating {total} holdout examples with LLM-as-judge (~20–30s each)…")
+    print(f"\n  Evaluating {total} holdout examples with single LLM-as-judge (~20–30s each)…")
     scores: list[float] = []
     for i, ex in enumerate(holdout, start=1):
         score = 0.0
@@ -99,10 +121,15 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
         except Exception:
             pass
         scores.append(score)
-        print(f"  [{i}/{total}] pre-train skill → {score:.4f}")
+        print(f"  [{i}/{total}] pre-train (single) → {score:.4f}")
 
-    baseline_score = round(sum(scores) / len(scores), 4) if scores else 0.0
+    single_score = round(sum(scores) / len(scores), 4) if scores else 0.0
+    print(f"  Pre-training score (single): {single_score:.4f}  ({total} holdout examples)")
 
-    print(f"  Pre-training score: {baseline_score:.4f}  "
-          f"({len(scores)} holdout examples)")
-    return baseline_score
+    # ── Multi-objective evaluation (only when a multi mode will run) ───────
+    multi_dims: Optional[Dict[str, float]] = None
+    if needs_multi:
+        print()
+        _, multi_dims = score_multi_baseline(baseline_module, dataset, evolver_config, console)
+
+    return single_score, multi_dims

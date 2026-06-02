@@ -14,6 +14,7 @@ def print_mode_summary(
     mode_label: str,
     baseline_score: Optional[float],
     scores: List[float],
+    elapsed_sec: Optional[float] = None,
 ) -> None:
     """Print a compact per-mode summary after all runs of a mode complete.
 
@@ -24,7 +25,8 @@ def print_mode_summary(
     s = std(scores)
     best_i = max(range(n), key=lambda i: scores[i])
 
-    print(f"\n  {mode_label} — {n} runs summary")
+    elapsed_str = f"  ({_fmt_duration(elapsed_sec)})" if elapsed_sec is not None else ""
+    print(f"\n  {mode_label} — {n} runs summary{elapsed_str}")
     print(f"  {_SEP}")
     print(f"  {'':20s}  {'Score':>9}  {'Δ baseline':>12}")
     print(f"  {_SEP}")
@@ -60,3 +62,19 @@ def print_mode_summary(
             f"({sign}{best_d:.4f})"
         )
         print(f"  {'Best run':20s}  {best_str}")
+
+
+def _fmt_duration(sec: float) -> str:
+    """Format a duration in seconds as a human-readable string."""
+    if sec < 60:
+        return f"{sec:.0f}s"
+    m, s = divmod(int(sec), 60)
+    if m < 60:
+        return f"{m}m {s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m:02d}m {s:02d}s"
+
+
+def print_mode_timing(mode_label: str, elapsed_sec: float) -> None:
+    """Print a single timing line for a mode that ran exactly once."""
+    print(f"  {mode_label} completed in {_fmt_duration(elapsed_sec)}")

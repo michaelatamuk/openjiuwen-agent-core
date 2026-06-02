@@ -12,6 +12,84 @@ from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
 )
 
 
+def _eval_multi_pass(
+    module: SkillModule,
+    holdout: list,
+    multi_judge: MultiObjectiveLLMJudge,
+    dim_names: List[str],
+    label: str,
+    console,
+) -> Tuple[float, Dict[str, float]]:
+    """Score *module* on *holdout* with the multi-objective judge.
+
+    Returns ``(equal_weight_composite, {dim: mean_score})``.
+    """
+    n = len(holdout)
+    dim_accum: Dict[str, List[float]] = {d: [] for d in dim_names}
+    composites: List[float] = []
+    for i, ex in enumerate(holdout, start=1):
+        try:
+            pred = module(task_input=ex.task_input)
+            fs = multi_judge.score(
+                task_input=ex.task_input,
+                expected_behavior=ex.expected_behavior,
+                agent_output=getattr(pred, "output", ""),
+                skill_text=module._skill_text_value,
+            )
+            vals = fs.as_list()
+            for d, v in zip(dim_names, vals):
+                dim_accum[d].append(v)
+            composite = sum(vals) / len(vals)
+            composites.append(composite)
+            console.print(f"  [{i}/{n}] {label} → composite {composite:.4f}")
+        except Exception:
+            for d in dim_names:
+                dim_accum[d].append(0.0)
+            composites.append(0.0)
+            console.print(f"  [{i}/{n}] {label} → 0.0000 (error)")
+
+    composite_mean = sum(composites) / len(composites) if composites else 0.0
+    dim_means = {
+        d: sum(dim_accum[d]) / len(dim_accum[d]) if dim_accum[d] else 0.0
+        for d in dim_names
+    }
+    return composite_mean, dim_means
+
+
+def score_multi_baseline(
+    baseline_module: SkillModule,
+    dataset: EvalDataset,
+    config: EvolverConfig,
+    console,
+) -> Tuple[float, Dict[str, float]]:
+    """Evaluate baseline skill with the multi-objective judge BEFORE GEPA.
+
+    Call this after step 4 (baseline_module is ready) and pass the result to
+    ``evaluate_on_holdout`` via ``prior_multi_baseline_dims`` so that the
+    baseline is not re-evaluated after GEPA.
+
+    Returns ``(equal_weight_composite, {dim: mean_score})``.
+    """
+    holdout = dataset.holdout or dataset.val
+    n_holdout = len(holdout)
+    multi_judge = MultiObjectiveLLMJudge(
+        model=config.eval_model, max_skill_size=config.max_skill_size
+    )
+
+    console.print(
+        f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+        f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
+    )
+    composite, dims = _eval_multi_pass(
+        baseline_module, holdout, multi_judge, MultiObjectiveFitnessScore.DIM_NAMES,
+        "pre-train skill", console,
+    )
+    console.print(
+        f"  Pre-train holdout score (multi): {composite:.4f}  ({n_holdout} examples)"
+    )
+    return composite, dims
+
+
 def evaluate_on_holdout(
     baseline_module: SkillModule,
     optimized_module: SkillModule,
@@ -20,14 +98,15 @@ def evaluate_on_holdout(
     console,
     prior_metrics: Optional[dict] = None,
     prior_baseline_score: Optional[float] = None,
-    scoring_mode: str = "existing",
+    scoring_mode: str = "single",
+    prior_multi_baseline_dims: Optional[Dict[str, float]] = None,
 ) -> Tuple:
     """Score the evolved module on holdout.
 
     Returns a 5-tuple in all cases:
         (baseline_score, evolved_score, improvement, cross_run_delta, multi_scores)
 
-    *multi_scores* is ``None`` when ``scoring_mode="existing"``.
+    *multi_scores* is ``None`` when ``scoring_mode="single"``.
     When ``scoring_mode="multi"`` it is a dict::
 
         {
@@ -35,20 +114,21 @@ def evaluate_on_holdout(
             "evolved":  {"correctness": float, ...},
         }
 
-    ``prior_baseline_score`` is honoured only in "existing" mode.
-    In "multi" mode the baseline is always re-evaluated so per-dimension
-    baseline scores are available for the no-regression check.
+    ``prior_baseline_score``      — honoured in "single" mode; skips re-evaluation.
+    ``prior_multi_baseline_dims`` — honoured in "multi" mode; pass the result of
+                                    ``score_multi_baseline()`` (called before GEPA)
+                                    to avoid re-evaluating the baseline here.
 
     Falls back to the val split if holdout is empty.
     """
     holdout = dataset.holdout or dataset.val
     n_holdout = len(holdout)
 
-    # ── EXISTING mode ─────────────────────────────────────────────────────────
+    # ── SINGLE mode ─────────────────────────────────────────────────────────
     if scoring_mode != "multi":
         judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
-        def _score_existing(module: SkillModule, label: str) -> float:
+        def _score_single(module: SkillModule, label: str) -> float:
             scores: List[float] = []
             for i, ex in enumerate(holdout, start=1):
                 sc = 0.0
@@ -78,7 +158,7 @@ def evaluate_on_holdout(
                 f"[bold]Evaluating pre-train skill on holdout…[/bold] "
                 f"[dim]({n_holdout} examples, cached)[/dim]"
             )
-            baseline_score = _score_existing(baseline_module, "pre-train skill")
+            baseline_score = _score_single(baseline_module, "pre-train skill")
             console.print(
                 f"  Pre-train holdout score: {baseline_score:.4f}  ({n_holdout} examples)"
             )
@@ -87,7 +167,7 @@ def evaluate_on_holdout(
             f"[bold]Evaluating evolved skill on holdout…[/bold] "
             f"[dim]({n_holdout} examples, ~25s each, no cache)[/dim]"
         )
-        evolved_score = _score_existing(optimized_module, "evolved skill")
+        evolved_score = _score_single(optimized_module, "evolved skill")
         console.print(
             f"  Evolved holdout score:   {evolved_score:.4f}  ({n_holdout} examples)"
         )
@@ -105,54 +185,34 @@ def evaluate_on_holdout(
     )
     dim_names = MultiObjectiveFitnessScore.DIM_NAMES
 
-    def _score_multi(
-        module: SkillModule, label: str
-    ) -> Tuple[float, Dict[str, float]]:
-        """Return (composite_mean, {dim: mean_score})."""
-        dim_accum: Dict[str, List[float]] = {d: [] for d in dim_names}
-        composites: List[float] = []
-        for i, ex in enumerate(holdout, start=1):
-            try:
-                pred = module(task_input=ex.task_input)
-                fs = multi_judge.score(
-                    task_input=ex.task_input,
-                    expected_behavior=ex.expected_behavior,
-                    agent_output=getattr(pred, "output", ""),
-                    skill_text=module._skill_text_value,
-                )
-                vals = fs.as_list()
-                for d, v in zip(dim_names, vals):
-                    dim_accum[d].append(v)
-                composite = sum(vals) / len(vals)  # equal-weight preview
-                composites.append(composite)
-                console.print(f"  [{i}/{n_holdout}] {label} → composite {composite:.4f}")
-            except Exception:
-                for d in dim_names:
-                    dim_accum[d].append(0.0)
-                composites.append(0.0)
-                console.print(f"  [{i}/{n_holdout}] {label} → 0.0000 (error)")
-        composite_mean = sum(composites) / len(composites) if composites else 0.0
-        dim_means = {
-            d: sum(dim_accum[d]) / len(dim_accum[d]) if dim_accum[d] else 0.0
-            for d in dim_names
-        }
-        return composite_mean, dim_means
-
-    # Baseline is always evaluated in multi mode (needed for no-regression check)
-    console.print(
-        f"[bold]Evaluating pre-train skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples, multi-objective)[/dim]"
-    )
-    baseline_composite, baseline_dims = _score_multi(baseline_module, "pre-train skill")
-    console.print(
-        f"  Pre-train holdout score: {baseline_composite:.4f}  ({n_holdout} examples)"
-    )
+    # Baseline: use pre-computed dims (from score_multi_baseline, called before GEPA)
+    # if available, otherwise fall back to evaluating here.
+    if prior_multi_baseline_dims is not None:
+        baseline_dims = prior_multi_baseline_dims
+        baseline_composite = sum(baseline_dims.values()) / len(baseline_dims)
+        console.print(
+            f"[dim]  Pre-train score (multi, pre-computed): {baseline_composite:.4f}"
+            f"  — skipping re-evaluation[/dim]"
+        )
+    else:
+        console.print(
+            f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+            f"[dim]({n_holdout} examples, multi-objective)[/dim]"
+        )
+        baseline_composite, baseline_dims = _eval_multi_pass(
+            baseline_module, holdout, multi_judge, dim_names, "pre-train skill", console
+        )
+        console.print(
+            f"  Pre-train holdout score: {baseline_composite:.4f}  ({n_holdout} examples)"
+        )
 
     console.print(
         f"[bold]Evaluating evolved skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, ~25s each, multi-objective)[/dim]"
     )
-    evolved_composite, evolved_dims = _score_multi(optimized_module, "evolved skill")
+    evolved_composite, evolved_dims = _eval_multi_pass(
+        optimized_module, holdout, multi_judge, dim_names, "evolved skill", console
+    )
     console.print(
         f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)"
     )

@@ -225,6 +225,7 @@ def print_ci_forest(
 def print_ascii_charts(
     baseline_score: float,
     scores_no_ts:  Optional[List[float]],
+    scores_no_ts_multi: Optional[List[float]],
     scores_l2_l3:  Optional[List[float]],
     scores_l2:     Optional[List[float]],
     scores_l3:     Optional[List[float]],
@@ -233,6 +234,7 @@ def print_ascii_charts(
     """Print all relevant ASCII charts to stdout."""
     mode_data: list[tuple[str, List[float]]] = []
     if scores_no_ts:  mode_data.append(("No-TS",   scores_no_ts))
+    if scores_no_ts_multi:  mode_data.append(("No-TS-Multi",   scores_no_ts_multi))
     if scores_l2:     mode_data.append(("L2 only", scores_l2))
     if scores_l3:     mode_data.append(("L3 only", scores_l3))
     if scores_l2_l3:  mode_data.append(("L2+L3",   scores_l2_l3))

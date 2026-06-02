@@ -10,7 +10,7 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_only, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
-         scoring_mode: str = "existing"):
+         scoring_mode: str = "single"):
     _banner("③-L2 GEPA — Level 2 only (Example Selector, no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
     print(f"  Level 2 — Example Selector  : selects top {ts_batch_size} of "
           f"10 train examples per iteration")

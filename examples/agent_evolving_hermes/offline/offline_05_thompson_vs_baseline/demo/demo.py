@@ -52,12 +52,20 @@ class Demo:
         step_00_save_skill_and_dataset(params.skills_root, params.skill_name, params.skill_body,
                                        params.skill_frontmatter, params.golden_examples, verbose=self._config.verbose)
 
-        # ── Step 0: Evaluate baseline on holdout (NO training) ───────────────
-        baseline_score: float = step_01_evaluate_baseline(params.skills_root, params.skill_name, self._config.model,
-                                                          params.output_baseline, self._config.verbose)
+        # ── Step 1: Evaluate baseline on holdout (NO training) ───────────────
+        # Evaluates the single-score baseline unconditionally; also evaluates the
+        # multi-objective baseline when "no_ts_multi" is in run_modes so that
+        # GEPA runs never need to re-evaluate the baseline themselves.
+        baseline_score, multi_baseline_dims = step_01_evaluate_baseline(
+            params.skills_root, params.skill_name, self._config.model,
+            params.output_baseline, self._config.verbose,
+            run_modes=self._config.run_modes,
+        )
 
         # ── Training passes ───────────────────────────────────────────────────
-        trainings_results: DemoTrainingsResults = self._trainings.run(params, baseline_score=baseline_score)
+        trainings_results: DemoTrainingsResults = self._trainings.run(
+            params, baseline_score=baseline_score, multi_baseline_dims=multi_baseline_dims,
+        )
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:
@@ -66,15 +74,18 @@ class Demo:
                                        scores_l2_l3=trainings_results.scores_l2_l3 or None,
                                        scores_l2=trainings_results.scores_l2 or None,
                                        scores_l3=trainings_results.scores_l3 or None,
+                                       scores_no_ts_multi=trainings_results.scores_no_ts_multi or None,
                                        metrics_no_ts=trainings_results.metrics_no_ts,
                                        metrics_l2_l3=trainings_results.metrics_l2_l3,
                                        metrics_l2=trainings_results.metrics_l2,
                                        metrics_l3=trainings_results.metrics_l3,
+                                       metrics_no_ts_multi=trainings_results.metrics_no_ts_multi,
                                        ts_batch_size=self._config.ts_batch_size)
 
         # ── Step 8: Plots ─────────────────────────────────────────────────────
         step_07_plot_results(baseline_score,
                              scores_no_ts=trainings_results.scores_no_ts or None,
+                             scores_no_ts_multi=trainings_results.scores_no_ts_multi or None,
                              scores_l2_l3=trainings_results.scores_l2_l3 or None,
                              scores_l2=trainings_results.scores_l2 or None,
                              scores_l3=trainings_results.scores_l3 or None,

@@ -10,16 +10,14 @@
         "api-security",
         "code-review"
     ],
-    "run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
-    "_run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
+    "run_modes": ["no_ts", "no_ts_multi"],
+    "_run_modes": ["no_ts", "no_ts_multi", "l2_only", "l3_only", "l2_l3"],
     "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
     "model": "deepseek/deepseek-chat",
     "api_base": "https://api.deepseek.com",
     "iterations": 5,
     "ts_batch_size": 4,
-    "n_runs": 3,
-    "verbose": false,
-    "scoring_mode": "multi",
-    "_scoring_mode": "existing|multi"
+    "n_runs": 1,
+    "verbose": false
 
 }

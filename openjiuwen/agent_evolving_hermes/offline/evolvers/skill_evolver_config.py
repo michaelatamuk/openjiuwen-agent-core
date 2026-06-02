@@ -61,9 +61,9 @@ class EvolverConfig:
     create_pr: bool = False                        # Create a git PR with result?
 
     # ── Multi-objective scoring ───────────────────────────────────────────────
-    # "existing" — single-scalar composite score (default, unchanged behaviour)
+    # "single" — single-scalar composite score (default, unchanged behaviour)
     # "multi"    — 5-dimension scoring with no-regression rule + dynamic weights
-    scoring_mode: str = "existing"
+    scoring_mode: str = "single"
 
     # ── Verbosity ─────────────────────────────────────────────────────────────
     verbose: bool = False                          # True = show DSPy INFO training logs

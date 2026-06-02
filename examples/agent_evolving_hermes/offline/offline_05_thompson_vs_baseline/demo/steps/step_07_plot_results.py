@@ -10,6 +10,7 @@ def step(
     baseline_score: float,
     *,
     scores_no_ts:  Optional[List[float]] = None,
+    scores_no_ts_multi: Optional[List[float]] = None,
     scores_l2_l3:  Optional[List[float]] = None,
     scores_l2:     Optional[List[float]] = None,
     scores_l3:     Optional[List[float]] = None,
@@ -35,6 +36,7 @@ def step(
     print_ascii_charts(
         baseline_score=baseline_score,
         scores_no_ts=scores_no_ts,
+        scores_no_ts_multi=scores_no_ts_multi,
         scores_l2_l3=scores_l2_l3,
         scores_l2=scores_l2,
         scores_l3=scores_l3,
