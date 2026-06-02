@@ -26,11 +26,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 _COLORS = {
-    "Pre-train": "#9E9E9E",
-    "No-TS":     "#2196F3",
-    "L2 only":   "#FF9800",
-    "L3 only":   "#4CAF50",
-    "L2+L3":     "#E91E63",
+    "Pre-train":   "#9E9E9E",
+    "Pre-train-M": "#607D8B",
+    "No-TS":       "#2196F3",
+    "No-TS-Multi": "#00BCD4",
+    "L2 only":     "#FF9800",
+    "L3 only":     "#4CAF50",
+    "L2+L3":       "#E91E63",
 }
 _DEFAULT_COLOR = "#607D8B"
 
@@ -41,11 +43,12 @@ def _color(label: str) -> str:
 
 def plot_results(
     baseline_score_single: float,
-    baseline_score_multi: float,
-    scores_no_ts:  Optional[List[float]],
-    scores_l2_l3:  Optional[List[float]],
-    scores_l2:     Optional[List[float]],
-    scores_l3:     Optional[List[float]],
+    baseline_score_multi: Optional[float],
+    scores_no_ts:       Optional[List[float]],
+    scores_no_ts_multi: Optional[List[float]],
+    scores_l2_l3:       Optional[List[float]],
+    scores_l2:          Optional[List[float]],
+    scores_l3:          Optional[List[float]],
     output_dir: Path,
     scenario_name: str = "",
     n_runs: int = 1,
@@ -60,10 +63,11 @@ def plot_results(
 
     # ── Assemble mode data in display order ───────────────────────────────
     mode_data: list[tuple[str, List[float]]] = []
-    if scores_no_ts:  mode_data.append(("No-TS",   scores_no_ts))
-    if scores_l2:     mode_data.append(("L2 only", scores_l2))
-    if scores_l3:     mode_data.append(("L3 only", scores_l3))
-    if scores_l2_l3:  mode_data.append(("L2+L3",   scores_l2_l3))
+    if scores_no_ts:        mode_data.append(("No-TS",       scores_no_ts))
+    if scores_no_ts_multi:  mode_data.append(("No-TS-Multi", scores_no_ts_multi))
+    if scores_l2:           mode_data.append(("L2 only",     scores_l2))
+    if scores_l3:           mode_data.append(("L3 only",     scores_l3))
+    if scores_l2_l3:        mode_data.append(("L2+L3",       scores_l2_l3))
 
     if not mode_data:
         return save_path  # nothing to plot
@@ -115,7 +119,10 @@ def plot_results(
         )
 
     ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
-               linewidth=1.2, alpha=0.6, zorder=2)
+               linewidth=1.2, alpha=0.6, zorder=2, label="Pre-train (single)")
+    if baseline_score_multi is not None:
+        ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
+                   linewidth=1.2, alpha=0.6, zorder=2, label="Pre-train (multi)")
     ax.set_xticks(list(x))
     ax.set_xticklabels(all_labels, fontsize=10)
     ax.set_ylabel("Holdout score", fontsize=10)
@@ -134,7 +141,10 @@ def plot_results(
 
         run_xs = list(range(1, n_runs + 1))
         ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
-                   linewidth=1.2, alpha=0.5, label="Pre-train", zorder=2)
+                   linewidth=1.2, alpha=0.5, label="Pre-train (single)", zorder=2)
+        if baseline_score_multi is not None:
+            ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
+                       linewidth=1.2, alpha=0.5, label="Pre-train (multi)", zorder=2)
 
         for lbl, scores in mode_data:
             ax.plot(run_xs, scores, marker="o", linewidth=1.8,

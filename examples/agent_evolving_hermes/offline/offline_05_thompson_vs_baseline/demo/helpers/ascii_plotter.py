@@ -225,7 +225,7 @@ def print_ci_forest(
 
 def print_ascii_charts(
     baseline_score_single: float,
-    baseline_score_multi: float,
+    baseline_score_multi: Optional[float],
     scores_no_ts:  Optional[List[float]],
     scores_no_ts_multi: Optional[List[float]],
     scores_l2_l3:  Optional[List[float]],
@@ -250,8 +250,10 @@ def print_ascii_charts(
     print_score_bars(baseline_score_single, mode_data, multi=multi)
 
     # Chart 2 — only when multiple runs
+    # Use multi baseline for the reference label when available, else single.
     if multi:
-        print_run_sparklines(baseline_score_multi, mode_data, n_runs)
+        sparkline_baseline = baseline_score_multi if baseline_score_multi is not None else baseline_score_single
+        print_run_sparklines(sparkline_baseline, mode_data, n_runs)
 
     # Chart 3 — only when multiple runs AND No-TS present
     if multi and scores_no_ts:

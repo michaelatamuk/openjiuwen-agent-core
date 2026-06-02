@@ -13,7 +13,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 def step(
     baseline_score_single: float,
-    baseline_score_multi: float,
+    baseline_score_multi: Optional[float],
     *,
     scores_no_ts:        Optional[List[float]] = None,
     scores_l2_l3:        Optional[List[float]] = None,
@@ -48,28 +48,35 @@ def step(
 
     if not mode_data:
         print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
-        print(f"\n  Pre-training multi holdout score: {baseline_score_multi:.4f}  (no training modes ran)")
+        if baseline_score_multi is not None:
+            print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
         return
 
     n_runs = len(mode_data[0][1])  # all modes ran the same number of times
     multi = n_runs > 1
 
     # ── Column widths ──────────────────────────────────────────────────────
-    # ── Column widths ──────────────────────────────────────────────────────
     W = 13 if multi else 11
 
-    # 1. Update the cols list to include both baselines explicitly
+    # Build cols: pre-train baseline columns + one column per training mode.
+    # Pre-M is only included when a multi-objective baseline was evaluated.
     cols: list[tuple[str, Optional[list[float]], Optional[dict], float]] = [
-                                                                               ("Pre-S", None, None,
-                                                                                baseline_score_single),
-                                                                               ("Pre-M", None, None,
-                                                                                baseline_score_multi),
-                                                                           ] + [(l, s, m, 0.0) for l, s, m in mode_data]
+        ("Pre-S", None, None, baseline_score_single),
+    ]
+    if baseline_score_multi is not None:
+        cols.append(("Pre-M", None, None, baseline_score_multi))
+    cols += [(l, s, m, 0.0) for l, s, m in mode_data]
 
-    # 2. Update Header/Divider loop
-    # (Use the same structure as before, but 'cols' now contains 4th element)
+    # Header / divider
+    header  = f"  {'':32s}"
+    divider = f"  {'─' * 32}"
+    for label, *_ in cols:
+        header  += f"  {label:>{W}}"
+        divider += f"  {'─' * W}"
+    print(header)
+    print(divider)
 
-    # 3. Update Holdout score row
+    # Holdout score row
     score_row = f"  {'Holdout score':32s}"
     for label, scores, m, base in cols:
         if scores is None:
@@ -82,16 +89,16 @@ def step(
             score_row += f"  {scores[0]:>{W}.4f}"
     print(score_row)
 
-    # 4. Update Δ over baseline
     delta_row = f"  {'Δ over baseline':32s}"
     for label, scores, m, base in cols:
         if scores is None:
             delta_row += f"  {'—':>{W}}"
         else:
-            # Logic: Use metrics-specific baseline if available,
-            # otherwise fallback to single/multi based on label name
+            # Use metrics-embedded baseline when available; otherwise
+            # use multi baseline for multi-scored modes, single for the rest.
             mode_baseline = m.get("baseline_score") if m and "baseline_score" in m else (
-                baseline_score_multi if "Multi" in label else baseline_score_single
+                (baseline_score_multi if baseline_score_multi is not None else baseline_score_single)
+                if "Multi" in label else baseline_score_single
             )
             d = mean(scores) - mode_baseline
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
@@ -99,7 +106,6 @@ def step(
 
     # ── Accepted (last run) ───────────────────────────────────────────────
     acc_row = f"  {'Accepted (last run)' if multi else 'Accepted':32s}"
-    # Change: unpack 4 variables instead of 3
     for _, scores, m, _ in cols:
         if scores is None:
             acc_row += f"  {'—':>{W}}"
@@ -123,11 +129,8 @@ def step(
         "No-TS-Multi": "all train",
     }
 
-    # ── Config rows ───────────────────────────────────────────────────────
-    # ... (Keep _GATE and _SEL definitions) ...
     gate_row = f"  {'Acceptance gate':32s}"
     sel_row = f"  {'Example selector':32s}"
-    # Change: unpack 4 variables instead of 3
     for label, scores, _, _ in cols:
         if scores is None:
             gate_row += f"  {'—':>{W}}"

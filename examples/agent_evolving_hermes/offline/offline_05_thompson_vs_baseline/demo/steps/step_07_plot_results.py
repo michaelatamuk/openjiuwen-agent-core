@@ -25,7 +25,7 @@ def step(
     The PNG is skipped silently if matplotlib is not installed.
     """
     any_mode_ran = any(
-        s for s in [scores_no_ts, scores_l2_l3, scores_l2, scores_l3] if s
+        s for s in [scores_no_ts, scores_no_ts_multi, scores_l2_l3, scores_l2, scores_l3] if s
     )
     if not any_mode_ran:
         return
@@ -54,6 +54,7 @@ def step(
             baseline_score_single=baseline_score_single,
             baseline_score_multi=baseline_score_multi,
             scores_no_ts=scores_no_ts,
+            scores_no_ts_multi=scores_no_ts_multi,
             scores_l2_l3=scores_l2_l3,
             scores_l2=scores_l2,
             scores_l3=scores_l3,
