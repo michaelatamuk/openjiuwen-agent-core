@@ -34,5 +34,5 @@ def validate_evolved_constraints(
             )
         console.print(f"[dim]Saved failed variant to {failed_path}[/dim]")
         return checks, False
-    console.print("[green]✓ Evolved constraints passed[/green]")
+    console.print(f"[green]✓ Evolved — {len(checks)}/{len(checks)} constraints passed[/green]")
     return checks, True

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_metrics import \
-    _print_metrics
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill import _print_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_ts_insights import \
     _print_ts_insights
@@ -13,8 +11,8 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 
 def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, output_ts, ts_state_dir,
-         verbose: bool = False):
-    _banner("③ GEPA — with Thompson Sampling (Level 2 + Level 3)")
+         verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1):
+    _banner("⑤ GEPA — with Thompson Sampling (Level 2 + Level 3)", run_index=run_index, n_runs=n_runs)
     print(f"  Level 2 — Example Selector  : selects top {ts_batch_size} of "
           f"{int(len(examples)*0.5)} train examples per iteration")
     print("    TS learns which examples best distinguish good vs bad evolved skills")
@@ -42,9 +40,9 @@ def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, out
         ts_state_dir = ts_state_dir,
     )
     metrics_ts = evolve_single_skill(
-        skill_name, "golden", config=evolver_config, min_improvement=0.0
+        skill_name, "golden", config=evolver_config, min_improvement=0.0,
+        prior_baseline_score=baseline_score,
     )
-    _print_metrics(metrics_ts)
     _print_ts_insights(ts_state_dir, skill_name)
 
     if verbose:

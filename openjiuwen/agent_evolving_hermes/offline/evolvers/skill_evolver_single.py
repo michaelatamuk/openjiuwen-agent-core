@@ -45,6 +45,7 @@ def evolve_single_skill(
     config: Optional[EvolverConfig] = None,
     reuse_dataset: bool = False,
     min_improvement: float = 0.0,
+    prior_baseline_score: Optional[float] = None,
 ) -> dict:
     """Run one GEPA evolution pass on a skill.
 
@@ -60,6 +61,9 @@ def evolve_single_skill(
             saved as evolved_REGRESSION.md but NOT deployed to evolved_skill.md.
             Use 0.0 (default) to accept any positive improvement.
             Use a negative value (e.g. -0.05) to accept minor regressions.
+        prior_baseline_score: Pre-computed baseline holdout score from an earlier
+            evaluation pass.  When provided, stage08 skips re-evaluating the
+            baseline module (saves N × ~25 s of redundant LLM calls).
 
     Returns:
         Metrics dict including baseline_score, evolved_score, improvement,
@@ -110,6 +114,7 @@ def evolve_single_skill(
     # ── Step 8: Evaluate on holdout ──────────────────────────────────────────
     baseline_score, evolved_score, improvement, cross_run_delta = evaluate_on_holdout(
         baseline_module, optimized_module, dataset, config, console, prior_metrics,
+        prior_baseline_score=prior_baseline_score,
     )
 
     # ── Step 9: acceptance gate (threshold or Thompson Sampling) ─────────────
@@ -130,6 +135,7 @@ def evolve_single_skill(
         baseline_score, evolved_score, improvement,
         cross_run_delta, accepted, elapsed,
         len(skill["raw"]), len(evolved_text), console,
+        constraint_checks=evolved_checks,
     )
 
     # ── Step 11: Save outputs ─────────────────────────────────────────────────

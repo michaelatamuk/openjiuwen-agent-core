@@ -26,5 +26,5 @@ def validate_baseline_constraints(
                 f"[red]✗ BASELINE CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]"
             )
         raise ValueError("Baseline skill fails constraints — fix before evolving.")
-    console.print("[green]✓ Baseline constraints passed[/green]")
+    console.print(f"[green]✓ Baseline — {len(checks)}/{len(checks)} constraints passed[/green]")
     return checks

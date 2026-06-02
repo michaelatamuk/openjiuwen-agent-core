@@ -15,17 +15,22 @@ def evaluate_on_holdout(
     config: EvolverConfig,
     console,
     prior_metrics: Optional[dict] = None,
+    prior_baseline_score: Optional[float] = None,
 ) -> Tuple[float, float, float, Optional[float]]:
-    """Score both modules on the holdout split using LLMJudge.
+    """Score the evolved module on holdout; optionally reuse a pre-computed baseline score.
 
     Falls back to the val split if holdout is empty.
     Returns (baseline_score, evolved_score, improvement, cross_run_delta).
+
+    If *prior_baseline_score* is provided (already computed by an earlier
+    step_01 evaluation), the baseline module is NOT re-evaluated — saving
+    ~N × 20–30 s of redundant LLM calls.
+
     cross_run_delta is the evolved_score minus the prior run's evolved_score,
     or None if no prior run exists.
     """
     judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     holdout = dataset.holdout or dataset.val
-
     n_holdout = len(holdout)
 
     def _score(module: SkillModule, label: str) -> float:
@@ -45,18 +50,32 @@ def evaluate_on_holdout(
                 pass
             scores.append(sc)
             console.print(f"  [{i}/{n_holdout}] {label} → {sc:.4f}")
-        return sum(scores) / len(scores) if scores else 0.0
+        mean = sum(scores) / len(scores) if scores else 0.0
+        return mean
 
-    console.print(
-        f"[bold]Evaluating pre-train skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples — likely instant: LLM cache hits)[/dim]"
-    )
-    baseline_score = _score(baseline_module, "pre-train skill")
+    # ── Baseline ──────────────────────────────────────────────────────────────
+    if prior_baseline_score is not None:
+        baseline_score = prior_baseline_score
+        console.print(
+            f"[dim]  Pre-train score (pre-computed): {baseline_score:.4f}"
+            f"  — skipping re-evaluation[/dim]"
+        )
+    else:
+        console.print(
+            f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+            f"[dim]({n_holdout} examples, cached)[/dim]"
+        )
+        baseline_score = _score(baseline_module, "pre-train skill")
+        console.print(f"  Pre-train holdout score: {baseline_score:.4f}  ({n_holdout} examples)")
+
+    # ── Evolved ───────────────────────────────────────────────────────────────
     console.print(
         f"[bold]Evaluating evolved skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples × ~20–30s each — evolved skill is new, no cache)[/dim]"
+        f"[dim]({n_holdout} examples, ~25s each, no cache)[/dim]"
     )
     evolved_score = _score(optimized_module, "evolved skill")
+    console.print(f"  Evolved holdout score:   {evolved_score:.4f}  ({n_holdout} examples)")
+
     improvement = evolved_score - baseline_score
 
     cross_run_delta: Optional[float] = None

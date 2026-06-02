@@ -57,7 +57,7 @@ class Demo:
                                                           params.output_baseline, self._config.verbose)
 
         # ── Training passes ───────────────────────────────────────────────────
-        trainings_results: DemoTrainingsResults = self._trainings.run(params)
+        trainings_results: DemoTrainingsResults = self._trainings.run(params, baseline_score=baseline_score)
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:

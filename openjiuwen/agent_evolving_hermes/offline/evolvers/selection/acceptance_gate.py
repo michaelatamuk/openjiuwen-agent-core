@@ -61,7 +61,20 @@ class _BetaArm:
         return random.betavariate(self.alpha, self.beta)
 
 
-# ── Threshold gate (legacy) ───────────────────────────────────────────────────
+# ── Shared helper ─────────────────────────────────────────────────────────────
+
+def _trend_line(cross_run_delta: Optional[float]) -> Optional[str]:
+    """Return a one-line trend note, or None if no prior run exists."""
+    if cross_run_delta is None:
+        return None
+    if cross_run_delta >= 0:
+        return (f"  Trend vs last run: {cross_run_delta:+.4f}"
+                f"  (candidate improving across runs)")
+    return (f"  Trend vs last run: {cross_run_delta:+.4f}"
+            f"  (candidate getting worse across runs)")
+
+
+# ── Threshold gate (no TS) ────────────────────────────────────────────────────
 
 class ThresholdAcceptanceGate:
     """Accept if improvement >= min_improvement — identical to the original.
@@ -85,25 +98,38 @@ class ThresholdAcceptanceGate:
     ) -> Tuple[bool, Optional[float]]:
         accepted = improvement >= self._min
 
-        if not accepted:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
-            console.print(
-                f"[yellow]⚠ Improvement {improvement:+.4f} < threshold "
-                f"{self._min:+.4f} — not deploying "
-                f"(saved to evolved_REGRESSION.md)[/yellow]"
-            )
-            if cross_run_delta is not None:
-                color = "green" if cross_run_delta >= 0 else "red"
-                console.print(
-                    f"[{color}]Cross-run delta vs prior evolved: "
-                    f"{cross_run_delta:+.4f}[/{color}]"
-                )
-        else:
+        sign = "+" if improvement >= 0 else ""
+        score_line = f"  Score change: {sign}{improvement:.4f}"
+
+        console.print("\nAcceptance gate  (threshold only):")
+
+        if accepted:
             if improvement < 0:
                 console.print(
-                    f"[yellow]⚠ Improvement {improvement:+.4f} is negative "
-                    f"(accepted because threshold is {self._min:+.4f})[/yellow]"
+                    f"{score_line}  "
+                    f"[yellow]below zero but threshold allows ≥ {self._min:+.4f}[/yellow]"
                 )
+            else:
+                console.print(
+                    f"{score_line}  [green]✓ above minimum {self._min:.4f}[/green]"
+                )
+            console.print(
+                "  Decision: [green]ACCEPTED — evolved skill will be deployed[/green]"
+            )
+        else:
+            console.print(
+                f"{score_line}  [red]✗ below minimum {self._min:.4f}[/red]"
+            )
+            console.print(
+                "  Decision: [red]REJECTED — saved to evolved_REGRESSION.md[/red]"
+            )
+            (output_dir / "evolved_REGRESSION.md").write_text(
+                evolved_text, encoding="utf-8"
+            )
+            trend = _trend_line(cross_run_delta)
+            if trend:
+                color = "green" if cross_run_delta >= 0 else "red"
+                console.print(f"  [{color}]{trend.strip()}[/{color}]")
 
         return accepted, None
 
@@ -238,43 +264,72 @@ class ThompsonAcceptanceGate:
         self._save_arms(skill_name, candidate_arm, deployed_arm)
 
         # ── Console output ────────────────────────────────────────────────────
-        if not hard_pass:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
+        sign = "+" if improvement >= 0 else ""
+        conf_pct = int(round(ts_conf * 100))
+        need_pct = int(round(self._confidence * 100))
+
+        console.print("\nAcceptance gate  (Thompson Sampling L3):")
+
+        # Check 1: score change
+        if hard_pass:
             console.print(
-                f"[yellow]⚠ Hard gate failed: improvement {improvement:+.4f} < "
-                f"threshold {self._min:+.4f} "
-                f"(saved to evolved_REGRESSION.md)[/yellow]"
-            )
-        elif not ts_pass:
-            (output_dir / "evolved_REGRESSION.md").write_text(evolved_text, encoding="utf-8")
-            console.print(
-                f"[yellow]⚠ Thompson gate failed: confidence "
-                f"{ts_conf:.0%} < {self._confidence:.0%} required "
-                f"(saved to evolved_REGRESSION.md)[/yellow]"
-            )
-            console.print(
-                f"[dim]Hard improvement {improvement:+.4f} passed, but not enough "
-                f"evidence this candidate beats the deployed skill.[/dim]"
+                f"  Check 1 — score change: {sign}{improvement:.4f}"
+                f"  [green]✓ meets minimum {self._min:.4f}[/green]"
             )
         else:
-            if improvement < 0:
+            console.print(
+                f"  Check 1 — score change: {sign}{improvement:.4f}"
+                f"  [red]✗ below minimum {self._min:.4f}[/red]"
+            )
+
+        # Check 2: TS confidence (always shown so user sees the number)
+        conf_label = (
+            f"{conf_pct}% of {self._n_samples} draws: "
+            f"candidate > deployed skill"
+        )
+        if ts_pass:
+            console.print(
+                f"  Check 2 — {conf_label}"
+                f"  [green]✓ meets {need_pct}%[/green]"
+            )
+        elif hard_pass:
+            # Score passed but confidence failed — highlight in red
+            console.print(
+                f"  Check 2 — {conf_label}"
+                f"  [red]✗ need ≥{need_pct}%[/red]"
+            )
+        else:
+            # Score already failed — show confidence in dim (informational only)
+            console.print(
+                f"  Check 2 — {conf_label}"
+                f"  [dim]✗ need ≥{need_pct}%[/dim]"
+            )
+
+        # Final decision
+        if accepted:
+            console.print(
+                "  Decision: [green]ACCEPTED — evolved skill will be deployed[/green]"
+            )
+        else:
+            if not hard_pass:
                 console.print(
-                    f"[yellow]⚠ Improvement {improvement:+.4f} negative but threshold "
-                    f"allows it; TS confidence {ts_conf:.0%} ≥ "
-                    f"{self._confidence:.0%}[/yellow]"
+                    "  Decision: [red]REJECTED — score did not improve[/red]"
                 )
             else:
                 console.print(
-                    f"[green]✓ TS confidence {ts_conf:.0%} ≥ "
-                    f"{self._confidence:.0%} — Thompson gate passed[/green]"
+                    "  Decision: [red]REJECTED — improvement may be luck,"
+                    " not enough evidence yet[/red]"
                 )
-
-        if not accepted and cross_run_delta is not None:
-            color = "green" if cross_run_delta >= 0 else "red"
-            console.print(
-                f"[{color}]Cross-run delta vs prior evolved: "
-                f"{cross_run_delta:+.4f}[/{color}]"
+            (output_dir / "evolved_REGRESSION.md").write_text(
+                evolved_text, encoding="utf-8"
             )
+            console.print(
+                "  [dim](saved to evolved_REGRESSION.md)[/dim]"
+            )
+            trend = _trend_line(cross_run_delta)
+            if trend:
+                color = "green" if cross_run_delta >= 0 else "red"
+                console.print(f"  [{color}]{trend.strip()}[/{color}]")
 
         return accepted, ts_conf
 

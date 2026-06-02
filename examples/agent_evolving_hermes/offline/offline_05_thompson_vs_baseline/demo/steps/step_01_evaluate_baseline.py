@@ -45,7 +45,7 @@ def step(skills_root: Path, skill_name: str, model: str, output_dir: Path, verbo
     float
         Composite holdout score in [0, 1].
     """
-    _banner("⓪ PRE-TRAINING — holdout evaluation (no GEPA training)")
+    _banner("① PRE-TRAINING — holdout evaluation (no GEPA training)")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     console = Console(quiet=not verbose)
