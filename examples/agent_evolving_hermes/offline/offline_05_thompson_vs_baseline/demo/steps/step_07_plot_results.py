@@ -7,7 +7,8 @@ from typing import List, Optional
 
 
 def step(
-    baseline_score: float,
+    baseline_score_single: float,
+    baseline_score_multi: float,
     *,
     scores_no_ts:  Optional[List[float]] = None,
     scores_no_ts_multi: Optional[List[float]] = None,
@@ -34,7 +35,8 @@ def step(
         print_ascii_charts,
     )
     print_ascii_charts(
-        baseline_score=baseline_score,
+        baseline_score_single=baseline_score_single,
+        baseline_score_multi=baseline_score_multi,
         scores_no_ts=scores_no_ts,
         scores_no_ts_multi=scores_no_ts_multi,
         scores_l2_l3=scores_l2_l3,
@@ -49,7 +51,8 @@ def step(
             plot_results,
         )
         path = plot_results(
-            baseline_score=baseline_score,
+            baseline_score_single=baseline_score_single,
+            baseline_score_multi=baseline_score_multi,
             scores_no_ts=scores_no_ts,
             scores_l2_l3=scores_l2_l3,
             scores_l2=scores_l2,

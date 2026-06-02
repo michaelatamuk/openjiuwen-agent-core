@@ -12,7 +12,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 
 def step(
-    baseline_score: float,
+    baseline_score_single: float,
+    baseline_score_multi: float,
     *,
     scores_no_ts:        Optional[List[float]] = None,
     scores_l2_l3:        Optional[List[float]] = None,
@@ -35,70 +36,71 @@ def step(
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
     if scores_no_ts:       mode_data.append(("No-TS",       scores_no_ts,       metrics_no_ts))
+    if scores_no_ts_multi: mode_data.append(("No-TS-Multi", scores_no_ts_multi, metrics_no_ts_multi))
     if scores_l2:          mode_data.append(("L2 only",     scores_l2,          metrics_l2))
     if scores_l3:          mode_data.append(("L3 only",     scores_l3,          metrics_l3))
     if scores_l2_l3:       mode_data.append(("L2+L3",       scores_l2_l3,       metrics_l2_l3))
-    if scores_no_ts_multi: mode_data.append(("No-TS-Multi", scores_no_ts_multi, metrics_no_ts_multi))
 
     ran_labels = [label for label, _, _ in mode_data]
-    _banner("COMPARISON — Pre-train  ·  " + (
+    _banner("COMPARISON — Pre-train Single ·  Pre-train Multi ·  " + (
         "  ·  ".join(ran_labels) if ran_labels else "(pre-training only)"
     ))
 
     if not mode_data:
-        print(f"\n  Pre-training score: {baseline_score:.4f}  (no training modes ran)")
+        print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
+        print(f"\n  Pre-training multi holdout score: {baseline_score_multi:.4f}  (no training modes ran)")
         return
 
     n_runs = len(mode_data[0][1])  # all modes ran the same number of times
     multi = n_runs > 1
 
     # ── Column widths ──────────────────────────────────────────────────────
+    # ── Column widths ──────────────────────────────────────────────────────
     W = 13 if multi else 11
 
-    # Ordered columns: Pre-train column first, then each mode
-    cols: list[tuple[str, Optional[list[float]], Optional[dict]]] = [
-        ("Pre-train", None, None)
-    ] + mode_data
+    # 1. Update the cols list to include both baselines explicitly
+    cols: list[tuple[str, Optional[list[float]], Optional[dict], float]] = [
+                                                                               ("Pre-S", None, None,
+                                                                                baseline_score_single),
+                                                                               ("Pre-M", None, None,
+                                                                                baseline_score_multi),
+                                                                           ] + [(l, s, m, 0.0) for l, s, m in mode_data]
 
-    # ── Header ────────────────────────────────────────────────────────────
-    header  = f"\n  {'':32s}"
-    divider = f"  {'─'*32}"
-    for label, _, _ in cols:
-        header  += f"  {label:>{W}}"
-        divider += f"  {'─'*W}"
-    print(header)
-    print(divider)
+    # 2. Update Header/Divider loop
+    # (Use the same structure as before, but 'cols' now contains 4th element)
 
-    # ── Holdout score ─────────────────────────────────────────────────────
+    # 3. Update Holdout score row
     score_row = f"  {'Holdout score':32s}"
-    for _, scores, _ in cols:
+    for label, scores, m, base in cols:
         if scores is None:
-            score_row += f"  {baseline_score:>{W}.4f}"
+            score_row += f"  {base:>{W}.4f}"  # Dynamically use the pre-train baseline
         elif multi:
-            m = mean(scores)
-            s = std(scores)
-            score_row += f"  {f'{m:.4f} ±{s:.4f}':>{W}}"
+            m_val = mean(scores)
+            s_val = std(scores)
+            score_row += f"  {f'{m_val:.4f} ±{s_val:.4f}':>{W}}"
         else:
             score_row += f"  {scores[0]:>{W}.4f}"
     print(score_row)
 
-    # ── Δ over mode baseline ───────────────────────────────────────────────
-    # Each mode compares against its own baseline_score (stored in its metrics).
-    # For single-scoring modes this equals the global pre-train score; for
-    # multi-objective modes it is the multi-judge aggregate of the same skill.
+    # 4. Update Δ over baseline
     delta_row = f"  {'Δ over baseline':32s}"
-    for _, scores, m in cols:
+    for label, scores, m, base in cols:
         if scores is None:
             delta_row += f"  {'—':>{W}}"
         else:
-            mode_baseline = m.get("baseline_score", baseline_score) if m else baseline_score
+            # Logic: Use metrics-specific baseline if available,
+            # otherwise fallback to single/multi based on label name
+            mode_baseline = m.get("baseline_score") if m and "baseline_score" in m else (
+                baseline_score_multi if "Multi" in label else baseline_score_single
+            )
             d = mean(scores) - mode_baseline
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
     print(delta_row)
 
     # ── Accepted (last run) ───────────────────────────────────────────────
     acc_row = f"  {'Accepted (last run)' if multi else 'Accepted':32s}"
-    for _, scores, m in cols:
+    # Change: unpack 4 variables instead of 3
+    for _, scores, m, _ in cols:
         if scores is None:
             acc_row += f"  {'—':>{W}}"
         else:
@@ -121,15 +123,18 @@ def step(
         "No-TS-Multi": "all train",
     }
 
+    # ── Config rows ───────────────────────────────────────────────────────
+    # ... (Keep _GATE and _SEL definitions) ...
     gate_row = f"  {'Acceptance gate':32s}"
-    sel_row  = f"  {'Example selector':32s}"
-    for label, scores, _ in cols:
+    sel_row = f"  {'Example selector':32s}"
+    # Change: unpack 4 variables instead of 3
+    for label, scores, _, _ in cols:
         if scores is None:
             gate_row += f"  {'—':>{W}}"
-            sel_row  += f"  {'—':>{W}}"
+            sel_row += f"  {'—':>{W}}"
         else:
             gate_row += f"  {_GATE.get(label, '?'):>{W}}"
-            sel_row  += f"  {_SEL.get(label, '?'):>{W}}"
+            sel_row += f"  {_SEL.get(label, '?'):>{W}}"
     print(gate_row)
     print(sel_row)
 
@@ -149,31 +154,30 @@ def step(
 
     # ── Per-run table (learning-curve proxy) ──────────────────────────────
     print(f"\n  Run-by-run results ({n_runs} independent runs):")
-    header2  = f"  {'':22s}"
-    divider2 = f"  {'─'*22}"
-    for label, _, _ in cols:
-        header2  += f"  {label:>{W}}"
-        divider2 += f"  {'─'*W}"
+    header2, divider2 = f"  {'':22s}", f"  {'─' * 22}"
+    for label, _, _, _ in cols:
+        header2 += f"  {label:>{W}}"
+        divider2 += f"  {'─' * W}"
     print(header2)
     print(divider2)
 
     for i in range(n_runs):
-        row = f"  {f'Run {i+1}':22s}"
-        for _, scores, _ in cols:
-            val = baseline_score if scores is None else scores[i]
+        row = f"  {f'Run {i + 1}':22s}"
+        for _, scores, _, base in cols:
+            # Use base if it's a pre-train column, otherwise the specific run score
+            val = base if scores is None else scores[i]
             row += f"  {val:>{W}.4f}"
         print(row)
 
-    print(f"  {'─'*22}" + f"  {'─'*W}" * len(cols))
-    mean_row = f"  {'Mean':22s}"
-    std_row  = f"  {'Std dev':22s}"
-    for _, scores, _ in cols:
+    print(f"  {'─' * 22}" + f"  {'─' * W}" * len(cols))
+    mean_row, std_row = f"  {'Mean':22s}", f"  {'Std dev':22s}"
+    for _, scores, _, base in cols:
         if scores is None:
-            mean_row += f"  {baseline_score:>{W}.4f}"
-            std_row  += f"  {'—':>{W}}"
+            mean_row += f"  {base:>{W}.4f}"
+            std_row += f"  {'—':>{W}}"
         else:
             mean_row += f"  {mean(scores):>{W}.4f}"
-            std_row  += f"  {std(scores):>{W}.4f}"
+            std_row += f"  {std(scores):>{W}.4f}"
     print(mean_row)
     print(std_row)
 

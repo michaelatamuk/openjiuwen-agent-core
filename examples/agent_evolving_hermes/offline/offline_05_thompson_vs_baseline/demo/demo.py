@@ -56,7 +56,7 @@ class Demo:
         # Evaluates the single-score baseline unconditionally; also evaluates the
         # multi-objective baseline when "no_ts_multi" is in run_modes so that
         # GEPA runs never need to re-evaluate the baseline themselves.
-        baseline_score, multi_baseline_dims = step_01_evaluate_baseline(
+        baseline_score_single, baseline_score_multi, multi_baseline_dims = step_01_evaluate_baseline(
             params.skills_root, params.skill_name, self._config.model,
             params.output_baseline, self._config.verbose,
             run_modes=self._config.run_modes,
@@ -64,12 +64,13 @@ class Demo:
 
         # ── Training passes ───────────────────────────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(
-            params, baseline_score=baseline_score, multi_baseline_dims=multi_baseline_dims,
+            params, baseline_score=baseline_score_single, multi_baseline_dims=multi_baseline_dims,
         )
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:
-            step_06_results_comparison(baseline_score,
+            step_06_results_comparison(baseline_score_single,
+                                       baseline_score_multi,
                                        scores_no_ts=trainings_results.scores_no_ts or None,
                                        scores_l2_l3=trainings_results.scores_l2_l3 or None,
                                        scores_l2=trainings_results.scores_l2 or None,
@@ -83,7 +84,8 @@ class Demo:
                                        ts_batch_size=self._config.ts_batch_size)
 
         # ── Step 8: Plots ─────────────────────────────────────────────────────
-        step_07_plot_results(baseline_score,
+        step_07_plot_results(baseline_score_single,
+                             baseline_score_multi,
                              scores_no_ts=trainings_results.scores_no_ts or None,
                              scores_no_ts_multi=trainings_results.scores_no_ts_multi or None,
                              scores_l2_l3=trainings_results.scores_l2_l3 or None,

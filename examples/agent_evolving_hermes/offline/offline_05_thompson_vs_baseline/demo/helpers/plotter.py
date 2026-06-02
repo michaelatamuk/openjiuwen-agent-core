@@ -40,7 +40,8 @@ def _color(label: str) -> str:
 
 
 def plot_results(
-    baseline_score: float,
+    baseline_score_single: float,
+    baseline_score_multi: float,
     scores_no_ts:  Optional[List[float]],
     scores_l2_l3:  Optional[List[float]],
     scores_l2:     Optional[List[float]],
@@ -88,7 +89,7 @@ def plot_results(
     ax = axes[panel]; panel += 1
 
     all_labels = ["Pre-train"] + [lbl for lbl, _ in mode_data]
-    all_means  = [baseline_score] + [mean(sc) for _, sc in mode_data]
+    all_means  = [baseline_score_single] + [mean(sc) for _, sc in mode_data]
     all_stds   = [0.0] + ([std(sc) for _, sc in mode_data] if multi else [0.0] * len(mode_data))
     colors     = [_color(lbl) for lbl in all_labels]
 
@@ -113,7 +114,7 @@ def plot_results(
             label, ha="center", va="bottom", fontsize=8.5,
         )
 
-    ax.axhline(baseline_score, color=_color("Pre-train"), linestyle="--",
+    ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
                linewidth=1.2, alpha=0.6, zorder=2)
     ax.set_xticks(list(x))
     ax.set_xticklabels(all_labels, fontsize=10)
@@ -132,7 +133,7 @@ def plot_results(
         ax = axes[panel]; panel += 1
 
         run_xs = list(range(1, n_runs + 1))
-        ax.axhline(baseline_score, color=_color("Pre-train"), linestyle="--",
+        ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
                    linewidth=1.2, alpha=0.5, label="Pre-train", zorder=2)
 
         for lbl, scores in mode_data:

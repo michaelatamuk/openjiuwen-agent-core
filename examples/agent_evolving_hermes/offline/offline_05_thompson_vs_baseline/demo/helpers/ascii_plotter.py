@@ -17,15 +17,16 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 # ── Colours (ANSI escape codes, skipped on terminals that don't support them) ─
 _ANSI = {
     "Pre-train": "\033[90m",   # dark grey
-    "No-TS":     "\033[94m",   # bright blue
-    "L2 only":   "\033[93m",   # bright yellow
-    "L3 only":   "\033[92m",   # bright green
-    "L2+L3":     "\033[95m",   # bright magenta
-    "reset":     "\033[0m",
-    "green":     "\033[92m",
-    "red":       "\033[91m",
-    "grey":      "\033[90m",
-    "bold":      "\033[1m",
+    "No-TS": "\033[94m",   # bright blue
+    "No-TS-Multi": "\033[96m",
+    "L2 only": "\033[93m",   # bright yellow
+    "L3 only": "\033[92m",   # bright green
+    "L2+L3": "\033[95m",   # bright magenta
+    "reset": "\033[0m",
+    "green": "\033[92m",
+    "red": "\033[91m",
+    "grey": "\033[90m",
+    "bold": "\033[1m",
 }
 
 BAR_CHARS = "▏▎▍▌▋▊▉█"   # eighth-block glyphs for smooth bars
@@ -223,7 +224,8 @@ def print_ci_forest(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def print_ascii_charts(
-    baseline_score: float,
+    baseline_score_single: float,
+    baseline_score_multi: float,
     scores_no_ts:  Optional[List[float]],
     scores_no_ts_multi: Optional[List[float]],
     scores_l2_l3:  Optional[List[float]],
@@ -245,11 +247,11 @@ def print_ascii_charts(
     multi = n_runs > 1
 
     # Chart 1 — always
-    print_score_bars(baseline_score, mode_data, multi=multi)
+    print_score_bars(baseline_score_single, mode_data, multi=multi)
 
     # Chart 2 — only when multiple runs
     if multi:
-        print_run_sparklines(baseline_score, mode_data, n_runs)
+        print_run_sparklines(baseline_score_multi, mode_data, n_runs)
 
     # Chart 3 — only when multiple runs AND No-TS present
     if multi and scores_no_ts:

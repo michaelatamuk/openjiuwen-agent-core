@@ -13,20 +13,18 @@ from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
 
 
 def _eval_multi_pass(
-    module: SkillModule,
-    holdout: list,
-    multi_judge: MultiObjectiveLLMJudge,
-    dim_names: List[str],
-    label: str,
-    console,
+        module: SkillModule,
+        holdout: list,
+        multi_judge: MultiObjectiveLLMJudge,
+        dim_names: List[str],
+        label: str,
+        console,
 ) -> Tuple[float, Dict[str, float]]:
-    """Score *module* on *holdout* with the multi-objective judge.
-
-    Returns ``(equal_weight_composite, {dim: mean_score})``.
-    """
+    """Score *module* on *holdout* with the multi-objective judge."""
     n = len(holdout)
     dim_accum: Dict[str, List[float]] = {d: [] for d in dim_names}
     composites: List[float] = []
+
     for i, ex in enumerate(holdout, start=1):
         try:
             pred = module(task_input=ex.task_input)
@@ -39,9 +37,14 @@ def _eval_multi_pass(
             vals = fs.as_list()
             for d, v in zip(dim_names, vals):
                 dim_accum[d].append(v)
+
             composite = sum(vals) / len(vals)
             composites.append(composite)
-            console.print(f"  [{i}/{n}] {label} → composite {composite:.4f}")
+
+            # Create a string representation of the dimensions for this pass
+            dims_str = ", ".join([f"{d}: {v:.2f}" for d, v in zip(dim_names, vals)])
+            console.print(f"  [{i}/{n}] {label} → composite {composite:.4f} | ({dims_str})")
+
         except Exception:
             for d in dim_names:
                 dim_accum[d].append(0.0)
@@ -54,40 +57,6 @@ def _eval_multi_pass(
         for d in dim_names
     }
     return composite_mean, dim_means
-
-
-def score_multi_baseline(
-    baseline_module: SkillModule,
-    dataset: EvalDataset,
-    config: EvolverConfig,
-    console,
-) -> Tuple[float, Dict[str, float]]:
-    """Evaluate baseline skill with the multi-objective judge BEFORE GEPA.
-
-    Call this after step 4 (baseline_module is ready) and pass the result to
-    ``evaluate_on_holdout`` via ``prior_multi_baseline_dims`` so that the
-    baseline is not re-evaluated after GEPA.
-
-    Returns ``(equal_weight_composite, {dim: mean_score})``.
-    """
-    holdout = dataset.holdout or dataset.val
-    n_holdout = len(holdout)
-    multi_judge = MultiObjectiveLLMJudge(
-        model=config.eval_model, max_skill_size=config.max_skill_size
-    )
-
-    console.print(
-        f"[bold]Evaluating pre-train skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
-    )
-    composite, dims = _eval_multi_pass(
-        baseline_module, holdout, multi_judge, MultiObjectiveFitnessScore.DIM_NAMES,
-        "pre-train skill", console,
-    )
-    console.print(
-        f"  Pre-train holdout score (multi): {composite:.4f}  ({n_holdout} examples)"
-    )
-    return composite, dims
 
 
 def evaluate_on_holdout(
@@ -115,9 +84,7 @@ def evaluate_on_holdout(
         }
 
     ``prior_baseline_score``      — honoured in "single" mode; skips re-evaluation.
-    ``prior_multi_baseline_dims`` — honoured in "multi" mode; pass the result of
-                                    ``score_multi_baseline()`` (called before GEPA)
-                                    to avoid re-evaluating the baseline here.
+    ``prior_multi_baseline_dims`` — honoured in "multi" mode; skips re-evaluation.
 
     Falls back to the val split if holdout is empty.
     """
@@ -185,7 +152,7 @@ def evaluate_on_holdout(
     )
     dim_names = MultiObjectiveFitnessScore.DIM_NAMES
 
-    # Baseline: use pre-computed dims (from score_multi_baseline, called before GEPA)
+    # Baseline: use pre-computed dims
     # if available, otherwise fall back to evaluating here.
     if prior_multi_baseline_dims is not None:
         baseline_dims = prior_multi_baseline_dims

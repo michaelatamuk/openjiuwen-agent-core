@@ -24,7 +24,7 @@ except ImportError:
 
 def _make_console() -> "Console":
     if _RICH:
-        return Console()
+        return Console(force_terminal=True, width=200)
 
     class _FallbackConsole:
         def print(self, *args, **kwargs):
