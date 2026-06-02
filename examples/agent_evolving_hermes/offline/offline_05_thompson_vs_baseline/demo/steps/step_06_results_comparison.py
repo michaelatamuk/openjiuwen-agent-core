@@ -42,9 +42,9 @@ def step(
     if scores_l2_l3:       mode_data.append(("L2+L3",       scores_l2_l3,       metrics_l2_l3))
 
     ran_labels = [label for label, _, _ in mode_data]
-    _banner("COMPARISON — Pre-train Single ·  Pre-train Multi ·  " + (
-        "  ·  ".join(ran_labels) if ran_labels else "(pre-training only)"
-    ))
+    pre_labels = ["Pre-train Single", "Pre-train Multi"] if baseline_score_multi is not None else ["Pre-train Single"]
+    all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
+    _banner("COMPARISON — " + "  ·  ".join(all_labels))
 
     if not mode_data:
         print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
@@ -142,11 +142,21 @@ def step(
     print(sel_row)
 
     # ── Winner ────────────────────────────────────────────────────────────
-    training_means = {label: mean(scores) for label, scores, _ in mode_data}
-    best_score = max(training_means.values())
-    ties = [k for k, v in training_means.items() if v == best_score]
-    winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
-    print(f"\n  ▶  Best evolution: {winner_str}  (mean holdout {best_score:.4f})")
+    # Prefer accepted modes; fall back to best score with a "(not accepted)" note.
+    accepted_modes = [(label, mean(scores)) for label, scores, m in mode_data
+                      if m and m.get("accepted")]
+    all_modes_scored = [(label, mean(scores)) for label, scores, _ in mode_data]
+
+    if accepted_modes:
+        best_score = max(s for _, s in accepted_modes)
+        ties = [k for k, s in accepted_modes if s == best_score]
+        winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
+        print(f"\n  ▶  Best accepted: {winner_str}  (mean holdout {best_score:.4f})")
+    else:
+        best_score = max(s for _, s in all_modes_scored)
+        ties = [k for k, s in all_modes_scored if s == best_score]
+        winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
+        print(f"\n  ▶  Best score: {winner_str}  (mean holdout {best_score:.4f})  — not accepted")
 
     if not multi:
         return

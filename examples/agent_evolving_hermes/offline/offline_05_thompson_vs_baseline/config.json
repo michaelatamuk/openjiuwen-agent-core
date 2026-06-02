@@ -1,6 +1,6 @@
 {
     "scenarios": [
-        "paper-review"
+        "rtos-review"
     ],
     "_scenarios": [
         "paper-review",

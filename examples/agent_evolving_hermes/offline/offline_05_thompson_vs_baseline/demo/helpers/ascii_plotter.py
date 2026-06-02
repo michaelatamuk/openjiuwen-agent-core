@@ -16,8 +16,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 # ── Colours (ANSI escape codes, skipped on terminals that don't support them) ─
 _ANSI = {
-    "Pre-train": "\033[90m",   # dark grey
-    "No-TS": "\033[94m",   # bright blue
+    "Pre-train": "\033[90m",   # dark grey (kept for back-compat)
+    "Pre-S":     "\033[90m",   # dark grey  — single baseline
+    "Pre-M":     "\033[36m",   # cyan       — multi baseline
+    "No-TS":     "\033[94m",   # bright blue
     "No-TS-Multi": "\033[96m",
     "L2 only": "\033[93m",   # bright yellow
     "L3 only": "\033[92m",   # bright green
@@ -59,11 +61,13 @@ def print_score_bars(
     baseline_score: float,
     mode_data: List[Tuple[str, List[float]]],
     multi: bool = False,
+    baseline_score_multi: Optional[float] = None,
 ) -> None:
     """Print a horizontal bar chart of holdout scores to stdout."""
-    all_items: list[tuple[str, List[float]]] = [
-        ("Pre-train", [baseline_score])
-    ] + mode_data
+    pre_items: list[tuple[str, List[float]]] = [("Pre-S", [baseline_score])]
+    if baseline_score_multi is not None:
+        pre_items.append(("Pre-M", [baseline_score_multi]))
+    all_items: list[tuple[str, List[float]]] = pre_items + mode_data
 
     max_score = max(mean(sc) for _, sc in all_items)
     label_w   = max(len(lbl) for lbl, _ in all_items)
@@ -247,7 +251,8 @@ def print_ascii_charts(
     multi = n_runs > 1
 
     # Chart 1 — always
-    print_score_bars(baseline_score_single, mode_data, multi=multi)
+    print_score_bars(baseline_score_single, mode_data, multi=multi,
+                     baseline_score_multi=baseline_score_multi)
 
     # Chart 2 — only when multiple runs
     # Use multi baseline for the reference label when available, else single.
