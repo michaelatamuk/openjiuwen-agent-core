@@ -310,6 +310,22 @@ All modes start from the **identical baseline skill** and the **identical pre-co
 - With enough runs (`n_runs ≥ 3`), typically produces the highest **reliable** improvement
 - Most expensive: each run uses a smaller trainset (L2) and may reject more often (L3)
 
+### Mode naming — suggested improvements
+
+> The current mode names are code-level identifiers, not user-facing labels.  Below are suggested clearer names — **none of these are changed in the codebase**, they are here to help you read the output.
+
+| Current name | Suggested name | Why it's clearer |
+|---|---|---|
+| `no_ts` | `gepa_uniform` | Makes clear: GEPA with no sampling, all examples used equally |
+| `no_ts_multi` | `gepa_rubric` | Makes clear: GEPA evaluated by a multi-dimension rubric judge |
+| `l2_only` | `gepa_focused` | Makes clear: GEPA focuses training budget on hard examples |
+| `l3_only` | `gepa_gated` | Makes clear: GEPA with a confidence gate on acceptance |
+| `l2_l3` | `gepa_full` or `gepa_prod` | Makes clear: full Thompson Sampling, production-grade |
+| `Pre-S` | `Baseline-Holistic` | The pre-training score from the holistic (single) judge |
+| `Pre-M` | `Baseline-Rubric` | The pre-training score from the rubric (multi) judge |
+
+---
+
 ### Mode influence on the comparison table
 
 ```
@@ -326,15 +342,183 @@ All modes start from the **identical baseline skill** and the **identical pre-co
 
 ---
 
+### How to compare No-TS (+0.20) vs No-TS-Multi (+0.08) — are they the same?
+
+**Short answer: No.  They are not directly comparable as numbers.**
+
+The two deltas are measured on different scales with different rubrics, so +0.20 in single-judge does not mean the same thing as +0.20 in multi-judge.  The question is not which delta is bigger, but what each delta tells you about the improvement.
+
+```
+ No-TS    Pre-S=0.44 → evolved=0.64   Δ = +0.20
+ No-TS-M  Pre-M=0.65 → evolved=0.73   Δ = +0.08
+```
+
+**What each delta actually tells you:**
+
+```
+ No-TS +0.20 (single judge):
+   The skill improved on the holistic score — likely better at correctness,
+   procedure, and conciseness overall.  But you cannot tell from this score
+   alone whether completeness or specificity got better or worse.
+   It's one number averaging over the things the single judge cares about.
+
+ No-TS-Multi +0.08 (multi-objective):
+   The skill improved on ALL 5 dimensions simultaneously (or the composite
+   rose despite some dimensions stagnating, as long as none dropped > 0.02).
+   A smaller delta here can mean MORE than a larger delta from the single judge
+   because it represents balanced improvement across harder criteria.
+```
+
+**Conceptual comparison — what to look for:**
+
+```
+ Case 1: No-TS large delta, No-TS-Multi small delta
+   → GEPA improved the skill on correctness/procedure/conciseness,
+     but completeness and specificity did not benefit much.
+   → The skill got better at "following instructions correctly"
+     but not at "being thorough and concrete."
+
+ Case 2: No-TS small delta, No-TS-Multi large delta
+   → GEPA improved completeness and specificity meaningfully,
+     but the holistic judge didn't weight those as heavily.
+   → The skill got better at "saying everything and being concrete"
+     but the overall holistic judgment didn't move as much.
+
+ Case 3: Both similar deltas
+   → The improvement is broad and consistent — both judges agree.
+   → This is the strongest signal that GEPA genuinely improved the skill.
+
+ Case 4: No-TS positive, No-TS-Multi zero or negative
+   → The rubric judge rejected because one dimension regressed.
+   → The single-judge improvement was misleading — the skill got better
+     at one thing by getting worse at another.
+   → This is the most important failure case to catch, and why
+     No-TS-Multi exists.
+```
+
+**The practical question to ask:**
+
+> *"Does the improvement I care about show up in the judge that measures what I care about?"*
+
+- If you care about **overall quality** and the task is well-defined: single judge delta is sufficient.
+- If you care about **no silent regressions** (skill got better at X but worse at Y): run `no_ts_multi` and look at the per-dimension breakdown in the output.
+- If both judges show a positive delta: high confidence the improvement is real.
+- If only single judge shows improvement: inspect the multi-obj dimension scores to understand what was traded off.
+
+---
+
 ## When Each Mode Excels and When It Struggles
 
 Each run mode makes different assumptions about your data and your time budget. Matching the mode to your situation is the single biggest lever for getting useful results.
 
 ---
 
+### Understanding training example difficulty
+
+All modes use the same training set, but they differ in how they **weight** examples.  Understanding difficulty is essential to understanding why some modes work better than others for a given dataset.
+
+#### What makes an example easy, medium, or hard?
+
+Difficulty is not about whether the agent gets the right answer — it is about whether the **skill fitness metric** can distinguish between a good and bad skill version on that example.  An example is hard if a poorly-written skill and a well-written skill produce outputs that look similar to the fitness metric; it is easy if a well-written skill is obviously better.
+
+```
+ EASY example
+ ─────────────────────────────────────────────────────────────────────
+ Task input:  "Review this C code: int* p = NULL; *p = 5;"
+ Expected:    NULL pointer dereference, severity critical, fix: add null check
+
+ The current skill already handles null-pointer cases well.
+ Even a mediocre evolved skill will use the right keywords
+ (NULL, dereference, pointer, fix) and pass the fitness check.
+
+ Impact on TS: the arm for this example collects high fitness from
+ almost every GEPA candidate → β grows → example is rarely selected
+ → no training budget wasted here
+ → but also: no signal about what differentiates a good skill
+
+ Identifying them: examples where the skill's current output scores
+ ≥ 0.7 on the single judge; topic is covered by the skill's main
+ keywords; output is always correct regardless of skill version.
+```
+
+```
+ MEDIUM example
+ ─────────────────────────────────────────────────────────────────────
+ Task input:  "Review this function: void callback() { mutex_lock(&m); }"
+ Expected:    Identify context (is this an ISR callback?), check if
+              mutex_lock is safe in this context
+
+ The skill handles basic mutex issues but sometimes misses context
+ detection. Some evolved candidates get it right, some don't.
+ Fitness varies between candidates.
+
+ Impact on TS: arm collects mixed fitness → α and β grow roughly
+ equally → example is selected occasionally → provides signal
+ about whether evolved skill improved context detection
+
+ Identifying them: examples where skill output is sometimes correct,
+ sometimes partially correct; topic is covered but edge-case dependent;
+ single-judge score between 0.4 and 0.7.
+```
+
+```
+ HARD example
+ ─────────────────────────────────────────────────────────────────────
+ Task input:  "Review: void IRAM_ATTR isr_handler() { xSemaphoreTake(
+               binary_sem, portMAX_DELAY); process_data(); }"
+ Expected:    xSemaphoreTake in ISR context is illegal; portMAX_DELAY
+              means blocking wait which will deadlock the ISR; must use
+              xSemaphoreTakeFromISR with higher-priority wakeup;
+              IRAM_ATTR indicates ISR; process_data() must be ISR-safe
+
+ The skill consistently misses the portMAX_DELAY → deadlock connection,
+ or misidentifies the context, or omits the ISR-safe function variant.
+ Only well-evolved candidates get all aspects right.
+ Fitness is low for most candidates.
+
+ Impact on TS: arm collects mostly low fitness → β grows faster than α
+ → example is selected very often → GEPA is forced to improve
+ the skill on exactly this type of case
+
+ Identifying them: examples where even the best current skill version
+ scores ≤ 0.4; topic requires multi-step reasoning the skill hasn't
+ mastered; output is consistently incomplete or partially wrong.
+```
+
+#### Why difficulty distribution matters for mode choice
+
+```
+ All examples easy:
+   → No mode benefits from TS example selection (L2)
+   → no_ts will already find improvements quickly
+   → l2_l3 has no benefit over no_ts; the arms never diverge
+
+ All examples hard:
+   → All examples always selected (arms stay uniform)
+   → L2 TS adds no filtering benefit
+   → GEPA may struggle to improve at all: fitness stays low everywhere
+   → Better action: improve the skill baseline first, then re-run
+
+ Mixed (some easy, some hard):
+   → This is where L2 TS adds real value
+   → Arms diverge: easy examples filtered out after run 2–3
+   → GEPA consistently trains on the hard subset from run 3 onward
+   → l2_only and l2_l3 outperform no_ts reliably
+
+ Example for rtos-review:
+   Easy:   null-pointer, buffer overflow (skill already covers these well)
+   Medium: mutex in callback context, stack overflow in task
+   Hard:   ISR-context semaphore with portMAX_DELAY, priority inversion
+           in ISR chain, xQueueSendFromISR with incorrect parameters
+```
+
+---
+
 ### `no_ts` — No Thompson Sampling
 
 **What it does:** Trains GEPA on all available training examples with equal weight.  The acceptance gate is a simple threshold check (`improvement ≥ min_improvement_threshold`).
+
+> **In plain English:** Imagine you are a teacher preparing a student for a test.  You give the student all 10 practice questions every session, regardless of which ones they already know and which ones they keep getting wrong.  At the end, you check their score; if it improved at all, you consider the session a success.  Simple, fair, but potentially wasteful — the student spends half the session on easy questions they already know.
 
 #### When it works well
 - **Baseline establishment** — the right first run; gives a reliable reference point before adding TS complexity
@@ -363,6 +547,8 @@ baseline skill:  any valid SKILL.md; the less evolved the better (more room to i
 
 **What it does:** Identical training loop to `no_ts`, but the holdout judge scores 5 independent dimensions (correctness, procedure_following, conciseness, completeness, specificity).  Acceptance requires a weighted aggregate improvement **and** no single dimension dropping more than 0.02 below baseline.
 
+> **In plain English:** Same teacher, same 10 questions — but now the grading rubric has five separate categories (accuracy, format, clarity, coverage, specificity) instead of one overall grade.  You accept the session's result only if the student improved overall **and** didn't fall behind in any single category.  A student who aced accuracy but suddenly stopped covering all aspects of the question fails even if the total score went up.  More demanding, but you catch improvements that came at the cost of something important.
+
 #### When it works well
 - **Quality regression prevention** — when a skill has known weak dimensions (e.g. always concise but sometimes incomplete), multi-obj catches trades that would look like improvements in single-score
 - **Broad skill coverage** — the skill is expected to handle a wide range of sub-tasks; single-score would average over all of them and miss per-dimension regressions
@@ -388,6 +574,8 @@ dimensions:      review MultiObjectiveJudgeSignature prompts — customise per s
 ### `l2_only` — Thompson Sampling on Example Selection
 
 **What it does:** Uses Beta arms (one per training example) to select the top-`ts_batch_size` examples for each GEPA run.  Examples where GEPA consistently produces high fitness get lower α; examples where GEPA struggles get higher β (harder → more often selected).  The acceptance gate is still a simple threshold.
+
+> **In plain English:** Same teacher, but now they keep a notebook tracking which questions the student keeps getting wrong.  Each session, they prioritise those specific hard questions instead of going through all 10 again.  If the student finally masters a hard question, the teacher moves on to the next hardest one.  The grading at the end is still simple (any improvement counts), but the *practice sessions* are now targeted at actual weaknesses.  After a few sessions, the teacher knows exactly which 3–4 questions to focus on every time — and the student improves on exactly those.
 
 #### When it works well
 - **Heterogeneous, large trainsets (≥ 10 examples)** — TS finds the discriminating hard examples after 2–3 runs; budget concentrates exactly where the skill needs improvement
@@ -428,6 +616,8 @@ After run 3, GEPA consistently sees the 2 hard examples every run.
 
 **What it does:** Trains on all examples (no TS filtering), but replaces the threshold gate with a **confidence gate**: `P(candidate arm > deployed arm) ≥ 0.75` (100 Monte Carlo draws from Beta distributions).  Each accepted evolution raises the deployed arm's α; each rejected evolution raises the candidate arm's β.
 
+> **In plain English:** Same teacher, same 10 questions — but they have a high bar for considering the student "ready for the exam."  One good session is not enough.  The teacher maintains a mental model of how good the current student performance is (the deployed skill), and how good the new session's result was (the candidate).  They will only upgrade their assessment of the student if the new session's result is *reliably* better — not just once by luck.  If the student had a great session on an easy day, the teacher says "that's good, but let's see if you can do it again consistently."  Only after consistent evidence does the teacher raise the bar of what "passing" means.
+
 #### When it works well
 - **Preventing lucky-shot acceptance** — the confidence requirement means a single strong holdout evaluation isn't enough; the gate requires consistent evidence across runs
 - **Gradual quality ratchet** — once accepted, the deployed arm becomes harder to beat; the quality bar rises automatically with each accepted evolution
@@ -453,6 +643,8 @@ baseline skill:           must be genuinely good — if baseline is weak,
 ### `l2_l3` — Full Thompson Sampling (L2 + L3)
 
 **What it does:** Combines example-selection arms (L2) and acceptance-gate arms (L3).  GEPA trains on the TS-selected hard-example subset **and** requires P ≥ 0.75 confidence before accepting.
+
+> **In plain English:** The most careful teacher: they *both* focus sessions on the student's hardest questions *and* hold a high bar for declaring the student ready.  After a few sessions, the teacher is drilling exactly the 3–4 hardest questions every time (L2 focus), and only accepting the evolution if the student consistently performs well on those hard questions across multiple sessions (L3 confidence).  This is the most demanding approach, but it produces the most trustworthy result: you know the evolved skill improved on the hard cases, and you know it wasn't a one-off lucky evaluation.
 
 #### When it works well
 - **Production-grade offline benchmark** — the gold-standard mode for skills that will be deployed; both filtering and confidence protection active
@@ -490,6 +682,115 @@ arm persistence: keep ts_state/ — each session should warm-start from the last
  Pure ablation: is TS helping at all?      no_ts + l2_l3  (compare both)
  Iterative sessions over weeks             l2_l3, warm-start each session
  ─────────────────────────────────────────────────────────────────────
+```
+
+---
+
+### What each mode needs from training data to "win"
+
+A mode "wins" in the comparison table when it produces the highest mean accepted score after `n_runs` runs.  Each mode has specific conditions under which it can win — if those conditions are not met by your training data, the mode will not outperform simpler alternatives.
+
+```
+ Mode           Training data requirement to win
+ ─────────────────────────────────────────────────────────────────────
+ no_ts          Any training data works.  Wins by default when:
+                  • dataset is small (< 8 examples)
+                  • all examples are similar difficulty (no variation)
+                  • n_runs = 1 (no TS convergence possible anyway)
+                Wins easily but produces the lowest ceiling — cannot
+                improve further once the obvious gains are found.
+
+ no_ts_multi    Requires a capable judge LLM (GPT-4 class).  Wins when:
+                  • training covers diverse sub-tasks (breadth)
+                  • you care about completeness and specificity
+                  • n_runs ≥ 3 (weight calibration adds value)
+                Can beat no_ts on total improvement if the skill has
+                silent weaknesses in completeness/specificity that
+                the single judge misses.
+
+ l2_only        Requires genuine difficulty variation in training.  Wins when:
+                  • ≥ 8 training examples with at least 3 hard ones
+                  • n_runs ≥ 3 (arms need time to diverge)
+                  • ts_batch_size ≤ 50% of training set
+                Does NOT win if all examples are easy (no filtering signal)
+                or all hard (arms stay uniform, no filtering benefit).
+                Needs the hard examples to be *identifiable* — i.e., the
+                fitness metric must score them differently from easy ones.
+
+ l3_only        Requires stable, reliable holdout evaluation.  Wins when:
+                  • holdout ≥ 5 examples
+                  • judge LLM produces consistent scores across runs
+                  • n_runs ≥ 3 (gate arms need history)
+                Does NOT win if judge noise is high (gate never clears)
+                or if the improvement ceiling is low (gate threshold
+                never reached even with a genuinely better skill).
+                Can match l2_l3 if the hard examples are already covered.
+
+ l2_l3          Requires both: difficulty variation AND stable holdout.  Wins when:
+                  • All l2_only conditions met (hard examples present)
+                  • All l3_only conditions met (holdout reliable)
+                  • n_runs ≥ 3 (both arm types need convergence)
+                This is the hardest mode to win with on small datasets
+                (both mechanisms underperform), but the most reliable
+                winner with good data and enough runs.
+ ─────────────────────────────────────────────────────────────────────
+```
+
+---
+
+### Are the current demo scenarios good enough for each mode?
+
+The demo scenarios (rtos-review and others) have **20 golden examples each**: 4 easy, 8 medium, 8 hard.  The dataset is split as train=10, val=5, holdout=5.
+
+Assuming a balanced split (~2 easy, ~4 medium, ~4 hard in training; ~1 easy, ~2 medium, ~2 hard in holdout):
+
+```
+ Mode           Is the demo dataset good enough?
+ ─────────────────────────────────────────────────────────────────────
+ no_ts          ✓  Always works — no special requirements.
+                   Expected improvement: moderate (+0.15 to +0.25 on
+                   a baseline skill with deliberate gaps).
+
+ no_ts_multi    ✓  With a capable judge, the 5 dimensions are all
+                   meaningful for rtos-review (specificity and
+                   completeness are exactly what the baseline skill
+                   lacks).  Dynamic weights become useful by run 3.
+                   Expected: smaller delta than no_ts, but a healthier
+                   improvement with no dimension regressions.
+
+ l2_only        ✓  4 hard examples in training is enough for L2 arms
+                   to diverge.  The 8 hard rtos-review examples are
+                   genuinely hard (ISR-context, memory barriers, torn
+                   reads) — fitness scores on these are reliably low
+                   for a non-expert skill.  Arms should converge clearly
+                   by run 3 with ts_batch_size=4.
+                   Caveat: run 1 will look like no_ts (cold start).
+
+ l3_only        ~ With only 5 holdout examples, the L3 confidence
+                   estimate is coarse.  Judge score variance on the 2
+                   hard holdout examples can move the P(cand>deploy)
+                   estimate by ±0.10 between runs.  Works but benefits
+                   from n_runs ≥ 4.  With 5 holdout examples and a
+                   capable judge, the gate is usable but not tight.
+
+ l2_l3          ~ Same caveats as l3_only on holdout size.  The L2
+                   component works well (see above).  The L3 gate may
+                   be slightly noisy with only 5 holdout examples.
+                   Recommendation: use n_runs=3 minimum; with n_runs=5
+                   the gate becomes reliable.
+                   With the current demo examples: expect l2_l3 to win
+                   over no_ts clearly by run 3, but with high variance
+                   on single runs.
+ ─────────────────────────────────────────────────────────────────────
+
+ Overall assessment for rtos-review with 20 examples:
+   • The dataset is well-designed for TS — deliberate difficulty gradient
+   • Hard examples are clearly hard (domain-specific, multi-step)
+   • n_runs=3 is sufficient for l2_only; n_runs=4 recommended for l2_l3
+   • The main limitation is holdout size (5 examples) — this creates
+     score variance that limits how tight the L3 gate can be
+   • Expanding holdout to 8 examples (and training to 12) would make
+     l2_l3 significantly more reliable
 ```
 
 ---
@@ -864,11 +1165,20 @@ When both are active (`l2_l3`):
 
 ## Scoring Modes — Single vs Multi-Objective
 
-### Single LLM judge (`no_ts`, `l2_only`, `l3_only`, `l2_l3`)
+> **Naming note:** The names `single` and `multi` describe the judge, not the quality of measurement.
+> Better names would be:
+> - `single` → **`holistic`** (one composite score, one call per example)
+> - `multi` → **`rubric`** or **`balanced`** (separate per-dimension scores, guards each independently)
+>
+> The current names are kept throughout the codebase for code compatibility.
+
+---
+
+### Single judge — what it measures and how (`no_ts`, `l2_only`, `l3_only`, `l2_l3`)
 
 **File:** `stage08_holdout_evaluator_judge.py`
 
-One LLM-as-judge call per holdout example.  The judge returns three sub-scores plus a length penalty:
+One LLM-as-judge call per holdout example.  The judge scores three dimensions and a length penalty is computed separately:
 
 ```python
 @dataclass
@@ -884,7 +1194,29 @@ class FitnessScore:
         return max(0.0, raw - self.length_penalty)
 ```
 
-**Length penalty detail:**
+#### What each single-judge dimension means
+
+**`correctness` (weight 0.50)**
+- *What it asks:* Did the agent identify the right problem, produce the right answer, or take the right action — given the task input and the expected output?
+- *How the judge measures it:* The LLM judge compares the agent's output to the gold/expected answer and scores 0–1 based on factual accuracy, logical correctness, and absence of errors.
+- *In rtos-review terms:* Did the skill correctly identify the specific RTOS violation (e.g. "ISR-context semaphore acquire") rather than a generic comment ("possible concurrency issue")?
+- *Why it dominates (50%):* Getting the right answer is the primary requirement; procedure and conciseness are secondary.
+
+**`procedure_following` (weight 0.30)**
+- *What it asks:* Did the agent follow the workflow and steps specified in the skill definition, or did it improvise?
+- *How the judge measures it:* Checks whether the output structure, analysis steps, and required elements match what the SKILL.md specifies (e.g. "identify ISR context → check blocking call → state risk level → suggest fix").
+- *In rtos-review terms:* Did the review include all required sections (issue description, severity, code location, fix recommendation) in the correct order and format?
+- *Why it matters:* A skill that gets the right answer but ignores its own procedure will be inconsistent in production.
+
+**`conciseness` (weight 0.20)**
+- *What it asks:* Is the output appropriately brief — no padding, no repeated content, no walls of boilerplate?
+- *How the judge measures it:* LLM judges whether the output contains only necessary information, penalising repetition, filler sentences, and obvious statements.
+- *In rtos-review terms:* Does the review say "ISR uses xSemaphoreTake — blocking call not safe in ISR context, replace with xSemaphoreTakeFromISR" rather than two paragraphs explaining FreeRTOS ISR semantics?
+- *Why it matters:* An agent that always produces very long outputs passes the length constraint but provides poor user experience; conciseness keeps the evolved skill sharp.
+
+**Length penalty (separate, not from judge)**
+- Applied *after* the composite is computed based on the evolved skill file size, not the output content.
+- Purpose: prevent GEPA from padding the skill definition with keywords to artificially boost the fitness metric.
 
 ```
  Skill size    Penalty
@@ -895,9 +1227,9 @@ class FitnessScore:
  >15,000 B     0.30    (capped; size constraint will also reject this)
 ```
 
-The penalty prevents the optimizer from padding the skill with text that superficially matches keywords.
+---
 
-### Multi-objective judge (`no_ts_multi`)
+### Multi-objective judge — what it measures and how (`no_ts_multi`)
 
 **File:** `stage08_holdout_evaluator_judge_multi.py`
 
@@ -914,6 +1246,53 @@ class MultiObjectiveFitnessScore:
     feedback:             str     # one-sentence diagnosis from the judge
 ```
 
+#### What each multi-judge dimension means
+
+**`correctness`**
+- *Same as single judge* — factual accuracy against gold answer. Consistent across both judges.
+
+**`procedure_following`**
+- *Same as single judge* — did the agent follow the SKILL.md workflow steps?
+
+**`conciseness`**
+- *Same as single judge* — no padding, no filler, appropriately brief.
+
+**`completeness` (new in multi-judge)**
+- *What it asks:* Did the output cover **all** required aspects, not just the most obvious one?
+- *How the judge measures it:* Checks whether every required element named in the skill definition was addressed in the output. Missing elements (e.g. "gave severity but no fix recommendation") lower the score.
+- *In rtos-review terms:* A review that correctly identifies the ISR issue but omits a fix recommendation scores high on correctness but low on completeness.
+- *Key difference from correctness:* Correctness = "was what you said right?"; Completeness = "did you say everything that needed to be said?"
+
+**`specificity` (new in multi-judge)**
+- *What it asks:* Are the findings concrete and actionable, not vague and generic?
+- *How the judge measures it:* Penalises output that could apply to any codebase ("this may cause issues"), rewards output that references specific code constructs, line numbers, variable names, or API names.
+- *In rtos-review terms:* "The call to `xSemaphoreTake(mutex, portMAX_DELAY)` on line 47 of `isr_handler.c` will block the ISR indefinitely — replace with `xSemaphoreTakeFromISR()`" scores high; "there is a potential synchronisation problem" scores low.
+- *Why it matters:* GEPA can produce outputs that are technically correct but useless in practice ("check your concurrency primitives"). Specificity catches this.
+
+#### How single and multi judge differ in practice
+
+```
+ Dimension       Single judge    Multi judge    Notes
+ ─────────────────────────────────────────────────────────────────────
+ correctness         ✓               ✓          identical definition
+ procedure_fol       ✓               ✓          identical definition
+ conciseness         ✓               ✓          identical definition
+ completeness        —               ✓          multi-only
+ specificity         —               ✓          multi-only
+ length_penalty      ✓               —          single-only (applied post-composite)
+ ─────────────────────────────────────────────────────────────────────
+
+ A skill can score well on the single judge (correct + follows procedure + concise)
+ while still being incomplete and vague.  The multi judge catches both failure modes.
+
+ Example:
+   Output: "The ISR uses a semaphore incorrectly. This is a common RTOS issue."
+   Single judge: correctness=0.6, procedure=0.5, conciseness=0.8 → composite≈0.62
+   Multi  judge: correctness=0.5, procedure=0.5, conciseness=0.8,
+                 completeness=0.2 (no fix), specificity=0.1 (no concrete info)
+                 → composite≈0.42
+```
+
 **Composite at baseline (equal weights):**
 
 ```
@@ -925,6 +1304,8 @@ composite = (correctness + procedure_following + conciseness + completeness + sp
 ```
 composite = Σ(weight_i × score_i) / Σ(weight_i)
 ```
+
+---
 
 ### Dynamic weight update — full algorithm
 
@@ -961,6 +1342,8 @@ composite = Σ(weight_i × score_i) / Σ(weight_i)
                  are already improving on their own.
 ```
 
+---
+
 ### No-regression check
 
 Runs before the acceptance gate.  If any dimension drops more than 0.02 below its baseline value, the candidate is **rejected** even if the composite score improved.
@@ -975,7 +1358,14 @@ Runs before the acceptance gate.  If any dimension drops more than 0.02 below it
 
 This prevents the optimizer from trading off one capability for another (e.g., gaining specificity by becoming less complete).
 
+---
+
 ### Two separate baselines (Pre-S vs Pre-M)
+
+> **Naming note:** `Pre-S` and `Pre-M` are short for "pre-training single" and "pre-training multi".
+> Better names would be:
+> - `Pre-S` → **`Baseline-Holistic`** or **`Pre-Composite`** (before training, holistic score)
+> - `Pre-M` → **`Baseline-Rubric`** or **`Pre-Rubric`** (before training, rubric score)
 
 ```
  Pre-S = single judge on pre-training skill = 0.44
