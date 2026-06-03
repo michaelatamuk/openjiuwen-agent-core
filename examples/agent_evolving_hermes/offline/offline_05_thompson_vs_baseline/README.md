@@ -419,71 +419,102 @@ All modes use the same training set, but they differ in how they **weight** exam
 
 #### What makes an example easy, medium, or hard?
 
-Difficulty is not about whether the agent gets the right answer — it is about whether the **skill fitness metric** can distinguish between a good and bad skill version on that example.  An example is hard if a poorly-written skill and a well-written skill produce outputs that look similar to the fitness metric; it is easy if a well-written skill is obviously better.
+Difficulty is measured from the perspective of the **GEPA optimizer**, not the final user.  An example is **easy** if GEPA can reliably find evolved candidates that score well on it — meaning even modest rewrites of the skill produce the right keywords/content.  An example is **hard** if even the best GEPA candidate consistently fails to produce the expected content — meaning the fitness metric never rises above 0.5 no matter what GEPA tries.
+
+The **medium** zone is where L2 Thompson Sampling adds the most value: examples where GEPA sometimes succeeds and sometimes fails.  These provide a learning signal precisely because there is variance.
+
+The examples below use a **recipe review skill** — a skill that reviews written recipes and identifies problems.  No technical knowledge needed.
 
 ```
  EASY example
  ─────────────────────────────────────────────────────────────────────
- Task input:  "Review this C code: int* p = NULL; *p = 5;"
- Expected:    NULL pointer dereference, severity critical, fix: add null check
+ Task:      Review this recipe step: "Bring a large pot of water to a
+            boil, then add a generous pinch of salt before adding pasta."
+ Expected:  Correct technique. Salt before pasta is standard.
+            Mention: timing, proportion (1 tsp per litre), flavour benefit.
 
- The current skill already handles null-pointer cases well.
- Even a mediocre evolved skill will use the right keywords
- (NULL, dereference, pointer, fix) and pass the fitness check.
+ The recipe assistant skill already handles basic pasta/salt questions.
+ Every version of the skill — even the original unimproved one — will
+ mention "salt," "boiling," "pasta," "correct" and score ≥ 0.5 on the
+ fitness metric.  GEPA always "succeeds" on this example.
 
- Impact on TS: the arm for this example collects high fitness from
- almost every GEPA candidate → β grows → example is rarely selected
- → no training budget wasted here
- → but also: no signal about what differentiates a good skill
+ Impact on TS arm (α++ when fitness ≥ 0.5, β++ otherwise):
+   → Almost every GEPA run scores ≥ 0.5 here
+   → α grows steadily: Alpha=1 → 2 → 3 → 4 → 5 after 5 runs
+   → Beta stays low: Beta=1 → 1 → 1 → 1 → 1
+   → Arm mean rises to ≈ 0.83 (Alpha=5, Beta=1)
+   → Example gets selected frequently — high exploitation
+   → But: since the skill already handles this, selection here
+     adds no new signal. GEPA "polishes" something already polished.
 
- Identifying them: examples where the skill's current output scores
- ≥ 0.7 on the single judge; topic is covered by the skill's main
- keywords; output is always correct regardless of skill version.
+ Identifying them: any topic the current skill covers confidently;
+ fitness ≥ 0.7 consistently; judge score ≥ 0.7 regardless of skill version.
 ```
 
 ```
  MEDIUM example
  ─────────────────────────────────────────────────────────────────────
- Task input:  "Review this function: void callback() { mutex_lock(&m); }"
- Expected:    Identify context (is this an ISR callback?), check if
-              mutex_lock is safe in this context
+ Task:      Review: "Use room temperature butter when making shortcrust pastry."
+ Expected:  Flag as potentially incorrect. Cold butter is better for
+            shortcrust pastry — fat must stay solid to create flaky layers.
+            Room temperature butter is correct for creaming (cakes, cookies),
+            not for rubbed-in pastry. Suggest: butter straight from fridge,
+            cut into cubes.
 
- The skill handles basic mutex issues but sometimes misses context
- detection. Some evolved candidates get it right, some don't.
- Fitness varies between candidates.
+ A partially-improved skill might correctly say "cold butter is better"
+ but miss the explanation of WHY (solid fat = flaky layers). Some GEPA
+ candidates produce the right keywords ("cold," "flaky," "layers");
+ others just say "incorrect" without the technical reason.
+ Fitness varies run to run: sometimes ≥ 0.5, sometimes < 0.5.
 
- Impact on TS: arm collects mixed fitness → α and β grow roughly
- equally → example is selected occasionally → provides signal
- about whether evolved skill improved context detection
+ Impact on TS arm:
+   → Run 1: fitness=0.6 → α=2, β=1 (arm mean=0.67)
+   → Run 2: fitness=0.3 → α=2, β=2 (arm mean=0.50) ← reverted
+   → Run 3: fitness=0.7 → α=3, β=2 (arm mean=0.60)
+   → Run 4: fitness=0.4 → α=3, β=3 (arm mean=0.50) ← reverted again
+   → Both Alpha and Beta growing → arm has HIGH VARIANCE
+   → Thompson sampling sometimes draws a high θ from this arm
+   → Example gets selected regularly, providing real learning signal
 
- Identifying them: examples where skill output is sometimes correct,
- sometimes partially correct; topic is covered but edge-case dependent;
- single-judge score between 0.4 and 0.7.
+ Identifying them: fitness oscillates between 0.3 and 0.7; topic is
+ in the skill's domain but requires nuanced knowledge; judge score
+ between 0.4 and 0.7; sometimes correct, sometimes partially wrong.
 ```
 
 ```
  HARD example
  ─────────────────────────────────────────────────────────────────────
- Task input:  "Review: void IRAM_ATTR isr_handler() { xSemaphoreTake(
-               binary_sem, portMAX_DELAY); process_data(); }"
- Expected:    xSemaphoreTake in ISR context is illegal; portMAX_DELAY
-              means blocking wait which will deadlock the ISR; must use
-              xSemaphoreTakeFromISR with higher-priority wakeup;
-              IRAM_ATTR indicates ISR; process_data() must be ISR-safe
+ Task:      Review: "Melt dark chocolate by placing the bowl directly
+            over a pot of vigorously boiling water."
+ Expected:  Two specific problems: (1) vigorous boiling → steam can
+            enter the bowl → even a single drop of water seizes
+            chocolate (turns grainy and unusable); (2) bowl touching
+            boiling water → chocolate overheats above 55°C → becomes
+            dull and grainy. Correct: gentle simmer, bowl not touching
+            water, stir constantly, use thermometer, target 45–50°C.
 
- The skill consistently misses the portMAX_DELAY → deadlock connection,
- or misidentifies the context, or omits the ISR-safe function variant.
- Only well-evolved candidates get all aspects right.
- Fitness is low for most candidates.
+ Even a well-evolved recipe skill will say "use a double boiler" and
+ "be careful of water" — but will miss the SPECIFIC failure modes:
+ the steam seizing mechanism, the exact temperature range, the vigorous
+ vs gentle simmer distinction. The rare keywords ("seize," "55°C,"
+ "steam contamination," "grainy") never appear in GEPA candidates.
 
- Impact on TS: arm collects mostly low fitness → β grows faster than α
- → example is selected very often → GEPA is forced to improve
- the skill on exactly this type of case
+ Impact on TS arm:
+   → Fitness consistently < 0.5 across all GEPA runs
+   → β grows steadily: Beta=1 → 2 → 3 → 4 → 5 after 5 runs
+   → Alpha stays low: Alpha=1 → 1 → 1 → 1 → 1
+   → Arm mean drops to ≈ 0.17 (Alpha=1, Beta=5)
+   → Example rarely selected — Thompson sampling rarely draws
+     a θ this low high enough to compete with medium/easy examples
+   → Effectively deprioritized until the skill base improves enough
+     for GEPA to find candidates that include these specific terms
 
- Identifying them: examples where even the best current skill version
- scores ≤ 0.4; topic requires multi-step reasoning the skill hasn't
- mastered; output is consistently incomplete or partially wrong.
+ Identifying them: fitness < 0.3 on almost every run; expected output
+ contains rare domain-specific terms; even the best GEPA candidate
+ misses the key content; judge score ≤ 0.4.
 ```
+
+> **Important nuance:** L2 Thompson Sampling does NOT primarily focus on the hardest examples.  It focuses on examples where GEPA can make progress — the "medium" zone.  Truly hard examples (where GEPA always fails) get deprioritized because the fitness signal there provides no useful gradient.  The L2 arm is asking "can GEPA learn from this example right now?" not "is this example hard for the final skill?"
 
 #### Why difficulty distribution matters for mode choice
 
@@ -573,9 +604,19 @@ dimensions:      review MultiObjectiveJudgeSignature prompts — customise per s
 
 ### `l2_only` — Thompson Sampling on Example Selection
 
-**What it does:** Uses Beta arms (one per training example) to select the top-`ts_batch_size` examples for each GEPA run.  Examples where GEPA consistently produces high fitness get lower α; examples where GEPA struggles get higher β (harder → more often selected).  The acceptance gate is still a simple threshold.
+**What it does:** Uses Beta arms (one per training example) to select the top-`ts_batch_size` examples for each GEPA run.  The arm update rule is: **α++ when fitness ≥ 0.5** (GEPA produced a good output on this example), **β++ when fitness < 0.5** (GEPA struggled).  The example with the highest sampled θ from its Beta(α, β) distribution gets selected.  The acceptance gate is still a simple threshold.
 
-> **In plain English:** Same teacher, but now they keep a notebook tracking which questions the student keeps getting wrong.  Each session, they prioritise those specific hard questions instead of going through all 10 again.  If the student finally masters a hard question, the teacher moves on to the next hardest one.  The grading at the end is still simple (any improvement counts), but the *practice sessions* are now targeted at actual weaknesses.  After a few sessions, the teacher knows exactly which 3–4 questions to focus on every time — and the student improves on exactly those.
+> **In plain English:** Same teacher, but now they keep a notebook tracking which practice questions are producing useful study sessions.  Here is how the notebook works:
+>
+> Each practice question starts with a "track record" of Alpha=1, Beta=1 — a fresh, unknown question.  Think of Alpha as "this question helped the student improve" tallies, and Beta as "this question was a dead end" tallies.  After each study session, the teacher updates the notebook: if working on this question led to a good result (fitness ≥ 0.5), they add a tally to Alpha.  If it didn't help (fitness < 0.5), they add a tally to Beta.
+>
+> Before each session, the teacher picks questions by "rolling a weighted die" for each one — a die loaded according to each question's Alpha vs Beta history.  Questions with more Alpha tallies roll high more often and get picked more.  Questions with more Beta tallies roll low more often and rarely get picked.
+>
+> **Run 1:** All questions are unknown (Alpha=1, Beta=1 each) → die roll is random → any question can be picked.
+>
+> **Run 3+:** Questions where training keeps working (medium difficulty, progress is real) have accumulated Alpha tallies → their die rolls high consistently → they get picked most sessions.  Questions where training never works (too hard for GEPA to make progress) have accumulated Beta tallies → they roll low → rarely picked.  Questions the skill already handles perfectly (easy) also accumulate Alpha → picked often, but they add no learning value.
+>
+> **The sweet spot** is medium-difficulty questions: sometimes the die rolls high, sometimes not.  This uncertainty is exactly what Thompson Sampling exploits — by occasionally picking any example type (exploration) while mostly sticking with productive ones (exploitation), GEPA naturally gravitates toward the examples that are currently at the frontier of what it can improve.
 
 #### When it works well
 - **Heterogeneous, large trainsets (≥ 10 examples)** — TS finds the discriminating hard examples after 2–3 runs; budget concentrates exactly where the skill needs improvement
@@ -614,9 +655,22 @@ After run 3, GEPA consistently sees the 2 hard examples every run.
 
 ### `l3_only` — Thompson Sampling on Acceptance Gate
 
-**What it does:** Trains on all examples (no TS filtering), but replaces the threshold gate with a **confidence gate**: `P(candidate arm > deployed arm) ≥ 0.75` (100 Monte Carlo draws from Beta distributions).  Each accepted evolution raises the deployed arm's α; each rejected evolution raises the candidate arm's β.
+**What it does:** Trains on all examples (no TS filtering), but replaces the threshold gate with a **confidence gate**: `P(candidate arm > deployed arm) ≥ 0.75` (100 Monte Carlo draws from Beta distributions).  The deployed arm starts at Beta(1, 1); each accepted evolution adds Alpha++ to the deployed arm; each rejected candidate adds Beta++ to the candidate arm.
 
-> **In plain English:** Same teacher, same 10 questions — but they have a high bar for considering the student "ready for the exam."  One good session is not enough.  The teacher maintains a mental model of how good the current student performance is (the deployed skill), and how good the new session's result was (the candidate).  They will only upgrade their assessment of the student if the new session's result is *reliably* better — not just once by luck.  If the student had a great session on an easy day, the teacher says "that's good, but let's see if you can do it again consistently."  Only after consistent evidence does the teacher raise the bar of what "passing" means.
+> **In plain English:** Same teacher, same 10 questions — but now the teacher has a "two track records" notebook, not a question selector.
+>
+> **Track 1 — Deployed skill:** represents the current published version of the skill.  Alpha = number of times an evolution was accepted and raised the quality bar.  Beta = starts at 1 (prior).  Think of it as: "how much history of real improvement does the current skill have?"
+>
+> **Track 2 — Candidate skill:** represents the new version GEPA just produced.  Alpha starts at 1 (no evidence yet), Beta grows each time a candidate is rejected.  Think of it as: "how many times has this type of candidate failed before being accepted?"
+>
+> **Before deploying the new skill:** the teacher doesn't just check "is the new score higher?"  Instead they flip both coins 100 times and count: "in how many of those 100 imaginary trials did the candidate coin land higher than the deployed coin?"  If the candidate beat the deployed version in 75 or more out of 100 flips, deploy.  Otherwise, reject.
+>
+> **What Alpha and Beta represent in the gate:**
+> - Deployed arm's Alpha grows every time an evolution is accepted → the deployed bar gets harder to beat with each successful deployment
+> - Candidate arm's Beta grows every time a candidate is rejected → a series of rejections makes the next candidate even less likely to be accepted (it starts with a worse prior)
+> - A candidate arm's Alpha grows when it's eventually accepted → but Beta resets for the next candidate cycle
+>
+> **The key insight:** if the deployed skill has been accepted 3 times (Alpha=4), its Beta distribution is concentrated toward high quality.  A new candidate with no history (Beta(1,1)) must score clearly higher on the holdout to flip its coin above the deployed coin in 75% of 100 trials.  One lucky evaluation is not enough — the math requires consistent evidence across the simulated comparisons.
 
 #### When it works well
 - **Preventing lucky-shot acceptance** — the confidence requirement means a single strong holdout evaluation isn't enough; the gate requires consistent evidence across runs
@@ -644,7 +698,13 @@ baseline skill:           must be genuinely good — if baseline is weak,
 
 **What it does:** Combines example-selection arms (L2) and acceptance-gate arms (L3).  GEPA trains on the TS-selected hard-example subset **and** requires P ≥ 0.75 confidence before accepting.
 
-> **In plain English:** The most careful teacher: they *both* focus sessions on the student's hardest questions *and* hold a high bar for declaring the student ready.  After a few sessions, the teacher is drilling exactly the 3–4 hardest questions every time (L2 focus), and only accepting the evolution if the student consistently performs well on those hard questions across multiple sessions (L3 confidence).  This is the most demanding approach, but it produces the most trustworthy result: you know the evolved skill improved on the hard cases, and you know it wasn't a one-off lucky evaluation.
+> **In plain English:** The most careful teacher: they use *both* notebooks at the same time — the question-selector notebook (L2 Alpha/Beta per question) and the deployment-gate notebook (L3 track records for deployed vs candidate skill).
+>
+> **L2 notebook in action:** Over 3+ sessions, the teacher's per-question Alpha/Beta tallies have stabilised.  The productive medium-difficulty questions have balanced or slightly Alpha-leaning records → their die rolls are sometimes high → they get selected consistently.  Dead-end questions have high Beta → rarely picked.
+>
+> **L3 notebook in action:** Each session, after training on the L2-selected questions, the teacher evaluates the result with the coin-flip test: flip both coins 100 times, see if the candidate beats the deployed version in ≥ 75 flips.
+>
+> **Why the combination matters:** L2 focuses the training on the productive zone (medium-difficulty questions); L3 ensures only genuinely better skills get deployed.  Without L2, you might train on easy questions, produce a superficially better candidate, and L3 might accept it even though the hard cases weren't addressed.  Without L3, you might train on great questions but deploy a lucky outlier.  Together: focused training AND conservative deployment.
 
 #### When it works well
 - **Production-grade offline benchmark** — the gold-standard mode for skills that will be deployed; both filtering and confidence protection active
@@ -1357,6 +1417,102 @@ Runs before the acceptance gate.  If any dimension drops more than 0.02 below it
 ```
 
 This prevents the optimizer from trading off one capability for another (e.g., gaining specificity by becoming less complete).
+
+---
+
+### How the judge actually works — prompts and score extraction
+
+Both judges are built on **DSPy ChainOfThought** with a typed **Signature** class.  Understanding this helps you know exactly what the LLM sees and how the numbers come out.
+
+#### What the LLM receives (both judges)
+
+Every judge call sends four pieces of text to the LLM:
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  task_input        The task given to the agent.                    │
+│                    Example: "Review this recipe for problems..."   │
+│                                                                    │
+│  expected_behavior The rubric: what a good response looks like.    │
+│                    This is the golden example's description of     │
+│                    what the correct answer should contain.         │
+│                    Example: "A correct review should identify:     │
+│                    (1) steam seizing risk, (2) temperature limit   │
+│                    of 55°C, (3) gentle simmer recommendation"      │
+│                                                                    │
+│  agent_output      What the skill actually produced on this task.  │
+│                    The evolved skill's real response.              │
+│                                                                    │
+│  skill_text        The full text of the current SKILL.md.          │
+│                    The judge can see what instructions the agent   │
+│                    was working from.                               │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+#### What the LLM is asked to output
+
+The DSPy Signature docstring is the instruction to the judge LLM.  The exact text:
+
+**Holistic judge instruction:**
+```
+"Score an agent response against the expected behavior rubric.
+ Return three independent float scores (0.0–1.0) and brief feedback."
+```
+
+**Rubric judge instruction:**
+```
+"Score an agent response across five independent quality dimensions.
+ Return five independent float scores (0.0–1.0) and brief feedback.
+ Each dimension is scored independently — do not let one influence another."
+```
+
+Each output field also has a description shown to the LLM:
+
+| Field | Description shown to LLM |
+|-------|--------------------------|
+| `correctness` | "0.0–1.0: Did the agent do the right thing according to the task?" |
+| `procedure_following` | "0.0–1.0: Did the agent follow the specified workflow in the skill?" |
+| `conciseness` | "0.0–1.0: Was the response appropriately concise and free of padding?" |
+| `completeness` *(rubric only)* | "0.0–1.0: Did the response cover all required aspects of the task?" |
+| `specificity` *(rubric only)* | "0.0–1.0: Are findings specific and actionable rather than vague?" |
+| `feedback` | "One sentence explaining the main strength or weakness." |
+
+#### ChainOfThought: the LLM reasons first, then outputs numbers
+
+DSPy's ChainOfThought means the LLM:
+1. First produces internal reasoning (the "chain of thought") — comparing the agent output against expected_behavior for each dimension
+2. Then outputs the structured fields (the float values)
+
+The float values are **directly output by the LLM** as numbers between 0.0 and 1.0.  DSPy parses these from the structured output — it does not parse free-text or look for keywords in the LLM's reasoning.  If the LLM fails to return a valid float, DSPy defaults to 0.5.
+
+#### In plain English: what the judge does
+
+```
+ Imagine you are grading a student's essay.  You receive:
+   - The essay question (task_input)
+   - The marking scheme describing what a full-marks answer contains (expected_behavior)
+   - The student's actual essay (agent_output)
+   - The instructions the student was given (skill_text)
+
+ Holistic judge: read everything, give three marks (accuracy, followed-instructions,
+                 brevity) from 0 to 10, and one sentence of feedback.
+
+ Rubric judge:   same, but give five separate marks (accuracy, followed-instructions,
+                 brevity, covered-everything, gave-specific-details).
+                 The rubric says explicitly: mark each criterion independently —
+                 don't let "they covered everything" make you generous on "was it concise."
+
+ The LLM thinks step-by-step (chain of thought) before giving each mark.
+ The marks are literal decimal numbers (e.g. 0.75) — not grades like "B+" or "good."
+```
+
+#### How this affects reliability
+
+Because the LLM outputs raw floats:
+- Scores from a capable model (GPT-4 class) tend to be consistent across runs (±0.05)
+- Scores from smaller models can be noisy (±0.15 or more)
+- The `completeness` and `specificity` dimensions require the most careful reasoning; cheaper models often give them random scores
+- The `length_penalty` (holistic judge only) is computed in Python code — NOT by the LLM — based on the actual byte size of the skill file
 
 ---
 
