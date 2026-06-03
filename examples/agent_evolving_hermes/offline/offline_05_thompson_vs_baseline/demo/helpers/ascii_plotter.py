@@ -17,13 +17,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 # ── Colours (ANSI escape codes, skipped on terminals that don't support them) ─
 _ANSI = {
     "Pre-train": "\033[90m",   # dark grey (kept for back-compat)
-    "Pre-S":     "\033[90m",   # dark grey  — single baseline
-    "Pre-M":     "\033[36m",   # cyan       — multi baseline
-    "No-TS":     "\033[94m",   # bright blue
-    "No-TS-Multi": "\033[96m",
-    "L2 only": "\033[93m",   # bright yellow
-    "L3 only": "\033[92m",   # bright green
-    "L2+L3": "\033[95m",   # bright magenta
+    "Base-Holistic":     "\033[90m",   # dark grey  — single baseline
+    "Base-Rubric":     "\033[36m",   # cyan       — multi baseline
+    "GEPA-Uniform":     "\033[94m",   # bright blue
+    "GEPA-Rubric": "\033[96m",
+    "GEPA-Focused": "\033[93m",   # bright yellow
+    "GEPA-Gated": "\033[92m",   # bright green
+    "GEPA-Full": "\033[95m",   # bright magenta
     "reset": "\033[0m",
     "green": "\033[92m",
     "red": "\033[91m",
@@ -64,9 +64,9 @@ def print_score_bars(
     baseline_score_multi: Optional[float] = None,
 ) -> None:
     """Print a horizontal bar chart of holdout scores to stdout."""
-    pre_items: list[tuple[str, List[float]]] = [("Pre-S", [baseline_score])]
+    pre_items: list[tuple[str, List[float]]] = [("Base-Holistic", [baseline_score])]
     if baseline_score_multi is not None:
-        pre_items.append(("Pre-M", [baseline_score_multi]))
+        pre_items.append(("Base-Rubric", [baseline_score_multi]))
     all_items: list[tuple[str, List[float]]] = pre_items + mode_data
 
     max_score = max(mean(sc) for _, sc in all_items)
@@ -136,21 +136,21 @@ def print_run_sparklines(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def print_ci_forest(
-    scores_no_ts: List[float],
+    scores_gepa_uniform: List[float],
     mode_data: List[Tuple[str, List[float]]],
     n_runs: int,
     width: int = 44,
 ) -> None:
-    """Horizontal CI bars for each TS mode vs No-TS."""
-    if not scores_no_ts or len(mode_data) <= 1:
+    """Horizontal CI bars for each TS mode vs GEPA-Uniform."""
+    if not scores_gepa_uniform or len(mode_data) <= 1:
         return
 
     # Build CI data
     ci_rows: list[tuple[str, float, float, float]] = []
     for lbl, scores in mode_data:
-        if lbl == "No-TS":
+        if lbl == "GEPA-Uniform":
             continue
-        d_mean, lo, hi = bootstrap_ci_diff(scores_no_ts, scores)
+        d_mean, lo, hi = bootstrap_ci_diff(scores_gepa_uniform, scores)
         ci_rows.append((lbl, d_mean, lo, hi))
 
     if not ci_rows:
@@ -165,7 +165,7 @@ def print_ci_forest(
     zero_col = to_col(0.0)
     label_w  = max(len(lbl) for lbl, *_ in ci_rows)
 
-    print(f"\n  {_ANSI['bold']}Bootstrap 95% CI  vs No-TS  (n={n_runs} runs){_ANSI['reset']}")
+    print(f"\n  {_ANSI['bold']}Bootstrap 95% CI  vs GEPA-Uniform  (n={n_runs} runs){_ANSI['reset']}")
     border = "─" * (label_w + width + 28)
     print(f"  ┌{border}┐")
 
@@ -230,20 +230,20 @@ def print_ci_forest(
 def print_ascii_charts(
     baseline_score_single: float,
     baseline_score_multi: Optional[float],
-    scores_no_ts:  Optional[List[float]],
-    scores_no_ts_multi: Optional[List[float]],
-    scores_l2_l3:  Optional[List[float]],
-    scores_l2:     Optional[List[float]],
-    scores_l3:     Optional[List[float]],
+    scores_gepa_uniform:  Optional[List[float]],
+    scores_gepa_rubric: Optional[List[float]],
+    scores_gepa_full:  Optional[List[float]],
+    scores_gepa_focused:     Optional[List[float]],
+    scores_gepa_gated:     Optional[List[float]],
     n_runs: int = 1,
 ) -> None:
     """Print all relevant ASCII charts to stdout."""
     mode_data: list[tuple[str, List[float]]] = []
-    if scores_no_ts:  mode_data.append(("No-TS",   scores_no_ts))
-    if scores_no_ts_multi:  mode_data.append(("No-TS-Multi",   scores_no_ts_multi))
-    if scores_l2:     mode_data.append(("L2 only", scores_l2))
-    if scores_l3:     mode_data.append(("L3 only", scores_l3))
-    if scores_l2_l3:  mode_data.append(("L2+L3",   scores_l2_l3))
+    if scores_gepa_uniform:  mode_data.append(("GEPA-Uniform",   scores_gepa_uniform))
+    if scores_gepa_rubric:  mode_data.append(("GEPA-Rubric",   scores_gepa_rubric))
+    if scores_gepa_focused:     mode_data.append(("GEPA-Focused", scores_gepa_focused))
+    if scores_gepa_gated:     mode_data.append(("GEPA-Gated", scores_gepa_gated))
+    if scores_gepa_full:  mode_data.append(("GEPA-Full",   scores_gepa_full))
 
     if not mode_data:
         return
@@ -260,6 +260,6 @@ def print_ascii_charts(
         sparkline_baseline = baseline_score_multi if baseline_score_multi is not None else baseline_score_single
         print_run_sparklines(sparkline_baseline, mode_data, n_runs)
 
-    # Chart 3 — only when multiple runs AND No-TS present
-    if multi and scores_no_ts:
-        print_ci_forest(scores_no_ts, mode_data, n_runs)
+    # Chart 3 — only when multiple runs AND GEPA-Uniform present
+    if multi and scores_gepa_uniform:
+        print_ci_forest(scores_gepa_uniform, mode_data, n_runs)

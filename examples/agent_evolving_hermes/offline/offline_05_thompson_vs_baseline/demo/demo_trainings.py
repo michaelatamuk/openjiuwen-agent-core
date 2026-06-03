@@ -12,14 +12,14 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     print_mode_summary, print_mode_timing
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import \
     _write_skill
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_run_gepa_without_ts import \
-    step as step_02_run_gepa_without_ts
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_with_ts_l2_only import \
-    step as step_03_run_gepa_with_ts_l2_only
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_with_ts_l3_only import \
-    step as step_04_run_gepa_with_ts_l3_only
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_with_ts_l2_l3 import \
-    step as step_05_run_gepa_with_ts_l2_l3
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_run_gepa_uniform import \
+    step as step_02_run_gepa_uniform
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_focused_on_difficulty import \
+    step as step_03_run_gepa_focused_on_difficulty
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_gated import \
+    step as step_04_run_gepa_gated
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_full import \
+    step as step_05_run_gepa_full
 
 
 class DemoTrainings:
@@ -34,82 +34,82 @@ class DemoTrainings:
     ) -> DemoTrainingsResults:
         runs: list[tuple[str, object]] = []
 
-        # ── no_ts ─────────────────────────────────────────────────────────────
-        scores_no_ts, metrics_no_ts, last_out_no_ts = self.run_no_ts(params, baseline_score)
-        if scores_no_ts:
-            runs.append(("No-TS", last_out_no_ts))
+        # ── gepa_uniform ─────────────────────────────────────────────────────────────
+        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = self.run_gepa_uniform(params, baseline_score)
+        if scores_gepa_uniform:
+            runs.append(("GEPA-Uniform", last_out_gepa_uniform))
 
-        # ── no_ts_multi ───────────────────────────────────────────────────────
-        scores_no_ts_multi, metrics_no_ts_multi, last_out_no_ts_multi = self.run_no_ts_multi(
+        # ── gepa_rubric ───────────────────────────────────────────────────────
+        scores_gepa_rubric, metrics_gepa_rubric, last_out_gepa_rubric = self.run_gepa_rubric(
             params, baseline_score, multi_baseline_dims=multi_baseline_dims,
         )
-        if scores_no_ts_multi:
-            runs.append(("No-TS-Multi", last_out_no_ts_multi))
+        if scores_gepa_rubric:
+            runs.append(("GEPA-Rubric", last_out_gepa_rubric))
 
-        # ── l2_only ───────────────────────────────────────────────────────────
-        scores_l2, metrics_l2, last_out_l2 = self.run_l2_only(params, baseline_score)
-        if scores_l2:
-            runs.append(("L2-only", last_out_l2))
+        # ── gepa_focused_on_difficulty ───────────────────────────────────────────────────────────
+        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = self.run_gepa_focused_on_difficulty(params, baseline_score)
+        if scores_gepa_focused:
+            runs.append(("GEPA-Focused", last_out_gepa_focused))
 
-        # ── l3_only ───────────────────────────────────────────────────────────
-        scores_l3, metrics_l3, last_out_l3 = self.run_l3_only(params, baseline_score)
-        if scores_l3:
-            runs.append(("L3-only", last_out_l3))
+        # ── gepa_gated ───────────────────────────────────────────────────────────
+        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = self.run_gepa_gated(params, baseline_score)
+        if scores_gepa_gated:
+            runs.append(("GEPA-Gated", last_out_gepa_gated))
 
-        # ── l2_l3 ─────────────────────────────────────────────────────────────
-        scores_l2_l3, metrics_l2_l3, last_out_l2_l3 = self.run_l2_l3(params, baseline_score)
-        if scores_l2_l3:
-            runs.append(("L2+L3", last_out_l2_l3))
+        # ── gepa_full ─────────────────────────────────────────────────────────────
+        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = self.run_gepa_full(params, baseline_score)
+        if scores_gepa_full:
+            runs.append(("GEPA-Full", last_out_gepa_full))
 
         return DemoTrainingsResults(
             runs=runs,
-            scores_no_ts=scores_no_ts,
-            scores_l2_l3=scores_l2_l3,
-            scores_l2=scores_l2,
-            scores_l3=scores_l3,
-            scores_no_ts_multi=scores_no_ts_multi,
-            metrics_no_ts=metrics_no_ts,
-            metrics_l2_l3=metrics_l2_l3,
-            metrics_l2=metrics_l2,
-            metrics_l3=metrics_l3,
-            metrics_no_ts_multi=metrics_no_ts_multi,
+            scores_gepa_uniform=scores_gepa_uniform,
+            scores_gepa_full=scores_gepa_full,
+            scores_gepa_focused=scores_gepa_focused,
+            scores_gepa_gated=scores_gepa_gated,
+            scores_gepa_rubric=scores_gepa_rubric,
+            metrics_gepa_uniform=metrics_gepa_uniform,
+            metrics_gepa_full=metrics_gepa_full,
+            metrics_gepa_focused=metrics_gepa_focused,
+            metrics_gepa_gated=metrics_gepa_gated,
+            metrics_gepa_rubric=metrics_gepa_rubric,
         )
 
-    def run_no_ts(self, params: DemoParams, baseline_score: float = None):
-        scores_no_ts: list[float] = []
-        metrics_no_ts = None
-        last_out_no_ts = params.output_no_ts
-        if "no_ts" in self._config.run_modes:
+    def run_gepa_uniform(self, params: DemoParams, baseline_score: float = None):
+        scores_gepa_uniform: list[float] = []
+        metrics_gepa_uniform = None
+        last_out_gepa_uniform = params.output_gepa_uniform
+        if "gepa_uniform" in self._config.run_modes:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
-                out = self._out(params, "output_no_ts", i)
+                out = self._out(params, "output_gepa_uniform", i)
                 self._step_restore_baseline_skill(params)
-                m = step_02_run_gepa_without_ts(
+                m = step_02_run_gepa_uniform(
                     params.skills_root, params.skill_name, self._config.model,
                     self._config.iterations, out, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
                 )
-                scores_no_ts.append(m.get("evolved_score", 0.0))
-                metrics_no_ts = m
-                last_out_no_ts = out
+                scores_gepa_uniform.append(m.get("evolved_score", 0.0))
+                metrics_gepa_uniform = m
+                last_out_gepa_uniform = out
             elapsed = time.monotonic() - t_start
-            if len(scores_no_ts) > 1:
-                print_mode_summary("No-TS", baseline_score, scores_no_ts, elapsed_sec=elapsed)
+            if len(scores_gepa_uniform) > 1:
+                print_mode_summary("GEPA-Uniform", baseline_score, scores_gepa_uniform, elapsed_sec=elapsed)
             else:
-                print_mode_timing("No-TS", elapsed)
-        return scores_no_ts, metrics_no_ts, last_out_no_ts
+                print_mode_timing("GEPA-Uniform", elapsed)
+        return scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform
 
-    def run_no_ts_multi(self, params: DemoParams, baseline_score: float = None, multi_baseline_dims=None):
+    def run_gepa_rubric(self, params: DemoParams, baseline_score: float = None, multi_baseline_dims=None):
         scores: list[float] = []
         metrics = None
-        last_out = params.workdir / "output_no_ts_multi"
-        if "no_ts_multi" in self._config.run_modes:
+        last_out = params.workdir / "output_gepa_rubric"
+        if "gepa_rubric" in self._config.run_modes:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
-                out = self._out(params, "output_no_ts_multi", i)
+                out = self._out(params, "output_gepa_rubric", i)
                 self._step_restore_baseline_skill(params)
-                m = step_02_run_gepa_without_ts(
+                m = step_02_run_gepa_uniform(
                     params.skills_root, params.skill_name, self._config.model,
                     self._config.iterations, out, verbose=self._config.verbose,
                     baseline_score=baseline_score,
@@ -122,90 +122,90 @@ class DemoTrainings:
                 last_out = out
             elapsed = time.monotonic() - t_start
             if len(scores) > 1:
-                print_mode_summary("No-TS-Multi", baseline_score, scores, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Rubric", baseline_score, scores, elapsed_sec=elapsed)
             else:
-                print_mode_timing("No-TS-Multi", elapsed)
+                print_mode_timing("GEPA-Rubric", elapsed)
         return scores, metrics, last_out
 
-    def run_l2_l3(self, params: DemoParams, baseline_score: float = None):
-        scores_l2_l3: list[float] = []
-        metrics_l2_l3 = None
-        last_out_l2_l3 = params.output_l2_l3
-        if "l2_l3" in self._config.run_modes:
+    def run_gepa_full(self, params: DemoParams, baseline_score: float = None):
+        scores_gepa_full: list[float] = []
+        metrics_gepa_full = None
+        last_out_gepa_full = params.output_gepa_full
+        if "gepa_full" in self._config.run_modes:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
-                out = self._out(params, "output_l2_l3", i)
+                out = self._out(params, "output_gepa_full", i)
                 ts  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_05_run_gepa_with_ts_l2_l3(
+                m = step_05_run_gepa_full(
                     params.skills_root, params.skill_name, self._config.model,
                     self._config.iterations, self._config.ts_batch_size, params.golden_examples,
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
                 )
-                scores_l2_l3.append(m.get("evolved_score", 0.0))
-                metrics_l2_l3 = m
-                last_out_l2_l3 = out
+                scores_gepa_full.append(m.get("evolved_score", 0.0))
+                metrics_gepa_full = m
+                last_out_gepa_full = out
             elapsed = time.monotonic() - t_start
-            if len(scores_l2_l3) > 1:
-                print_mode_summary("L2+L3", baseline_score, scores_l2_l3, elapsed_sec=elapsed)
+            if len(scores_gepa_full) > 1:
+                print_mode_summary("GEPA-Full", baseline_score, scores_gepa_full, elapsed_sec=elapsed)
             else:
-                print_mode_timing("L2+L3", elapsed)
-        return scores_l2_l3, metrics_l2_l3, last_out_l2_l3
+                print_mode_timing("GEPA-Full", elapsed)
+        return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
 
-    def run_l2_only(self, params: DemoParams, baseline_score: float = None):
-        scores_l2: list[float] = []
-        metrics_l2 = None
-        last_out_l2 = params.output_l2_only
-        if "l2_only" in self._config.run_modes:
+    def run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None):
+        scores_gepa_focused: list[float] = []
+        metrics_gepa_focused = None
+        last_out_gepa_focused = params.output_gepa_focused_on_difficulty
+        if "gepa_focused_on_difficulty" in self._config.run_modes:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
-                out = self._out(params, "output_l2_only", i)
+                out = self._out(params, "output_gepa_focused_on_difficulty", i)
                 ts  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_03_run_gepa_with_ts_l2_only(
+                m = step_03_run_gepa_focused_on_difficulty(
                     params.skills_root, params.skill_name, self._config.model,
                     self._config.iterations, self._config.ts_batch_size,
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
                 )
-                scores_l2.append(m.get("evolved_score", 0.0))
-                metrics_l2 = m
-                last_out_l2 = out
+                scores_gepa_focused.append(m.get("evolved_score", 0.0))
+                metrics_gepa_focused = m
+                last_out_gepa_focused = out
             elapsed = time.monotonic() - t_start
-            if len(scores_l2) > 1:
-                print_mode_summary("L2 only", baseline_score, scores_l2, elapsed_sec=elapsed)
+            if len(scores_gepa_focused) > 1:
+                print_mode_summary("GEPA-Focused", baseline_score, scores_gepa_focused, elapsed_sec=elapsed)
             else:
-                print_mode_timing("L2 only", elapsed)
-        return scores_l2, metrics_l2, last_out_l2
+                print_mode_timing("GEPA-Focused", elapsed)
+        return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
 
-    def run_l3_only(self, params: DemoParams, baseline_score: float = None):
-        scores_l3: list[float] = []
-        metrics_l3 = None
-        last_out_l3 = params.output_l3_only
-        if "l3_only" in self._config.run_modes:
+    def run_gepa_gated(self, params: DemoParams, baseline_score: float = None):
+        scores_gepa_gated: list[float] = []
+        metrics_gepa_gated = None
+        last_out_gepa_gated = params.output_gepa_gated
+        if "gepa_gated" in self._config.run_modes:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
-                out = self._out(params, "output_l3_only", i)
+                out = self._out(params, "output_gepa_gated", i)
                 ts  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_04_run_gepa_with_ts_l3_only(
+                m = step_04_run_gepa_gated(
                     params.skills_root, params.skill_name, self._config.model,
                     self._config.iterations, out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
                 )
-                scores_l3.append(m.get("evolved_score", 0.0))
-                metrics_l3 = m
-                last_out_l3 = out
+                scores_gepa_gated.append(m.get("evolved_score", 0.0))
+                metrics_gepa_gated = m
+                last_out_gepa_gated = out
             elapsed = time.monotonic() - t_start
-            if len(scores_l3) > 1:
-                print_mode_summary("L3 only", baseline_score, scores_l3, elapsed_sec=elapsed)
+            if len(scores_gepa_gated) > 1:
+                print_mode_summary("GEPA-Gated", baseline_score, scores_gepa_gated, elapsed_sec=elapsed)
             else:
-                print_mode_timing("L3 only", elapsed)
-        return scores_l3, metrics_l3, last_out_l3
+                print_mode_timing("GEPA-Gated", elapsed)
+        return scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated
 
     @staticmethod
     def _step_restore_baseline_skill(params: DemoParams) -> None:

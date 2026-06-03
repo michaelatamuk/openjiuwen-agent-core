@@ -10,7 +10,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_dir,
+def step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single"):
     _banner("④-L3 GEPA — Level 3 only (Acceptance Gate, all examples equal weight)", run_index=run_index, n_runs=n_runs)
@@ -22,7 +22,7 @@ def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_di
 
     evolver_config = EvolverConfig(
         skills_root = skills_root,
-        output_dir = output_l3_only,
+        output_dir = output_gepa_gated,
         iterations = iterations,
         optimizer_model = model,
         eval_model = model,
@@ -37,14 +37,14 @@ def step(skills_root, skill_name, model, iterations, output_l3_only, ts_state_di
         ts_state_dir = ts_state_dir,
         scoring_mode=scoring_mode,
     )
-    metrics_l3 = evolve_single_skill(
+    metrics_gepa_gated = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
         prior_baseline_score=baseline_score,
     )
     _print_ts_insights(ts_state_dir, skill_name)
 
     if verbose:
-        evolved_l3 = _read_latest_evolved(output_l3_only, skill_name)
+        evolved_l3 = _read_latest_evolved(output_gepa_gated, skill_name)
         _print_skill("  Evolved skill (L3 only)", evolved_l3 or "[not produced]")
 
-    return metrics_l3
+    return metrics_gepa_gated

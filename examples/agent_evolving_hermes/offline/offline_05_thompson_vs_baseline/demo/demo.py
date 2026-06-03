@@ -40,10 +40,10 @@ class Demo:
         ----------------------------
         Set ``run_modes`` in ``config.json``.  Valid values:
 
-        * ``"no_ts"``   — plain GEPA, all training examples, threshold gate
-        * ``"l2_only"`` — TS Example Selector; focuses on discriminating examples
-        * ``"l3_only"`` — TS Acceptance Gate; requires P(better) ≥ 0.75
-        * ``"l2_l3"``   — both TS levels active simultaneously
+        * ``"gepa_uniform"``   — plain GEPA, all training examples, threshold gate
+        * ``"gepa_focused_on_difficulty"`` — TS Example Selector; focuses on discriminating examples
+        * ``"gepa_gated"`` — TS Acceptance Gate; requires P(better) ≥ 0.75
+        * ``"gepa_full"``   — both TS levels active simultaneously
 
         Use ``[]`` to run only the baseline holdout evaluation (no GEPA training).
         """
@@ -54,7 +54,7 @@ class Demo:
 
         # ── Step 1: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
-        # multi-objective baseline when "no_ts_multi" is in run_modes so that
+        # multi-objective baseline when "gepa_rubric" is in run_modes so that
         # GEPA runs never need to re-evaluate the baseline themselves.
         baseline_score_single, baseline_score_multi, multi_baseline_dims = step_01_evaluate_baseline(
             params.skills_root, params.skill_name, self._config.model,
@@ -71,26 +71,26 @@ class Demo:
         if len(trainings_results.runs) >= 2:
             step_06_results_comparison(baseline_score_single,
                                        baseline_score_multi,
-                                       scores_no_ts=trainings_results.scores_no_ts or None,
-                                       scores_l2_l3=trainings_results.scores_l2_l3 or None,
-                                       scores_l2=trainings_results.scores_l2 or None,
-                                       scores_l3=trainings_results.scores_l3 or None,
-                                       scores_no_ts_multi=trainings_results.scores_no_ts_multi or None,
-                                       metrics_no_ts=trainings_results.metrics_no_ts,
-                                       metrics_l2_l3=trainings_results.metrics_l2_l3,
-                                       metrics_l2=trainings_results.metrics_l2,
-                                       metrics_l3=trainings_results.metrics_l3,
-                                       metrics_no_ts_multi=trainings_results.metrics_no_ts_multi,
+                                       scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
+                                       scores_gepa_full=trainings_results.scores_gepa_full or None,
+                                       scores_gepa_focused=trainings_results.scores_gepa_focused or None,
+                                       scores_gepa_gated=trainings_results.scores_gepa_gated or None,
+                                       scores_gepa_rubric=trainings_results.scores_gepa_rubric or None,
+                                       metrics_gepa_uniform=trainings_results.metrics_gepa_uniform,
+                                       metrics_gepa_full=trainings_results.metrics_gepa_full,
+                                       metrics_gepa_focused=trainings_results.metrics_gepa_focused,
+                                       metrics_gepa_gated=trainings_results.metrics_gepa_gated,
+                                       metrics_gepa_rubric=trainings_results.metrics_gepa_rubric,
                                        ts_batch_size=self._config.ts_batch_size)
 
         # ── Step 8: Plots ─────────────────────────────────────────────────────
         step_07_plot_results(baseline_score_single,
                              baseline_score_multi,
-                             scores_no_ts=trainings_results.scores_no_ts or None,
-                             scores_no_ts_multi=trainings_results.scores_no_ts_multi or None,
-                             scores_l2_l3=trainings_results.scores_l2_l3 or None,
-                             scores_l2=trainings_results.scores_l2 or None,
-                             scores_l3=trainings_results.scores_l3 or None,
+                             scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
+                             scores_gepa_rubric=trainings_results.scores_gepa_rubric or None,
+                             scores_gepa_full=trainings_results.scores_gepa_full or None,
+                             scores_gepa_focused=trainings_results.scores_gepa_focused or None,
+                             scores_gepa_gated=trainings_results.scores_gepa_gated or None,
                              output_dir=params.workdir / "plots",
                              scenario_name=params.skill_name,
                              n_runs=self._config.n_runs)

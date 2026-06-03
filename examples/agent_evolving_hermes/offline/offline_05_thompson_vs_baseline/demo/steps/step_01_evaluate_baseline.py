@@ -26,7 +26,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 )
 
 # Modes that require a multi-objective baseline pre-evaluation.
-_MULTI_MODES = {"no_ts_multi"}
+_MULTI_MODES = {"gepa_rubric"}
 
 
 def step(
@@ -40,7 +40,7 @@ def step(
     """Score the baseline skill on holdout for every scoring system that will be used.
 
     Evaluates the single-score baseline unconditionally.  If any mode in
-    *run_modes* requires multi-objective scoring (currently ``"no_ts_multi"``),
+    *run_modes* requires multi-objective scoring (currently ``"gepa_rubric"``),
     the 5-dimension baseline is also evaluated here so that GEPA runs never
     need to re-evaluate the baseline themselves.
 

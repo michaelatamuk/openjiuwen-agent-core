@@ -19,25 +19,25 @@ class DemoTrainingsResults:
     def __init__(
         self,
         runs: List[Tuple[str, Path]],
-        scores_no_ts:       List[float],
-        scores_l2_l3:       List[float],
-        scores_l2:          List[float],
-        scores_l3:          List[float],
-        scores_no_ts_multi: List[float],
-        metrics_no_ts:       Optional[dict],
-        metrics_l2_l3:       Optional[dict],
-        metrics_l2:          Optional[dict],
-        metrics_l3:          Optional[dict],
-        metrics_no_ts_multi: Optional[dict],
+        scores_gepa_uniform:       List[float],
+        scores_gepa_full:       List[float],
+        scores_gepa_focused:          List[float],
+        scores_gepa_gated:          List[float],
+        scores_gepa_rubric: List[float],
+        metrics_gepa_uniform:       Optional[dict],
+        metrics_gepa_full:       Optional[dict],
+        metrics_gepa_focused:          Optional[dict],
+        metrics_gepa_gated:          Optional[dict],
+        metrics_gepa_rubric: Optional[dict],
     ) -> None:
         self.runs               = runs
-        self.scores_no_ts       = scores_no_ts
-        self.scores_l2_l3       = scores_l2_l3
-        self.scores_l2          = scores_l2
-        self.scores_l3          = scores_l3
-        self.scores_no_ts_multi = scores_no_ts_multi
-        self.metrics_no_ts       = metrics_no_ts
-        self.metrics_l2_l3       = metrics_l2_l3
-        self.metrics_l2          = metrics_l2
-        self.metrics_l3          = metrics_l3
-        self.metrics_no_ts_multi = metrics_no_ts_multi
+        self.scores_gepa_uniform       = scores_gepa_uniform
+        self.scores_gepa_full       = scores_gepa_full
+        self.scores_gepa_focused          = scores_gepa_focused
+        self.scores_gepa_gated          = scores_gepa_gated
+        self.scores_gepa_rubric = scores_gepa_rubric
+        self.metrics_gepa_uniform       = metrics_gepa_uniform
+        self.metrics_gepa_full       = metrics_gepa_full
+        self.metrics_gepa_focused          = metrics_gepa_focused
+        self.metrics_gepa_gated          = metrics_gepa_gated
+        self.metrics_gepa_rubric = metrics_gepa_rubric

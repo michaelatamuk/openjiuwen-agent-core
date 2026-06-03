@@ -8,7 +8,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_only, ts_state_dir,
+def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_focused_on_difficulty, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single"):
     _banner("③-L2 GEPA — Level 2 only (Example Selector, no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
@@ -22,7 +22,7 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_on
 
     evolver_config = EvolverConfig(
         skills_root = skills_root,
-        output_dir = output_l2_only,
+        output_dir = output_gepa_focused_on_difficulty,
         iterations = iterations,
         optimizer_model = model,
         eval_model = model,
@@ -36,13 +36,13 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_l2_on
         ts_state_dir = ts_state_dir,
         scoring_mode=scoring_mode,
     )
-    metrics_l2 = evolve_single_skill(
+    metrics_gepa_focused = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
         prior_baseline_score=baseline_score,
     )
 
     if verbose:
-        evolved_l2 = _read_latest_evolved(output_l2_only, skill_name)
+        evolved_l2 = _read_latest_evolved(output_gepa_focused_on_difficulty, skill_name)
         _print_skill("  Evolved skill (L2 only)", evolved_l2 or "[not produced]")
 
-    return metrics_l2
+    return metrics_gepa_focused

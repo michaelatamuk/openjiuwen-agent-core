@@ -8,7 +8,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool = False,
+def step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbose: bool = False,
          baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single", multi_baseline_dims=None):
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index, n_runs=n_runs)
@@ -18,7 +18,7 @@ def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,
-        output_dir=output_no_ts,
+        output_dir=output_gepa_uniform,
         iterations=iterations,
         optimizer_model=model,
         eval_model=model,
@@ -30,14 +30,14 @@ def step(skills_root, skill_name, model, iterations, output_no_ts, verbose: bool
         ts_acceptance_gate=False,
         scoring_mode=scoring_mode,
     )
-    metrics_no_ts = evolve_single_skill(
+    metrics_gepa_uniform = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
         prior_baseline_score=baseline_score,
         prior_multi_baseline_dims=multi_baseline_dims,
     )
 
     if verbose:
-        evolved_no_ts = _read_latest_evolved(output_no_ts, skill_name)
-        _print_skill("  Evolved skill (no TS)", evolved_no_ts or "[not produced]")
+        evolved_gepa_uniform = _read_latest_evolved(output_gepa_uniform, skill_name)
+        _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]")
 
-    return metrics_no_ts
+    return metrics_gepa_uniform

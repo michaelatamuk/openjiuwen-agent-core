@@ -10,11 +10,11 @@ def step(
     baseline_score_single: float,
     baseline_score_multi: float,
     *,
-    scores_no_ts:  Optional[List[float]] = None,
-    scores_no_ts_multi: Optional[List[float]] = None,
-    scores_l2_l3:  Optional[List[float]] = None,
-    scores_l2:     Optional[List[float]] = None,
-    scores_l3:     Optional[List[float]] = None,
+    scores_gepa_uniform:  Optional[List[float]] = None,
+    scores_gepa_rubric: Optional[List[float]] = None,
+    scores_gepa_full:  Optional[List[float]] = None,
+    scores_gepa_focused:     Optional[List[float]] = None,
+    scores_gepa_gated:     Optional[List[float]] = None,
     output_dir: Path,
     scenario_name: str = "",
     n_runs: int = 1,
@@ -25,7 +25,7 @@ def step(
     The PNG is skipped silently if matplotlib is not installed.
     """
     any_mode_ran = any(
-        s for s in [scores_no_ts, scores_no_ts_multi, scores_l2_l3, scores_l2, scores_l3] if s
+        s for s in [scores_gepa_uniform, scores_gepa_rubric, scores_gepa_full, scores_gepa_focused, scores_gepa_gated] if s
     )
     if not any_mode_ran:
         return
@@ -37,11 +37,11 @@ def step(
     print_ascii_charts(
         baseline_score_single=baseline_score_single,
         baseline_score_multi=baseline_score_multi,
-        scores_no_ts=scores_no_ts,
-        scores_no_ts_multi=scores_no_ts_multi,
-        scores_l2_l3=scores_l2_l3,
-        scores_l2=scores_l2,
-        scores_l3=scores_l3,
+        scores_gepa_uniform=scores_gepa_uniform,
+        scores_gepa_rubric=scores_gepa_rubric,
+        scores_gepa_full=scores_gepa_full,
+        scores_gepa_focused=scores_gepa_focused,
+        scores_gepa_gated=scores_gepa_gated,
         n_runs=n_runs,
     )
 
@@ -53,11 +53,11 @@ def step(
         path = plot_results(
             baseline_score_single=baseline_score_single,
             baseline_score_multi=baseline_score_multi,
-            scores_no_ts=scores_no_ts,
-            scores_no_ts_multi=scores_no_ts_multi,
-            scores_l2_l3=scores_l2_l3,
-            scores_l2=scores_l2,
-            scores_l3=scores_l3,
+            scores_gepa_uniform=scores_gepa_uniform,
+            scores_gepa_rubric=scores_gepa_rubric,
+            scores_gepa_full=scores_gepa_full,
+            scores_gepa_focused=scores_gepa_focused,
+            scores_gepa_gated=scores_gepa_gated,
             output_dir=output_dir,
             scenario_name=scenario_name,
             n_runs=n_runs,

@@ -15,16 +15,16 @@ def step(
     baseline_score_single: float,
     baseline_score_multi: Optional[float],
     *,
-    scores_no_ts:        Optional[List[float]] = None,
-    scores_l2_l3:        Optional[List[float]] = None,
-    scores_l2:           Optional[List[float]] = None,
-    scores_l3:           Optional[List[float]] = None,
-    scores_no_ts_multi:  Optional[List[float]] = None,
-    metrics_no_ts:        Optional[dict] = None,
-    metrics_l2_l3:        Optional[dict] = None,
-    metrics_l2:           Optional[dict] = None,
-    metrics_l3:           Optional[dict] = None,
-    metrics_no_ts_multi:  Optional[dict] = None,
+    scores_gepa_uniform:        Optional[List[float]] = None,
+    scores_gepa_full:        Optional[List[float]] = None,
+    scores_gepa_focused:           Optional[List[float]] = None,
+    scores_gepa_gated:           Optional[List[float]] = None,
+    scores_gepa_rubric:  Optional[List[float]] = None,
+    metrics_gepa_uniform:        Optional[dict] = None,
+    metrics_gepa_full:        Optional[dict] = None,
+    metrics_gepa_focused:           Optional[dict] = None,
+    metrics_gepa_gated:           Optional[dict] = None,
+    metrics_gepa_rubric:  Optional[dict] = None,
     ts_batch_size:        int = 4,
 ) -> None:
     """Print comparison for whichever training modes ran.
@@ -35,14 +35,14 @@ def step(
     """
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
-    if scores_no_ts:       mode_data.append(("No-TS",       scores_no_ts,       metrics_no_ts))
-    if scores_no_ts_multi: mode_data.append(("No-TS-Multi", scores_no_ts_multi, metrics_no_ts_multi))
-    if scores_l2:          mode_data.append(("L2 only",     scores_l2,          metrics_l2))
-    if scores_l3:          mode_data.append(("L3 only",     scores_l3,          metrics_l3))
-    if scores_l2_l3:       mode_data.append(("L2+L3",       scores_l2_l3,       metrics_l2_l3))
+    if scores_gepa_uniform:       mode_data.append(("GEPA-Uniform",       scores_gepa_uniform,       metrics_gepa_uniform))
+    if scores_gepa_rubric: mode_data.append(("GEPA-Rubric", scores_gepa_rubric, metrics_gepa_rubric))
+    if scores_gepa_focused:          mode_data.append(("GEPA-Focused",     scores_gepa_focused,          metrics_gepa_focused))
+    if scores_gepa_gated:          mode_data.append(("GEPA-Gated",     scores_gepa_gated,          metrics_gepa_gated))
+    if scores_gepa_full:       mode_data.append(("GEPA-Full",       scores_gepa_full,       metrics_gepa_full))
 
     ran_labels = [label for label, _, _ in mode_data]
-    pre_labels = ["Pre-train Single", "Pre-train Multi"] if baseline_score_multi is not None else ["Pre-train Single"]
+    pre_labels = ["Base-Holistic", "Base-Rubric"] if baseline_score_multi is not None else ["Base-Holistic"]
     all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
     _banner("COMPARISON — " + "  ·  ".join(all_labels))
 
@@ -59,12 +59,12 @@ def step(
     W = 13 if multi else 11
 
     # Build cols: pre-train baseline columns + one column per training mode.
-    # Pre-M is only included when a multi-objective baseline was evaluated.
+    # Base-Rubric is only included when a multi-objective baseline was evaluated.
     cols: list[tuple[str, Optional[list[float]], Optional[dict], float]] = [
-        ("Pre-S", None, None, baseline_score_single),
+        ("Base-Holistic", None, None, baseline_score_single),
     ]
     if baseline_score_multi is not None:
-        cols.append(("Pre-M", None, None, baseline_score_multi))
+        cols.append(("Base-Rubric", None, None, baseline_score_multi))
     cols += [(l, s, m, 0.0) for l, s, m in mode_data]
 
     # Header / divider
@@ -98,7 +98,7 @@ def step(
             # use multi baseline for multi-scored modes, single for the rest.
             mode_baseline = m.get("baseline_score") if m and "baseline_score" in m else (
                 (baseline_score_multi if baseline_score_multi is not None else baseline_score_single)
-                if "Multi" in label else baseline_score_single
+                if label == "GEPA-Rubric" else baseline_score_single
             )
             d = mean(scores) - mode_baseline
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
@@ -115,18 +115,18 @@ def step(
 
     # ── Config rows ───────────────────────────────────────────────────────
     _GATE = {
-        "No-TS":       "threshold",
-        "L2+L3":       "TS gate",
-        "L2 only":     "threshold",
-        "L3 only":     "TS gate",
-        "No-TS-Multi": "threshold",
+        "GEPA-Uniform":       "threshold",
+        "GEPA-Full":       "TS gate",
+        "GEPA-Focused":     "threshold",
+        "GEPA-Gated":     "TS gate",
+        "GEPA-Rubric": "threshold",
     }
     _SEL = {
-        "No-TS":       "all train",
-        "L2+L3":       f"top {ts_batch_size} (TS)",
-        "L2 only":     f"top {ts_batch_size} (TS)",
-        "L3 only":     "all train",
-        "No-TS-Multi": "all train",
+        "GEPA-Uniform":       "all train",
+        "GEPA-Full":       f"top {ts_batch_size} (TS)",
+        "GEPA-Focused":     f"top {ts_batch_size} (TS)",
+        "GEPA-Gated":     "all train",
+        "GEPA-Rubric": "all train",
     }
 
     gate_row = f"  {'Acceptance gate':32s}"
@@ -194,13 +194,13 @@ def step(
     print(mean_row)
     print(std_row)
 
-    # ── Bootstrap CI vs No-TS ─────────────────────────────────────────────
-    if scores_no_ts and len(mode_data) > 1:
-        print(f"\n  Bootstrap 95% CI vs No-TS ({n_runs} runs, paired):")
+    # ── Bootstrap CI vs GEPA-Uniform ─────────────────────────────────────────────
+    if scores_gepa_uniform and len(mode_data) > 1:
+        print(f"\n  Bootstrap 95% CI vs GEPA-Uniform ({n_runs} runs, paired):")
         for label, scores, _ in mode_data:
-            if label == "No-TS":
+            if label == "GEPA-Uniform":
                 continue
-            d_mean, lo, hi = bootstrap_ci_diff(scores_no_ts, scores)
+            d_mean, lo, hi = bootstrap_ci_diff(scores_gepa_uniform, scores)
             sign = "+" if d_mean >= 0 else ""
             ci_str = f"[{'+' if lo >= 0 else ''}{lo:.4f}, {'+' if hi >= 0 else ''}{hi:.4f}]"
             # Significant if CI entirely above 0 (better) or below 0 (worse)

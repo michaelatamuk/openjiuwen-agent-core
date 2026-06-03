@@ -6,25 +6,62 @@ A side-by-side comparison framework that evolves an agent skill with **GEPA** ac
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Concepts and Motivation](#concepts-and-motivation)
-3. [High-Level Architecture](#high-level-architecture)
-4. [Directory Structure](#directory-structure)
-5. [Run Modes — What Each One Does](#run-modes--what-each-one-does)
-6. [When Each Mode Excels and When It Struggles](#when-each-mode-excels-and-when-it-struggles)
-7. [Theoretical Motivation — Why Each Mode Improves Over Pure GEPA](#theoretical-motivation--why-each-mode-improves-over-pure-gepa)
-8. [How GEPA Works](#how-gepa-works)
-9. [The Fitness Metric — Inner Loop Scoring](#the-fitness-metric--inner-loop-scoring)
-10. [Thompson Sampling — Three Levels](#thompson-sampling--three-levels)
-11. [Scoring Modes — Single vs Multi-Objective](#scoring-modes--single-vs-multi-objective)
-12. [Constraint Validation](#constraint-validation)
-13. [Step-by-Step Execution Flow](#step-by-step-execution-flow)
-14. [Configuration Reference](#configuration-reference)
-15. [Output Files and Artifacts](#output-files-and-artifacts)
-16. [Scenarios and Golden Examples](#scenarios-and-golden-examples)
-17. [Reading the Output](#reading-the-output)
-18. [Good Usage Patterns](#good-usage-patterns)
-19. [Online Skill Improvement with Offline TS Priors](#online-skill-improvement-with-offline-ts-priors)
+1. [One-Slide Summary — What We Have and What Is Being Added](#one-slide-summary--what-we-have-and-what-is-being-added)
+2. [Quick Start](#quick-start)
+3. [Concepts and Motivation](#concepts-and-motivation)
+4. [High-Level Architecture](#high-level-architecture)
+5. [Directory Structure](#directory-structure)
+6. [Run Modes — What Each One Does](#run-modes--what-each-one-does)
+7. [When Each Mode Excels and When It Struggles](#when-each-mode-excels-and-when-it-struggles)
+8. [Theoretical Motivation — Why Each Mode Improves Over Pure GEPA](#theoretical-motivation--why-each-mode-improves-over-pure-gepa)
+9. [How GEPA Works](#how-gepa-works)
+10. [The Fitness Metric — Inner Loop Scoring](#the-fitness-metric--inner-loop-scoring)
+11. [Thompson Sampling — Three Levels](#thompson-sampling--three-levels)
+12. [Scoring Modes — Single vs Multi-Objective](#scoring-modes--single-vs-multi-objective)
+13. [Constraint Validation](#constraint-validation)
+14. [Step-by-Step Execution Flow](#step-by-step-execution-flow)
+15. [Configuration Reference](#configuration-reference)
+16. [Output Files and Artifacts](#output-files-and-artifacts)
+17. [Scenarios and Golden Examples](#scenarios-and-golden-examples)
+18. [Reading the Output](#reading-the-output)
+19. [Good Usage Patterns](#good-usage-patterns)
+20. [Online Skill Improvement with Offline TS Priors](#online-skill-improvement-with-offline-ts-priors)
+
+---
+
+## One-Slide Summary — What We Have and What Is Being Added
+
+> **Audience:** colleagues unfamiliar with the internals; intended to fit on a single presentation slide.
+
+### What we have today — Base-Holistic
+
+GEPA (*Gradient-free Evolutionary Prompt Adaptation*) iteratively rewrites an agent's skill instruction using an LLM, evaluates the result on held-out examples with a single holistic judge (composite score: correctness × 0.5 + procedure × 0.3 + conciseness × 0.2), and keeps the rewrite if it exceeds a fixed fitness threshold.  This produces our current production baseline, measured as **Base-Holistic**.
+
+*Plain English: we ask an LLM to improve the instructions, score the result on test cases, and keep it if it scores higher.*
+
+---
+
+### What is being added and tested
+
+Each addition targets a distinct, well-known failure mode of plain gradient-free optimisation:
+
+| Addition | Failure mode it fixes | Mechanism |
+|---|---|---|
+| **Base-Rubric** | *Goodhart's Law* — optimising one score causes regressions on unmeasured dimensions | 5-dimension rubric judge; each dimension scored independently; weights adapt when a dimension stagnates |
+| **GEPA-Focused** | *Training distribution mismatch* — uniform sampling wastes budget on examples that are too easy or too hard to learn from | Beta-Bernoulli bandit (TS-TrainingSelector) up-weights "medium-difficulty" examples where GEPA sometimes succeeds; achieves O(log n) regret vs O(n) for uniform |
+| **GEPA-Gated** | *Noisy single-run acceptance* — a lucky high-scoring run gets deployed even if the skill is not genuinely better | Bayesian credibility gate (TS-AcceptanceGate): deploy only if P(θ_candidate > θ_deployed) ≥ 0.75 from posterior Beta draws — analogous to Bayesian A/B testing |
+| **GEPA-Full** | Both training-distribution and evaluation-noise failure modes simultaneously | TS-TrainingSelector + TS-AcceptanceGate combined; because they act on independent pipeline stages, the gain is **multiplicative**, not additive |
+
+---
+
+### Why each extension is theoretically grounded
+
+- **Base-Rubric:** multi-objective Pareto optimisation — no single dimension can improve at the expense of the others.
+- **GEPA-Focused:** Beta-Bernoulli multi-armed bandit; the medium-difficulty zone corresponds to the *zone of proximal development* (Vygotsky, 1978); TS naturally finds it without explicit labelling.
+- **GEPA-Gated:** replaces a point decision with a posterior probability — equivalent to the ROPE criterion in Bayesian hypothesis testing (Kruschke, 2015); ratchet property guarantees monotone deployment quality.
+- **GEPA-Full:** training-selector reduces *bias* (better training signal); acceptance-gate reduces *variance* (more robust evaluation); statistical independence of the two stages makes the compound improvement multiplicative.
+
+*Plain English: we grade on more dimensions, practise on the most informative examples, and only deploy when genuinely confident.  The full version does all three at once — and doing all three is better than the sum of doing each separately.*
 
 ---
 
@@ -41,7 +78,7 @@ python runner.py
 ```json
 {
   "scenarios":     ["rtos-review"],
-  "run_modes":     ["no_ts", "no_ts_multi"],
+  "run_modes":     ["gepa_uniform", "gepa_rubric"],
   "api_key":       "sk-...",
   "model":         "deepseek/deepseek-chat",
   "api_base":      "https://api.deepseek.com",
@@ -60,7 +97,7 @@ python runner.py
 | `model` | `str` | — | DSPy model string, e.g. `"deepseek/deepseek-chat"` |
 | `api_base` | `str` | — | API base URL |
 | `iterations` | `int` | 10 | GEPA inner iterations — more = slower but better evolved skill |
-| `ts_batch_size` | `int` | 4 | How many examples Level-2 TS picks per batch (of ~10) |
+| `ts_batch_size` | `int` | 4 | How many examples TS-TrainingSelector picks per batch (of ~10) |
 | `n_runs` | `int` | 1 | Independent GEPA runs per mode; ≥3 for statistical CIs |
 | `verbose` | `bool` | false | Print DSPy INFO / reflection logs |
 
@@ -98,10 +135,10 @@ Running multiple modes side by side on the same skill and scenario lets you isol
 
 | Comparison | What it isolates |
 |------------|-----------------|
-| `no_ts` vs `l2_only` | Contribution of focused example selection |
-| `no_ts` vs `l3_only` | Contribution of confidence-gated deployment |
-| `no_ts` vs `l2_l3` | Combined TS benefit |
-| `no_ts` vs `no_ts_multi` | Benefit of multi-objective vs single judge |
+| `gepa_uniform` vs `gepa_focused_on_difficulty` | Contribution of focused example selection |
+| `gepa_uniform` vs `gepa_gated` | Contribution of confidence-gated deployment |
+| `gepa_uniform` vs `gepa_full` | Combined TS benefit |
+| `gepa_uniform` vs `gepa_rubric` | Benefit of multi-objective vs single judge |
 
 ---
 
@@ -119,15 +156,15 @@ flowchart TD
 
     S1   --> TR[DemoTrainings.run]
 
-    TR   --> M1["no_ts\nGEPA, all examples\nthreshold gate\nsingle scoring"]
-    TR   --> M2["no_ts_multi\nGEPA, all examples\nthreshold gate\nmulti-obj scoring (5 dims)"]
-    TR   --> M3["l2_only\nGEPA, TS example selector\nthreshold gate\nsingle scoring"]
-    TR   --> M4["l3_only\nGEPA, all examples\nTS acceptance gate\nsingle scoring"]
-    TR   --> M5["l2_l3\nGEPA, TS example selector\nTS acceptance gate\nsingle scoring"]
+    TR   --> M1["gepa_uniform\nGEPA, all examples\nthreshold gate\nsingle scoring"]
+    TR   --> M2["gepa_rubric\nGEPA, all examples\nthreshold gate\nmulti-obj scoring (5 dims)"]
+    TR   --> M3["gepa_focused_on_difficulty\nGEPA, TS example selector\nthreshold gate\nsingle scoring"]
+    TR   --> M4["gepa_gated\nGEPA, all examples\nTS acceptance gate\nsingle scoring"]
+    TR   --> M5["gepa_full\nGEPA, TS example selector\nTS acceptance gate\nsingle scoring"]
 
     M1 & M2 & M3 & M4 & M5 --> RES[DemoTrainingsResults]
 
-    RES --> S6[Step 6\nComparison table\nPre-S / Pre-M / all modes]
+    RES --> S6[Step 6\nComparison table\nBase-Holistic / Base-Rubric / all modes]
     RES --> S7[Step 7\nASCII bar chart + PNG]
     RES --> S8[Step 8\nOutput paths + TS state hints]
 
@@ -152,21 +189,21 @@ flowchart TD
  │            ┌─────────▼──────────┐                                      │
  │            │  Step 0            │  Write SKILL.md + golden_dataset/     │
  │            │  Step 1 (Baseline) │  LLM judge on 5 holdout examples      │
- │            │  Pre-S = 0.44      │  Multi-obj judge (if no_ts_multi)     │
- │            │  Pre-M = 0.65      │                                       │
+ │            │  Base-Holistic = 0.44      │  Multi-obj judge (if gepa_rubric)     │
+ │            │  Base-Rubric = 0.65      │                                       │
  │            └─────────┬──────────┘                                      │
  │                      │  pass baseline scores down                       │
  │      ┌───────────────┼────────────────┬──────────────┐                 │
  │      ▼               ▼                ▼              ▼                 │
  │  ┌───────┐     ┌──────────┐     ┌─────────┐   ┌────────┐             │
- │  │ no_ts │     │  l2_only │     │ l3_only │   │ l2_l3  │  ...        │
+ │  │ gepa_uniform │     │  gepa_focused_on_difficulty │     │ gepa_gated │   │ gepa_full  │  ...        │
  │  │ GEPA  │     │ GEPA +   │     │ GEPA +  │   │ GEPA + │             │
- │  │ plain │     │ TS L2    │     │ TS L3   │   │ L2+L3  │             │
+ │  │ plain │     │ TS-TrainingSelector    │     │ TS-AcceptanceGate   │   │ GEPA-Full  │             │
  │  └───┬───┘     └────┬─────┘     └────┬────┘   └───┬────┘             │
  │      └───────────────┴────────────────┴────────────┘                  │
  │                      │  DemoTrainingsResults                           │
  │            ┌─────────▼──────────┐                                      │
- │            │  Step 6            │  Comparison table (Pre-S/Pre-M/modes)│
+ │            │  Step 6            │  Comparison table (Base-Holistic/Base-Rubric/modes)│
  │            │  Step 7            │  ASCII charts + PNG                  │
  │            │  Step 8            │  Paths + TS inspect commands         │
  │            └────────────────────┘                                      │
@@ -198,10 +235,10 @@ offline_05_thompson_vs_baseline/
 │   ├── steps/
 │   │   ├── step_00_save_skill_and_dataset.py   Write baseline skill + golden examples
 │   │   ├── step_01_evaluate_baseline.py        Holdout eval before any training
-│   │   ├── step_02_run_gepa_without_ts.py      no_ts / no_ts_multi pass
-│   │   ├── step_03_run_gepa_with_ts_l2_only.py l2_only pass
-│   │   ├── step_04_run_gepa_with_ts_l3_only.py l3_only pass
-│   │   ├── step_05_run_gepa_with_ts_l2_l3.py  l2_l3 pass
+│   │   ├── step_02_run_gepa_uniform.py      gepa_uniform / gepa_rubric pass
+│   │   ├── step_03_run_gepa_focused_on_difficulty.py gepa_focused_on_difficulty pass
+│   │   ├── step_04_run_gepa_gated.py gepa_gated pass
+│   │   ├── step_05_run_gepa_full.py  gepa_full pass
 │   │   ├── step_06_results_comparison.py       Print comparison table
 │   │   ├── step_07_plot_results.py             ASCII charts + matplotlib PNG
 │   │   └── step_08_final_prints.py             Print output paths
@@ -252,25 +289,25 @@ skill_evolver_stages/
 
 All modes start from the **identical baseline skill** and the **identical pre-computed baseline score** (evaluated once in Step 1).  The only differences are which TS levels are active and which scoring judge is used.
 
-| Mode | TS L2 Selector | TS L3 Gate | Scoring | Purpose |
+| Mode | TS-TrainingSelector Selector | TS-AcceptanceGate Gate | Scoring | Purpose |
 |------|:--------------:|:----------:|---------|---------|
-| `no_ts` | — | — | single | Pure GEPA baseline — control group |
-| `no_ts_multi` | — | — | multi (5-dim) | Multi-objective GEPA without TS |
-| `l2_only` | ✓ | — | single | TS example selection, threshold acceptance |
-| `l3_only` | — | ✓ | single | All examples, TS confidence gate |
-| `l2_l3` | ✓ | ✓ | single | Both TS levels combined |
+| `gepa_uniform` | — | — | single | Pure GEPA baseline — control group |
+| `gepa_rubric` | — | — | multi (5-dim) | Multi-objective GEPA without TS |
+| `gepa_focused_on_difficulty` | ✓ | — | single | TS example selection, threshold acceptance |
+| `gepa_gated` | — | ✓ | single | All examples, TS confidence gate |
+| `gepa_full` | ✓ | ✓ | single | Both TS levels combined |
 
 **How to configure which modes run:**
 
 ```json
 // Fastest: just see whether multi-obj scoring helps
-"run_modes": ["no_ts", "no_ts_multi"]
+"run_modes": ["gepa_uniform", "gepa_rubric"]
 
 // Classic TS ablation: isolate each level
-"run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"]
+"run_modes": ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"]
 
 // Full benchmark (all 5 modes)
-"run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3", "no_ts_multi"]
+"run_modes": ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full", "gepa_rubric"]
 
 // Baseline evaluation only — no training
 "run_modes": []
@@ -278,92 +315,90 @@ All modes start from the **identical baseline skill** and the **identical pre-co
 
 ### What each mode produces
 
-**`no_ts` (control group)**
+**`gepa_uniform` (control group)**
 - Uses all training examples with equal weight every iteration
 - Accepts any improvement ≥ 0.0
 - Sets the GEPA-without-TS reference point
-- Δ is compared against `Pre-S` (single LLM baseline)
+- Δ is compared against `Base-Holistic` (single LLM baseline)
 
-**`no_ts_multi`**
-- Same GEPA procedure as `no_ts` but evaluated with the 5-dimension judge
+**`gepa_rubric`**
+- Same GEPA procedure as `gepa_uniform` but evaluated with the 5-dimension judge
 - No-regression check: rejects if any dimension drops more than 0.02
 - Dynamic weight update: stagnant dimensions get higher weight next run
-- Δ is compared against `Pre-M` (multi-objective baseline) — **not** Pre-S
+- Δ is compared against `Base-Rubric` (multi-objective baseline) — **not** Base-Holistic
 - Best used to answer: "does a richer rubric produce a better-rounded evolved skill?"
 
-**`l2_only`**
+**`gepa_focused_on_difficulty`**
 - TS example selector picks the top `ts_batch_size` examples (default: 4 of 10) based on learned Beta arms
 - Hard examples (rare domain keywords) accumulate high α → almost always selected
 - Easy examples accumulate high β → rarely selected after first few runs
-- Generally converges faster than `no_ts` on domain-specific improvements
-- Uses threshold acceptance gate (same as `no_ts`)
+- Generally converges faster than `gepa_uniform` on domain-specific improvements
+- Uses threshold acceptance gate (same as `gepa_uniform`)
 
-**`l3_only`**
-- Uses all examples (same as `no_ts`)
+**`gepa_gated`**
+- Uses all examples (same as `gepa_uniform`)
 - Acceptance requires **both**: improvement ≥ 0.0 **and** P(θ_candidate > θ_deployed) ≥ 0.75
 - On a single run this may result in rejection even when improvement is positive — the confidence is not yet high enough
 - Over multiple runs, the bar calibrates: easy-to-reach improvements pass readily; one-off lucky runs are filtered
 - Best used to answer: "are these improvements reliable or just variance?"
 
-**`l2_l3`**
+**`gepa_full`**
 - Combines both TS levels
 - Example selector focuses training budget; acceptance gate filters deployment
 - With enough runs (`n_runs ≥ 3`), typically produces the highest **reliable** improvement
-- Most expensive: each run uses a smaller trainset (L2) and may reject more often (L3)
+- Most expensive: each run uses a smaller trainset (TS-TrainingSelector) and may reject more often (TS-AcceptanceGate)
 
-### Mode naming — suggested improvements
+### Mode names
 
-> The current mode names are code-level identifiers, not user-facing labels.  Below are suggested clearer names — **none of these are changed in the codebase**, they are here to help you read the output.
-
-| Current name | Suggested name | Why it's clearer |
+| Mode ID (config / code) | Display label (output) | What it means |
 |---|---|---|
-| `no_ts` | `gepa_uniform` | Makes clear: GEPA with no sampling, all examples used equally |
-| `no_ts_multi` | `gepa_rubric` | Makes clear: GEPA evaluated by a multi-dimension rubric judge |
-| `l2_only` | `gepa_focused` | Makes clear: GEPA focuses training budget on hard examples |
-| `l3_only` | `gepa_gated` | Makes clear: GEPA with a confidence gate on acceptance |
-| `l2_l3` | `gepa_full` or `gepa_prod` | Makes clear: full Thompson Sampling, production-grade |
-| `Pre-S` | `Baseline-Holistic` | The pre-training score from the holistic (single) judge |
-| `Pre-M` | `Baseline-Rubric` | The pre-training score from the rubric (multi) judge |
+| `gepa_uniform` | `GEPA-Uniform` | GEPA with no Thompson Sampling — all examples equally weighted |
+| `gepa_rubric` | `GEPA-Rubric` | GEPA evaluated by the 5-dimension rubric judge |
+| `gepa_focused_on_difficulty` | `GEPA-Focused` | GEPA with TS-TrainingSelector — training focuses on discriminating examples |
+| `gepa_gated` | `GEPA-Gated` | GEPA with TS-AcceptanceGate — confidence gate on acceptance |
+| `gepa_full` | `GEPA-Full` | GEPA with both TS-TrainingSelector + TS-AcceptanceGate — full Thompson Sampling |
+| *(pre-training)* | `Base-Holistic` | Pre-training score from the holistic (single) judge |
+| *(pre-training)* | `Base-Rubric` | Pre-training score from the rubric (multi) judge |
 
 ---
 
 ### Mode influence on the comparison table
 
 ```
- Pre-S  Pre-M   No-TS  No-TS-Multi  L2-only  L3-only  L2+L3
+ Base-Holistic  Base-Rubric   GEPA-Uniform  GEPA-Rubric  GEPA-Focused  GEPA-Gated  GEPA-Full
  0.44   0.65    0.64   0.73         0.71     0.66      0.74
   —      —     +0.20   +0.08       +0.27     +0.22    +0.30
 ```
 
-- **Pre-S** and **Pre-M** are pre-training baselines — they have no Δ (there is nothing to compare against)
-- **No-TS** Δ = `evolved_single − Pre-S`
-- **No-TS-Multi** Δ = `evolved_multi − Pre-M` (different scale, different judge)
-- **L2/L3/L2+L3** Δ = `evolved_single − Pre-S`
+- **Base-Holistic** and **Base-Rubric** are pre-training baselines — they have no Δ (there is nothing to compare against)
+- **GEPA-Uniform** Δ = `evolved_single − Base-Holistic`
+- **GEPA-Rubric** Δ = `evolved_multi − Base-Rubric` (different scale, different judge)
+- **GEPA-Focused/GEPA-Gated/GEPA-Full** Δ = `evolved_single − Base-Holistic`
 - **Best accepted** line shows the mode with highest mean score among accepted evolutions
 
 ---
 
-### How to compare No-TS (+0.20) vs No-TS-Multi (+0.08) — are they the same?
+### How to compare GEPA-Uniform (+0.20) vs GEPA-Rubric (+0.08) — are they the same?
 
 **Short answer: No.  They are not directly comparable as numbers.**
 
 The two deltas are measured on different scales with different rubrics, so +0.20 in single-judge does not mean the same thing as +0.20 in multi-judge.  The question is not which delta is bigger, but what each delta tells you about the improvement.
 
 ```
- No-TS    Pre-S=0.44 → evolved=0.64   Δ = +0.20
- No-TS-M  Pre-M=0.65 → evolved=0.73   Δ = +0.08
+ GEPA-Uniform    Base-Holistic=0.44 → evolved=0.64   Δ = +0.20
+ GEPA-Rubric  Base-Rubric=0.65 → evolved=0.73   Δ = +0.08
 ```
 
 **What each delta actually tells you:**
 
 ```
- No-TS +0.20 (single judge):
+ GEPA-Uniform +0.20 (single judge):
    The skill improved on the holistic score — likely better at correctness,
    procedure, and conciseness overall.  But you cannot tell from this score
    alone whether completeness or specificity got better or worse.
    It's one number averaging over the things the single judge cares about.
 
- No-TS-Multi +0.08 (multi-objective):
+ GEPA-Rubric +0.08 (multi-objective):
    The skill improved on ALL 5 dimensions simultaneously (or the composite
    rose despite some dimensions stagnating, as long as none dropped > 0.02).
    A smaller delta here can mean MORE than a larger delta from the single judge
@@ -373,13 +408,13 @@ The two deltas are measured on different scales with different rubrics, so +0.20
 **Conceptual comparison — what to look for:**
 
 ```
- Case 1: No-TS large delta, No-TS-Multi small delta
+ Case 1: GEPA-Uniform large delta, GEPA-Rubric small delta
    → GEPA improved the skill on correctness/procedure/conciseness,
      but completeness and specificity did not benefit much.
    → The skill got better at "following instructions correctly"
      but not at "being thorough and concrete."
 
- Case 2: No-TS small delta, No-TS-Multi large delta
+ Case 2: GEPA-Uniform small delta, GEPA-Rubric large delta
    → GEPA improved completeness and specificity meaningfully,
      but the holistic judge didn't weight those as heavily.
    → The skill got better at "saying everything and being concrete"
@@ -389,12 +424,12 @@ The two deltas are measured on different scales with different rubrics, so +0.20
    → The improvement is broad and consistent — both judges agree.
    → This is the strongest signal that GEPA genuinely improved the skill.
 
- Case 4: No-TS positive, No-TS-Multi zero or negative
+ Case 4: GEPA-Uniform positive, GEPA-Rubric zero or negative
    → The rubric judge rejected because one dimension regressed.
    → The single-judge improvement was misleading — the skill got better
      at one thing by getting worse at another.
    → This is the most important failure case to catch, and why
-     No-TS-Multi exists.
+     GEPA-Rubric exists.
 ```
 
 **The practical question to ask:**
@@ -402,7 +437,7 @@ The two deltas are measured on different scales with different rubrics, so +0.20
 > *"Does the improvement I care about show up in the judge that measures what I care about?"*
 
 - If you care about **overall quality** and the task is well-defined: single judge delta is sufficient.
-- If you care about **no silent regressions** (skill got better at X but worse at Y): run `no_ts_multi` and look at the per-dimension breakdown in the output.
+- If you care about **no silent regressions** (skill got better at X but worse at Y): run `gepa_rubric` and look at the per-dimension breakdown in the output.
 - If both judges show a positive delta: high confidence the improvement is real.
 - If only single judge shows improvement: inspect the multi-obj dimension scores to understand what was traded off.
 
@@ -422,7 +457,7 @@ All modes use the same training set, but they differ in how they **weight** exam
 
 Difficulty is measured from the perspective of the **GEPA optimizer**, not the final user.  An example is **easy** if GEPA can reliably find evolved candidates that score well on it — meaning even modest rewrites of the skill produce the right keywords/content.  An example is **hard** if even the best GEPA candidate consistently fails to produce the expected content — meaning the fitness metric never rises above 0.5 no matter what GEPA tries.
 
-The **medium** zone is where L2 Thompson Sampling adds the most value: examples where GEPA sometimes succeeds and sometimes fails.  These provide a learning signal precisely because there is variance.
+The **medium** zone is where TS-TrainingSelector adds the most value: examples where GEPA sometimes succeeds and sometimes fails.  These provide a learning signal precisely because there is variance.
 
 The examples below use a **recipe review skill** — a skill that reviews written recipes and identifies problems.  No technical knowledge needed.
 
@@ -515,27 +550,27 @@ The examples below use a **recipe review skill** — a skill that reviews writte
  misses the key content; judge score ≤ 0.4.
 ```
 
-> **Important nuance:** L2 Thompson Sampling does NOT primarily focus on the hardest examples.  It focuses on examples where GEPA can make progress — the "medium" zone.  Truly hard examples (where GEPA always fails) get deprioritized because the fitness signal there provides no useful gradient.  The L2 arm is asking "can GEPA learn from this example right now?" not "is this example hard for the final skill?"
+> **Important nuance:** TS-TrainingSelector does NOT primarily focus on the hardest examples.  It focuses on examples where GEPA can make progress — the "medium" zone.  Truly hard examples (where GEPA always fails) get deprioritized because the fitness signal there provides no useful gradient.  The TS-TrainingSelector arm is asking "can GEPA learn from this example right now?" not "is this example hard for the final skill?"
 
 #### Why difficulty distribution matters for mode choice
 
 ```
  All examples easy:
-   → No mode benefits from TS example selection (L2)
-   → no_ts will already find improvements quickly
-   → l2_l3 has no benefit over no_ts; the arms never diverge
+   → No mode benefits from TS example selection (TS-TrainingSelector)
+   → gepa_uniform will already find improvements quickly
+   → gepa_full has no benefit over gepa_uniform; the arms never diverge
 
  All examples hard:
    → All examples always selected (arms stay uniform)
-   → L2 TS adds no filtering benefit
+   → TS-TrainingSelector adds no filtering benefit
    → GEPA may struggle to improve at all: fitness stays low everywhere
    → Better action: improve the skill baseline first, then re-run
 
  Mixed (some easy, some hard):
-   → This is where L2 TS adds real value
+   → This is where TS-TrainingSelector adds real value
    → Arms diverge: easy examples filtered out after run 2–3
    → GEPA consistently trains on the hard subset from run 3 onward
-   → l2_only and l2_l3 outperform no_ts reliably
+   → gepa_focused_on_difficulty and gepa_full outperform gepa_uniform reliably
 
  Example for rtos-review:
    Easy:   null-pointer, buffer overflow (skill already covers these well)
@@ -546,7 +581,7 @@ The examples below use a **recipe review skill** — a skill that reviews writte
 
 ---
 
-### `no_ts` — No Thompson Sampling
+### `gepa_uniform` — No Thompson Sampling
 
 **What it does:** Trains GEPA on all available training examples with equal weight.  The acceptance gate is a simple threshold check (`improvement ≥ min_improvement_threshold`).
 
@@ -575,9 +610,9 @@ baseline skill:  any valid SKILL.md; the less evolved the better (more room to i
 
 ---
 
-### `no_ts_multi` — Multi-Objective, No TS
+### `gepa_rubric` — Multi-Objective, No TS
 
-**What it does:** Identical training loop to `no_ts`, but the holdout judge scores 5 independent dimensions (correctness, procedure_following, conciseness, completeness, specificity).  Acceptance requires a weighted aggregate improvement **and** no single dimension dropping more than 0.02 below baseline.
+**What it does:** Identical training loop to `gepa_uniform`, but the holdout judge scores 5 independent dimensions (correctness, procedure_following, conciseness, completeness, specificity).  Acceptance requires a weighted aggregate improvement **and** no single dimension dropping more than 0.02 below baseline.
 
 > **In plain English:** Same teacher, same 10 questions — but now the grading rubric has five separate categories (accuracy, format, clarity, coverage, specificity) instead of one overall grade.  You accept the session's result only if the student improved overall **and** didn't fall behind in any single category.  A student who aced accuracy but suddenly stopped covering all aspects of the question fails even if the total score went up.  More demanding, but you catch improvements that came at the cost of something important.
 
@@ -588,7 +623,7 @@ baseline skill:  any valid SKILL.md; the less evolved the better (more room to i
 
 #### When it struggles
 - **Noisy judges on novel dimensions** — `completeness` and `specificity` require the judge LLM to reliably assess these; small/cheap judge models produce inconsistent scores, making the no-regression check unstable
-- **Cold start (run 1)** — dynamic weights start at `[1.0, 1.0, 1.0, 1.0, 1.0]`; the first run has no calibrated weighting, so it behaves identically to `no_ts` from the GEPA side
+- **Cold start (run 1)** — dynamic weights start at `[1.0, 1.0, 1.0, 1.0, 1.0]`; the first run has no calibrated weighting, so it behaves identically to `gepa_uniform` from the GEPA side
 - **Skills with inherent tradeoffs** — a longer, more complete answer is less concise by definition; the 0.02 no-regression threshold can repeatedly reject otherwise-good evolutions
 
 #### What you need for best results
@@ -603,7 +638,7 @@ dimensions:      review MultiObjectiveJudgeSignature prompts — customise per s
 
 ---
 
-### `l2_only` — Thompson Sampling on Example Selection
+### `gepa_focused_on_difficulty` — Thompson Sampling on Example Selection
 
 **What it does:** Uses Beta arms (one per training example) to select the top-`ts_batch_size` examples for each GEPA run.  The arm update rule is: **α++ when fitness ≥ 0.5** (GEPA produced a good output on this example), **β++ when fitness < 0.5** (GEPA struggled).  The example with the highest sampled θ from its Beta(α, β) distribution gets selected.  The acceptance gate is still a simple threshold.
 
@@ -625,9 +660,9 @@ dimensions:      review MultiObjectiveJudgeSignature prompts — customise per s
 - **Iterative offline sessions** — since `ts_examples_<skill>.json` persists across runs, each session starts smarter; arms converge toward a stable hard-example subset
 
 #### When it struggles
-- **Cold start (first run)** — arms start at `Beta(1,1)`; the first run selects examples nearly uniformly, no different from `no_ts`; the benefit only appears from run 2 onward
+- **Cold start (first run)** — arms start at `Beta(1,1)`; the first run selects examples nearly uniformly, no different from `gepa_uniform`; the benefit only appears from run 2 onward
 - **Very small trainsets (< 6 examples)** — selecting `ts_batch_size=4` from 5 examples is almost the full set; TS provides minimal filtering benefit
-- **Tasks where all examples are hard** — if all examples consistently yield low fitness, arm β values grow uniformly; selection stays random and L2 gives no benefit
+- **Tasks where all examples are hard** — if all examples consistently yield low fitness, arm β values grow uniformly; selection stays random and TS-TrainingSelector gives no benefit
 - **When `ts_batch_size` is too large** — if `ts_batch_size ≈ n_training`, the TS filter is effectively off; set `ts_batch_size ≤ n_training / 2`
 
 #### What you need for best results
@@ -654,7 +689,7 @@ After run 3, GEPA consistently sees the 2 hard examples every run.
 
 ---
 
-### `l3_only` — Thompson Sampling on Acceptance Gate
+### `gepa_gated` — Thompson Sampling on Acceptance Gate
 
 **What it does:** Trains on all examples (no TS filtering), but replaces the threshold gate with a **confidence gate**: `P(candidate arm > deployed arm) ≥ 0.75` (100 Monte Carlo draws from Beta distributions).  The deployed arm starts at Beta(1, 1); each accepted evolution adds Alpha++ to the deployed arm; each rejected candidate adds Beta++ to the candidate arm.
 
@@ -679,9 +714,9 @@ After run 3, GEPA consistently sees the 2 hard examples every run.
 - **Stable production skills** — when the deployed skill is already good and you want to ensure online evolutions don't deploy marginal improvements
 
 #### When it struggles
-- **Very early runs** — L3 arms start at `Beta(1,1)` for both candidate and deployed; with no history, `P(cand > deploy)` is close to 0.50 and fluctuates; the gate provides little signal until run 3+
+- **Very early runs** — TS-AcceptanceGate arms start at `Beta(1,1)` for both candidate and deployed; with no history, `P(cand > deploy)` is close to 0.50 and fluctuates; the gate provides little signal until run 3+
 - **When improvements are small** — the confidence gate is calibrated for clear improvements; if the real improvement is 0.01–0.02 (close to judge noise), the gate may never reach P ≥ 0.75 even if the skill is genuinely better
-- **Using without L2** — training on all examples means GEPA may not focus on the hard cases; the gate can end up repeatedly rejecting a skill that improved on 8/10 examples but regressed on 2 noisy holdout evaluations
+- **Using without TS-TrainingSelector** — training on all examples means GEPA may not focus on the hard cases; the gate can end up repeatedly rejecting a skill that improved on 8/10 examples but regressed on 2 noisy holdout evaluations
 
 #### What you need for best results
 
@@ -695,33 +730,33 @@ baseline skill:           must be genuinely good — if baseline is weak,
 
 ---
 
-### `l2_l3` — Full Thompson Sampling (L2 + L3)
+### `gepa_full` — Full Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)
 
-**What it does:** Combines example-selection arms (L2) and acceptance-gate arms (L3).  GEPA trains on the TS-selected hard-example subset **and** requires P ≥ 0.75 confidence before accepting.
+**What it does:** Combines example-selection arms (TS-TrainingSelector) and acceptance-gate arms (TS-AcceptanceGate).  GEPA trains on the TS-selected hard-example subset **and** requires P ≥ 0.75 confidence before accepting.
 
-> **In plain English:** The most careful teacher: they use *both* notebooks at the same time — the question-selector notebook (L2 Alpha/Beta per question) and the deployment-gate notebook (L3 track records for deployed vs candidate skill).
+> **In plain English:** The most careful teacher: they use *both* notebooks at the same time — the question-selector notebook (TS-TrainingSelector Alpha/Beta per question) and the deployment-gate notebook (TS-AcceptanceGate track records for deployed vs candidate skill).
 >
-> **L2 notebook in action:** Over 3+ sessions, the teacher's per-question Alpha/Beta tallies have stabilised.  The productive medium-difficulty questions have balanced or slightly Alpha-leaning records → their die rolls are sometimes high → they get selected consistently.  Dead-end questions have high Beta → rarely picked.
+> **TS-TrainingSelector notebook in action:** Over 3+ sessions, the teacher's per-question Alpha/Beta tallies have stabilised.  The productive medium-difficulty questions have balanced or slightly Alpha-leaning records → their die rolls are sometimes high → they get selected consistently.  Dead-end questions have high Beta → rarely picked.
 >
-> **L3 notebook in action:** Each session, after training on the L2-selected questions, the teacher evaluates the result with the coin-flip test: flip both coins 100 times, see if the candidate beats the deployed version in ≥ 75 flips.
+> **TS-AcceptanceGate notebook in action:** Each session, after training on the TS-TrainingSelector-selected questions, the teacher evaluates the result with the coin-flip test: flip both coins 100 times, see if the candidate beats the deployed version in ≥ 75 flips.
 >
-> **Why the combination matters:** L2 focuses the training on the productive zone (medium-difficulty questions); L3 ensures only genuinely better skills get deployed.  Without L2, you might train on easy questions, produce a superficially better candidate, and L3 might accept it even though the hard cases weren't addressed.  Without L3, you might train on great questions but deploy a lucky outlier.  Together: focused training AND conservative deployment.
+> **Why the combination matters:** TS-TrainingSelector focuses the training on the productive zone (medium-difficulty questions); TS-AcceptanceGate ensures only genuinely better skills get deployed.  Without TS-TrainingSelector, you might train on easy questions, produce a superficially better candidate, and TS-AcceptanceGate might accept it even though the hard cases weren't addressed.  Without TS-AcceptanceGate, you might train on great questions but deploy a lucky outlier.  Together: focused training AND conservative deployment.
 
 #### When it works well
 - **Production-grade offline benchmark** — the gold-standard mode for skills that will be deployed; both filtering and confidence protection active
-- **`n_runs ≥ 3`** — L2 arms converge by run 3, L3 arms gain confidence by run 3; the combination is only meaningful after both converge
-- **Well-calibrated arm history** — warm-starting from a previous `l2_l3` run (or even `l2_only` run for the L2 arms) directly enters the convergence regime
+- **`n_runs ≥ 3`** — TS-TrainingSelector arms converge by run 3, TS-AcceptanceGate arms gain confidence by run 3; the combination is only meaningful after both converge
+- **Well-calibrated arm history** — warm-starting from a previous `gepa_full` run (or even `gepa_focused_on_difficulty` run for the TS-TrainingSelector arms) directly enters the convergence regime
 
 #### When it struggles
-- **`n_runs = 1`** — both L2 and L3 are in cold-start; the first run behaves nearly identically to `no_ts` but rejects more often due to the L3 confidence gate; net effect can be a lower acceptance rate without the benefit of arm convergence
-- **Very small datasets** — L2 filtering on ≤ 6 examples has limited benefit; L3 gate needs a reliable holdout to build arm confidence; both mechanisms underperform
-- **Mismatched `ts_batch_size`** — if `ts_batch_size = n_training`, the L2 filter is effectively disabled and you pay the L3 gate's stricter rejection rate without the L2 improvement in training quality
+- **`n_runs = 1`** — both TS-TrainingSelector and TS-AcceptanceGate are in cold-start; the first run behaves nearly identically to `gepa_uniform` but rejects more often due to the TS-AcceptanceGate confidence gate; net effect can be a lower acceptance rate without the benefit of arm convergence
+- **Very small datasets** — TS-TrainingSelector filtering on ≤ 6 examples has limited benefit; TS-AcceptanceGate needs a reliable holdout to build arm confidence; both mechanisms underperform
+- **Mismatched `ts_batch_size`** — if `ts_batch_size = n_training`, the TS-TrainingSelector filter is effectively disabled and you pay the TS-AcceptanceGate's stricter rejection rate without the TS-TrainingSelector improvement in training quality
 
 #### What you need for best results
 
 ```
-n_runs:          ≥ 3  (non-negotiable for this mode to add value over no_ts)
-ts_batch_size:   3–5  (≤ 50% of training examples; see l2_only guidance)
+n_runs:          ≥ 3  (non-negotiable for this mode to add value over gepa_uniform)
+ts_batch_size:   3–5  (≤ 50% of training examples; see gepa_focused_on_difficulty guidance)
 training set:    ≥ 8 diverse examples
 holdout set:     ≥ 5 examples (separate from training)
 iterations:      5–10
@@ -735,13 +770,13 @@ arm persistence: keep ts_state/ — each session should warm-start from the last
 ```
  Situation                                 Recommended mode
  ─────────────────────────────────────────────────────────────────────
- First run, no prior history               no_ts          (baseline)
- Want quality-dimension breakdown          no_ts_multi
- Large heterogeneous trainset              l2_only        (run 2+)
- Want to protect a good deployed skill     l3_only
- Production-grade benchmark, n_runs ≥ 3   l2_l3          (gold standard)
- Pure ablation: is TS helping at all?      no_ts + l2_l3  (compare both)
- Iterative sessions over weeks             l2_l3, warm-start each session
+ First run, no prior history               gepa_uniform          (baseline)
+ Want quality-dimension breakdown          gepa_rubric
+ Large heterogeneous trainset              gepa_focused_on_difficulty        (run 2+)
+ Want to protect a good deployed skill     gepa_gated
+ Production-grade benchmark, n_runs ≥ 3   gepa_full          (gold standard)
+ Pure ablation: is TS helping at all?      gepa_uniform + gepa_full  (compare both)
+ Iterative sessions over weeks             gepa_full, warm-start each session
  ─────────────────────────────────────────────────────────────────────
 ```
 
@@ -754,22 +789,22 @@ A mode "wins" in the comparison table when it produces the highest mean accepted
 ```
  Mode           Training data requirement to win
  ─────────────────────────────────────────────────────────────────────
- no_ts          Any training data works.  Wins by default when:
+ gepa_uniform          Any training data works.  Wins by default when:
                   • dataset is small (< 8 examples)
                   • all examples are similar difficulty (no variation)
                   • n_runs = 1 (no TS convergence possible anyway)
                 Wins easily but produces the lowest ceiling — cannot
                 improve further once the obvious gains are found.
 
- no_ts_multi    Requires a capable judge LLM (GPT-4 class).  Wins when:
+ gepa_rubric    Requires a capable judge LLM (GPT-4 class).  Wins when:
                   • training covers diverse sub-tasks (breadth)
                   • you care about completeness and specificity
                   • n_runs ≥ 3 (weight calibration adds value)
-                Can beat no_ts on total improvement if the skill has
+                Can beat gepa_uniform on total improvement if the skill has
                 silent weaknesses in completeness/specificity that
                 the single judge misses.
 
- l2_only        Requires genuine difficulty variation in training.  Wins when:
+ gepa_focused_on_difficulty        Requires genuine difficulty variation in training.  Wins when:
                   • ≥ 8 training examples with at least 3 hard ones
                   • n_runs ≥ 3 (arms need time to diverge)
                   • ts_batch_size ≤ 50% of training set
@@ -778,18 +813,18 @@ A mode "wins" in the comparison table when it produces the highest mean accepted
                 Needs the hard examples to be *identifiable* — i.e., the
                 fitness metric must score them differently from easy ones.
 
- l3_only        Requires stable, reliable holdout evaluation.  Wins when:
+ gepa_gated        Requires stable, reliable holdout evaluation.  Wins when:
                   • holdout ≥ 5 examples
                   • judge LLM produces consistent scores across runs
                   • n_runs ≥ 3 (gate arms need history)
                 Does NOT win if judge noise is high (gate never clears)
                 or if the improvement ceiling is low (gate threshold
                 never reached even with a genuinely better skill).
-                Can match l2_l3 if the hard examples are already covered.
+                Can match gepa_full if the hard examples are already covered.
 
- l2_l3          Requires both: difficulty variation AND stable holdout.  Wins when:
-                  • All l2_only conditions met (hard examples present)
-                  • All l3_only conditions met (holdout reliable)
+ gepa_full          Requires both: difficulty variation AND stable holdout.  Wins when:
+                  • All gepa_focused_on_difficulty conditions met (hard examples present)
+                  • All gepa_gated conditions met (holdout reliable)
                   • n_runs ≥ 3 (both arm types need convergence)
                 This is the hardest mode to win with on small datasets
                 (both mechanisms underperform), but the most reliable
@@ -808,50 +843,50 @@ Assuming a balanced split (~2 easy, ~4 medium, ~4 hard in training; ~1 easy, ~2 
 ```
  Mode           Is the demo dataset good enough?
  ─────────────────────────────────────────────────────────────────────
- no_ts          ✓  Always works — no special requirements.
+ gepa_uniform          ✓  Always works — no special requirements.
                    Expected improvement: moderate (+0.15 to +0.25 on
                    a baseline skill with deliberate gaps).
 
- no_ts_multi    ✓  With a capable judge, the 5 dimensions are all
+ gepa_rubric    ✓  With a capable judge, the 5 dimensions are all
                    meaningful for rtos-review (specificity and
                    completeness are exactly what the baseline skill
                    lacks).  Dynamic weights become useful by run 3.
-                   Expected: smaller delta than no_ts, but a healthier
+                   Expected: smaller delta than gepa_uniform, but a healthier
                    improvement with no dimension regressions.
 
- l2_only        ✓  4 hard examples in training is enough for L2 arms
+ gepa_focused_on_difficulty        ✓  4 hard examples in training is enough for TS-TrainingSelector arms
                    to diverge.  The 8 hard rtos-review examples are
                    genuinely hard (ISR-context, memory barriers, torn
                    reads) — fitness scores on these are reliably low
                    for a non-expert skill.  Arms should converge clearly
                    by run 3 with ts_batch_size=4.
-                   Caveat: run 1 will look like no_ts (cold start).
+                   Caveat: run 1 will look like gepa_uniform (cold start).
 
- l3_only        ~ With only 5 holdout examples, the L3 confidence
+ gepa_gated        ~ With only 5 holdout examples, the TS-AcceptanceGate confidence
                    estimate is coarse.  Judge score variance on the 2
                    hard holdout examples can move the P(cand>deploy)
                    estimate by ±0.10 between runs.  Works but benefits
                    from n_runs ≥ 4.  With 5 holdout examples and a
                    capable judge, the gate is usable but not tight.
 
- l2_l3          ~ Same caveats as l3_only on holdout size.  The L2
-                   component works well (see above).  The L3 gate may
+ gepa_full          ~ Same caveats as gepa_gated on holdout size.  The TS-TrainingSelector
+                   component works well (see above).  The TS-AcceptanceGate may
                    be slightly noisy with only 5 holdout examples.
                    Recommendation: use n_runs=3 minimum; with n_runs=5
                    the gate becomes reliable.
-                   With the current demo examples: expect l2_l3 to win
-                   over no_ts clearly by run 3, but with high variance
+                   With the current demo examples: expect gepa_full to win
+                   over gepa_uniform clearly by run 3, but with high variance
                    on single runs.
  ─────────────────────────────────────────────────────────────────────
 
  Overall assessment for rtos-review with 20 examples:
    • The dataset is well-designed for TS — deliberate difficulty gradient
    • Hard examples are clearly hard (domain-specific, multi-step)
-   • n_runs=3 is sufficient for l2_only; n_runs=4 recommended for l2_l3
+   • n_runs=3 is sufficient for gepa_focused_on_difficulty; n_runs=4 recommended for gepa_full
    • The main limitation is holdout size (5 examples) — this creates
-     score variance that limits how tight the L3 gate can be
+     score variance that limits how tight the TS-AcceptanceGate can be
    • Expanding holdout to 8 examples (and training to 12) would make
-     l2_l3 significantly more reliable
+     gepa_full significantly more reliable
 ```
 
 ---
@@ -864,9 +899,9 @@ Assuming a balanced split (~2 easy, ~4 medium, ~4 hard in training; ~1 easy, ~2 
 
 ### Three systematic failure modes of plain gradient-free prompt optimisation
 
-GEPA without Thompson Sampling (`no_ts`) is a **zeroth-order optimiser** over the space of natural-language skill texts.  It generates candidate rewrites, evaluates them with a proxy metric (keyword fitness), and uses the best candidate to guide reflection and the next generation.  This is the prompt-optimisation equivalent of evolution strategies or random search with guided mutation.
+GEPA without Thompson Sampling (`gepa_uniform`) is a **zeroth-order optimiser** over the space of natural-language skill texts.  It generates candidate rewrites, evaluates them with a proxy metric (keyword fitness), and uses the best candidate to guide reflection and the next generation.  This is the prompt-optimisation equivalent of evolution strategies or random search with guided mutation.
 
-Gradient-free optimisers applied to noisy, proxy-metric objective functions face three well-known systematic failure modes.  Understanding them is the key to understanding why each mode improves over `no_ts`.
+Gradient-free optimisers applied to noisy, proxy-metric objective functions face three well-known systematic failure modes.  Understanding them is the key to understanding why each mode improves over `gepa_uniform`.
 
 ---
 
@@ -900,17 +935,17 @@ In prompt optimisation this manifests as: the evolved skill produces outputs tha
 
 ---
 
-### Why rubric scoring (`no_ts_multi`) addresses failure mode 3
+### Why rubric scoring (`gepa_rubric`) addresses failure mode 3
 
 **Scientific claim:** Multi-objective scoring with a Pareto-style no-regression constraint and dynamic weight adaptation reduces reward hacking and produces evolved skills that improve across a broader front of capabilities.
 
 **Theoretical grounding:**
 
-*Multi-objective optimisation (MOO)* does not collapse multiple objectives into a single scalar; instead it seeks solutions that are *Pareto-non-dominated* — no objective can be improved without degrading another.  The `no_ts_multi` no-regression constraint (`evolved[dim] ≥ baseline[dim] − 0.02`) directly implements a weak Pareto condition: the evolved skill must not harm any dimension, even if the composite improves.
+*Multi-objective optimisation (MOO)* does not collapse multiple objectives into a single scalar; instead it seeks solutions that are *Pareto-non-dominated* — no objective can be improved without degrading another.  The `gepa_rubric` no-regression constraint (`evolved[dim] ≥ baseline[dim] − 0.02`) directly implements a weak Pareto condition: the evolved skill must not harm any dimension, even if the composite improves.
 
 The *dynamic weight update* is a form of **adaptive scalarisation with stagnation detection**.  In multi-objective evolutionary algorithms (MOEA/D, Zhang & Li, 2007; NSGA-II, Deb et al., 2002), fixed-weight scalarisation is known to under-explore directions where progress is slow.  The weight adaptation here — increase weight of stagnant dimensions, decrease weight of improving ones — is equivalent to *prioritised gradient descent* across objectives, ensuring the optimiser does not permanently ignore any dimension.
 
-**Why this matters beyond a single run:** Over multiple runs with `no_ts`, all improvement pressure stays on the single composite score.  The score can plateau while individual dimensions shift — specificity improves, completeness degrades, composite stays flat.  With multi-objective scoring, each dimension is an independent signal; the dynamic weights detect exactly which dimensions have stalled and amplify pressure there on the next run.
+**Why this matters beyond a single run:** Over multiple runs with `gepa_uniform`, all improvement pressure stays on the single composite score.  The score can plateau while individual dimensions shift — specificity improves, completeness degrades, composite stays flat.  With multi-objective scoring, each dimension is an independent signal; the dynamic weights detect exactly which dimensions have stalled and amplify pressure there on the next run.
 
 > **In plain English:** Imagine scoring a student on one overall mark vs five separate subject marks.  With one overall mark, a student who gets 90% in maths and 30% in English can look the same as one who gets 60% in both — same average.  With separate marks, you see exactly which subject needs work, and the teacher can focus the next session accordingly.  Crucially: the separate marks prevent a student from appearing to "improve" overall while secretly getting worse at one subject.
 
@@ -918,7 +953,7 @@ The *dynamic weight update* is a form of **adaptive scalarisation with stagnatio
 
 ---
 
-### Why Thompson Sampling example selection (`l2_only`) addresses failure mode 1
+### Why Thompson Sampling example selection (`gepa_focused_on_difficulty`) addresses failure mode 1
 
 **Scientific claim:** Adaptive example selection using Thompson Sampling converges to a training distribution that concentrates budget on the examples providing the most gradient information at the current competence level of the skill, consistent with theoretical guarantees on regret-minimising allocation.
 
@@ -938,7 +973,7 @@ The resulting allocation has a natural curriculum structure.  Examples where GEP
 
 ---
 
-### Why Thompson Sampling acceptance gate (`l3_only`) addresses failure mode 2
+### Why Thompson Sampling acceptance gate (`gepa_gated`) addresses failure mode 2
 
 **Scientific claim:** Bayesian acceptance testing using Beta-distributed arm comparison provides an unbiased, uncertainty-aware deployment criterion that eliminates selection bias toward lucky evaluations and implements a monotonically non-decreasing quality ratchet.
 
@@ -946,7 +981,7 @@ The resulting allocation has a natural curriculum structure.  Examples where GEP
 
 A threshold acceptance rule — "accept if evolved score > baseline score + δ" — is a *frequentist point decision* using a single stochastic observation.  Its type I error rate (false acceptance) is proportional to the judge's score variance; with a small holdout and a noisy LLM judge, this error rate is non-negligible.
 
-The L3 gate replaces the point decision with a **Bayesian credibility criterion**: compute P(θ_candidate > θ_deployed) where both θ values are sampled from their respective posterior Beta distributions.  Deploy only if this probability exceeds 0.75.  This is directly analogous to the *region of practical equivalence* (ROPE) criterion in Bayesian hypothesis testing (Kruschke, 2015) and to Bayesian A/B testing approaches that replace p-values with posterior probabilities.
+The TS-AcceptanceGate replaces the point decision with a **Bayesian credibility criterion**: compute P(θ_candidate > θ_deployed) where both θ values are sampled from their respective posterior Beta distributions.  Deploy only if this probability exceeds 0.75.  This is directly analogous to the *region of practical equivalence* (ROPE) criterion in Bayesian hypothesis testing (Kruschke, 2015) and to Bayesian A/B testing approaches that replace p-values with posterior probabilities.
 
 The key property is **coherent uncertainty propagation**: a candidate that scores 0.70 on one holdout evaluation contributes one Bernoulli observation to its Beta arm.  That single observation barely shifts P(θ_candidate > θ_deployed) from 0.50 — correctly reflecting high uncertainty.  Only after multiple successful evaluations (α accumulates across runs) does P rise enough to clear the 0.75 threshold.
 
@@ -958,9 +993,9 @@ The key property is **coherent uncertainty propagation**: a candidate that score
 
 ---
 
-### Why `l2_l3` beats either mechanism alone
+### Why `gepa_full` beats either mechanism alone
 
-**Scientific claim:** L2 and L3 address statistically independent failure modes in different stages of the learning pipeline; their combination produces compound improvement that is multiplicative, not merely additive.
+**Scientific claim:** TS-TrainingSelector and TS-AcceptanceGate address statistically independent failure modes in different stages of the learning pipeline; their combination produces compound improvement that is multiplicative, not merely additive.
 
 **Theoretical grounding:**
 
@@ -970,17 +1005,17 @@ Consider the total error of a skill evolution pipeline as decomposable into:
 Total error = Training distribution error + Evaluation noise error + Metric-gaming error
 ```
 
-- `no_ts` addresses none of these
-- `l2_only` reduces **training distribution error** (better allocation → less wasted budget)
-- `l3_only` reduces **evaluation noise error** (Bayesian gate → fewer lucky acceptances)
-- `no_ts_multi` reduces **metric-gaming error** (multi-objective → harder to game any single dimension)
-- `l2_l3` reduces **both training error and evaluation error simultaneously**
+- `gepa_uniform` addresses none of these
+- `gepa_focused_on_difficulty` reduces **training distribution error** (better allocation → less wasted budget)
+- `gepa_gated` reduces **evaluation noise error** (Bayesian gate → fewer lucky acceptances)
+- `gepa_rubric` reduces **metric-gaming error** (multi-objective → harder to game any single dimension)
+- `gepa_full` reduces **both training error and evaluation error simultaneously**
 
-Because the two mechanisms act on separate, non-overlapping stages of the pipeline — L2 on training data selection, L3 on acceptance decision — they are **conditionally independent improvements**.  If L2 reduces training error by a factor f₁ (producing a better candidate to evaluate) and L3 reduces evaluation error by a factor f₂ (ensuring only genuinely better candidates are accepted), the combined error reduction is approximately f₁ × f₂ rather than f₁ + f₂.
+Because the two mechanisms act on separate, non-overlapping stages of the pipeline — TS-TrainingSelector on training data selection, TS-AcceptanceGate on acceptance decision — they are **conditionally independent improvements**.  If TS-TrainingSelector reduces training error by a factor f₁ (producing a better candidate to evaluate) and TS-AcceptanceGate reduces evaluation error by a factor f₂ (ensuring only genuinely better candidates are accepted), the combined error reduction is approximately f₁ × f₂ rather than f₁ + f₂.
 
-This is analogous to the *bias-variance tradeoff* in supervised learning: methods that simultaneously reduce bias (L2 → better training signal) and variance (L3 → more robust evaluation) achieve performance gains that neither bias reduction nor variance reduction alone can reach.
+This is analogous to the *bias-variance tradeoff* in supervised learning: methods that simultaneously reduce bias (TS-TrainingSelector → better training signal) and variance (TS-AcceptanceGate → more robust evaluation) achieve performance gains that neither bias reduction nor variance reduction alone can reach.
 
-**The convergence caveat:** Both mechanisms require multiple runs to accumulate arm evidence.  On run 1, L2 arms are all Beta(1,1) (uniform selection) and L3 arms are Beta(1,1) (uninformative gate).  The mechanism behaves identically to `no_ts` on run 1.  By run 3, both arm types have accumulated enough evidence to diverge meaningfully.  This is not a weakness — it is standard behaviour of Bayesian methods: the prior dominates when evidence is scarce, the data dominates as evidence accumulates.
+**The convergence caveat:** Both mechanisms require multiple runs to accumulate arm evidence.  On run 1, TS-TrainingSelector arms are all Beta(1,1) (uniform selection) and TS-AcceptanceGate arms are Beta(1,1) (uninformative gate).  The mechanism behaves identically to `gepa_uniform` on run 1.  By run 3, both arm types have accumulated enough evidence to diverge meaningfully.  This is not a weakness — it is standard behaviour of Bayesian methods: the prior dominates when evidence is scarce, the data dominates as evidence accumulates.
 
 > **In plain English:** Imagine improving a factory's output by: (A) making sure workers practise on the tasks they're actually struggling with, and (B) setting a strict quality-control gate that only passes parts that are genuinely better than the last batch.  Doing A alone gives you better practice but your quality gate still accepts lucky-but-mediocre output.  Doing B alone gives you a stricter gate but workers are still practising the wrong tasks.  Doing both: workers improve on the right tasks AND only genuinely improved parts pass — and the two effects multiply rather than just add up.
 
@@ -989,16 +1024,16 @@ This is analogous to the *bias-variance tradeoff* in supervised learning: method
 ```
  With n_runs ≥ 3 and a heterogeneous training set:
 
- l2_l3  > l2_only  (L3 gate removes lucky l2_only acceptances)
- l2_l3  > l3_only  (L2 training focuses produce higher-quality candidates for L3 to evaluate)
- l2_only > no_ts   (better training → better candidates on average)
- l3_only ≈ no_ts   (same training quality, but stricter gate; similar peak, higher reliability)
- no_ts_multi δ ≠ no_ts δ  (different rubric, different scale — not directly comparable)
+ gepa_full  > gepa_focused_on_difficulty  (TS-AcceptanceGate removes lucky gepa_focused_on_difficulty acceptances)
+ gepa_full  > gepa_gated  (TS-TrainingSelector training focuses produce higher-quality candidates for TS-AcceptanceGate to evaluate)
+ gepa_focused_on_difficulty > gepa_uniform   (better training → better candidates on average)
+ gepa_gated ≈ gepa_uniform   (same training quality, but stricter gate; similar peak, higher reliability)
+ gepa_rubric δ ≠ gepa_uniform δ  (different rubric, different scale — not directly comparable)
 
- If l2_l3 does NOT outperform both l2_only and l3_only, likely explanations:
+ If gepa_full does NOT outperform both gepa_focused_on_difficulty and gepa_gated, likely explanations:
    • n_runs too low (arms haven't converged)
-   • All examples are easy (L2 arms don't diverge — no curriculum signal)
-   • Holdout too small (L3 arms don't concentrate — evaluation noise dominates)
+   • All examples are easy (TS-TrainingSelector arms don't diverge — no curriculum signal)
+   • Holdout too small (TS-AcceptanceGate arms don't concentrate — evaluation noise dominates)
 ```
 
 ---
@@ -1015,7 +1050,7 @@ GEPA (Genetic Enhancement of Prompt-based Agents) is a DSPy optimizer that treat
  │                                                                         │
  │  1. Load baseline skill                                                 │
  │  2. Build / reuse dataset  (train=10, val=5, holdout=5)                 │
- │  3. [TS L2] Select training subset from full trainset                   │
+ │  3. [TS-TrainingSelector] Select training subset from full trainset                   │
  │  4. ─────────────────────────────────────────────────────────────────── │
  │  │  INNER LOOP — iterations × ~7 candidates                            │
  │  │                                                                      │
@@ -1025,9 +1060,9 @@ GEPA (Genetic Enhancement of Prompt-based Agents) is a DSPy optimizer that treat
  │  │    │   (~1000 calls total, NO LLM judge, fast)                      │
  │  │    └── Reflection: LLM reflects on best/worst candidates            │
  │  │                                                                      │
- │  5. [TS L2] Update example arms with per-example fitness               │
+ │  5. [TS-TrainingSelector] Update example arms with per-example fitness               │
  │  6. Evaluate on holdout: LLM judge (5 examples × ~25 s each)           │
- │  7. [TS L3] Acceptance gate: threshold + confidence check              │
+ │  7. [TS-AcceptanceGate] Acceptance gate: threshold + confidence check              │
  │  8. Save evolved skill (or regression artifact)                        │
  └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1039,12 +1074,12 @@ Stage  1  skill_finder_and_loader          Load SKILL.md, parse frontmatter + bo
 Stage  2  baseline_constraint_validator    Size ≤ 15 KB, growth ≤ 50%, valid YAML
 Stage  3  dataset_builder                  Build or reuse train/val/holdout split
 Stage  4  dspy_configurator                Configure DSPy LM, wrap skill as SkillModule
-Stage  5  gepa_optimizer                   [TS L2 select] → GEPA → [TS L2 update]
+Stage  5  gepa_optimizer                   [TS-TrainingSelector select] → GEPA → [TS-TrainingSelector update]
 Stage  6  evolved_skill_extractor          Extract rewritten skill text
 Stage  7  evolved_constraint_validator     Same constraints on evolved text
 Stage  8  holdout_evaluator                Score baseline (pre-computed) + evolved
 Stage 8b  (multi-objective handler)        No-regression check + weight update
-Stage  9  acceptance_gate                  threshold + [TS L3 confidence check]
+Stage  9  acceptance_gate                  threshold + [TS-AcceptanceGate confidence check]
 Stage 10  results_display                  Rich table: all metrics + constraint rows
 Stage 11  output_saver                     Write SKILL.md or REGRESSION.md + JSONL
 ```
@@ -1159,7 +1194,7 @@ Applies to multi-skill batch jobs.  A Beta arm per skill decides which skill to 
 
 #### What it does
 
-Instead of giving GEPA all 10 training examples, TS L2 selects a subset of `ts_batch_size` (default 4).  Examples that have historically caused the skill to improve a lot — "discriminating" examples — are selected more often.
+Instead of giving GEPA all 10 training examples, TS-TrainingSelector selects a subset of `ts_batch_size` (default 4).  Examples that have historically caused the skill to improve a lot — "discriminating" examples — are selected more often.
 
 #### Beta arm per example
 
@@ -1240,7 +1275,7 @@ The same `task_input` always maps to the same key, across runs and sessions.
 }
 ```
 
-#### ASCII: L2 arm evolution
+#### ASCII: TS-TrainingSelector arm evolution
 
 ```
  Run 1:  ex1 ex2 ex3 ex4 ex5 ex6 ex7 ex8 ex9 ex10
@@ -1262,7 +1297,7 @@ The same `task_input` always maps to the same key, across runs and sessions.
 
 #### What it does
 
-The threshold gate (`no_ts`, `l2_only`) accepts any evolution where `improvement ≥ min_improvement`.  This can deploy a one-off lucky run that won't reliably repeat.
+The threshold gate (`gepa_uniform`, `gepa_focused_on_difficulty`) accepts any evolution where `improvement ≥ min_improvement`.  This can deploy a one-off lucky run that won't reliably repeat.
 
 The TS acceptance gate adds a confidence check: the candidate's Beta arm must win against the deployed arm with probability ≥ 0.75 in a 100-sample Monte Carlo test.
 
@@ -1349,7 +1384,7 @@ flowchart LR
     H[holdout eval\nevolved_score\nimprovement] --> T1{improvement\n≥ min_threshold\n0.0 by default?}
     T1 -- No --> R1[REJECTED\nregression\nsave as _REGRESSION.md]
     T1 -- "Yes (no TS)" --> A1[ACCEPTED\nthreshold only\nsave SKILL.md]
-    T1 -- "Yes (TS L3)" --> MC{Monte Carlo\n100 draws\nP θ_cand > θ_deploy\n≥ 0.75?}
+    T1 -- "Yes (TS-AcceptanceGate)" --> MC{Monte Carlo\n100 draws\nP θ_cand > θ_deploy\n≥ 0.75?}
     MC -- No --> R2[REJECTED\nnot yet confident\ncandidate arm updated\ndeployed arm unchanged]
     MC -- Yes --> A2[ACCEPTED\nhigh confidence\nboth arms updated\nbar raised for next run]
     A2 --> BAR[Deployed arm α++\nnext threshold\nrequires clearer\nimprovement]
@@ -1357,32 +1392,23 @@ flowchart LR
 
 ### Level 2 + Level 3 interaction
 
-When both are active (`l2_l3`):
+When both are active (`gepa_full`):
 
 ```
- L2 focuses the training budget → GEPA improves on hard examples → higher quality candidate
- L3 filters the deployment decision → only reliably good candidates are deployed
+ TS-TrainingSelector focuses the training budget → GEPA improves on hard examples → higher quality candidate
+ TS-AcceptanceGate filters the deployment decision → only reliably good candidates are deployed
 
  Combined effect: fewer wasted runs, higher quality accepted evolutions
 
  Trade-off: with ts_batch_size=4/10 and ts_conf=0.75, more runs may be needed
-            before the first acceptance compared to no_ts
+            before the first acceptance compared to gepa_uniform
 ```
 
 ---
 
 ## Scoring Modes — Single vs Multi-Objective
 
-> **Naming note:** The names `single` and `multi` describe the judge, not the quality of measurement.
-> Better names would be:
-> - `single` → **`holistic`** (one composite score, one call per example)
-> - `multi` → **`rubric`** or **`balanced`** (separate per-dimension scores, guards each independently)
->
-> The current names are kept throughout the codebase for code compatibility.
-
----
-
-### Single judge — what it measures and how (`no_ts`, `l2_only`, `l3_only`, `l2_l3`)
+### Single judge — what it measures and how (`gepa_uniform`, `gepa_focused_on_difficulty`, `gepa_gated`, `gepa_full`)
 
 **File:** `stage08_holdout_evaluator_judge.py`
 
@@ -1437,7 +1463,7 @@ class FitnessScore:
 
 ---
 
-### Multi-objective judge — what it measures and how (`no_ts_multi`)
+### Multi-objective judge — what it measures and how (`gepa_rubric`)
 
 **File:** `stage08_holdout_evaluator_judge_multi.py`
 
@@ -1664,24 +1690,19 @@ Because the LLM outputs raw floats:
 
 ---
 
-### Two separate baselines (Pre-S vs Pre-M)
-
-> **Naming note:** `Pre-S` and `Pre-M` are short for "pre-training single" and "pre-training multi".
-> Better names would be:
-> - `Pre-S` → **`Baseline-Holistic`** or **`Pre-Composite`** (before training, holistic score)
-> - `Pre-M` → **`Baseline-Rubric`** or **`Pre-Rubric`** (before training, rubric score)
+### Two separate baselines (Base-Holistic vs Base-Rubric)
 
 ```
- Pre-S = single judge on pre-training skill = 0.44
- Pre-M = multi-obj judge on pre-training skill = 0.65
+ Base-Holistic = single judge on pre-training skill = 0.44
+ Base-Rubric = multi-obj judge on pre-training skill = 0.65
 
  These values differ because the judges use different rubrics.
  Each mode is always delta'd against its own baseline:
 
-   No-TS    delta = 0.64 − Pre-S (0.44) = +0.20  ✓ correct
-   No-TS-M  delta = 0.73 − Pre-M (0.65) = +0.08  ✓ correct
+   GEPA-Uniform    delta = 0.64 − Base-Holistic (0.44) = +0.20  ✓ correct
+   GEPA-Rubric  delta = 0.73 − Base-Rubric (0.65) = +0.08  ✓ correct
 
-   WRONG:   No-TS-M delta = 0.73 − Pre-S (0.44) = +0.29  ✗ inflated
+   WRONG:   GEPA-Rubric delta = 0.73 − Base-Holistic (0.44) = +0.29  ✗ inflated
 ```
 
 ---
@@ -1751,14 +1772,14 @@ sequenceDiagram
     loop for each mode in run_modes × n_runs
         D->>TR: run(params, baseline_score, multi_dims)
         TR->>GE: evolve_single_skill(config)
-        GE->>G5: [TS L2 select] compile(baseline, trainset=selected)
+        GE->>G5: [TS-TrainingSelector select] compile(baseline, trainset=selected)
         Note over G5: ~iterations × 7 candidates<br/>keyword fitness metric
         G5-->>GE: optimized_module, optimizer_name
         GE->>G8: evaluate_on_holdout(prior_baseline_score)
         Note over G8: skip baseline re-eval (pre-computed)<br/>score evolved × 5 holdout examples
         G8-->>GE: baseline, evolved, improvement, cross_run_delta
         GE->>GE: [Multi] no-regression check + weight update
-        GE->>GE: [TS L3] acceptance gate
+        GE->>GE: [TS-AcceptanceGate] acceptance gate
         GE-->>TR: metrics dict (scores, accepted, ts_conf, ...)
     end
 
@@ -1773,8 +1794,8 @@ sequenceDiagram
  0s    30s   60s   90s   120s  150s  180s  210s  240s  270s  300s  330s  360s
  │     │     │     │     │     │     │     │     │     │     │     │     │
  ├─S1──┤                                                  single + multi baseline eval
- │     ├─────────── no_ts GEPA + holdout eval ────────────┤          (~5 min)
- │                                                         ├───── no_ts_multi ─────────┤
+ │     ├─────────── gepa_uniform GEPA + holdout eval ────────────┤          (~5 min)
+ │                                                         ├───── gepa_rubric ─────────┤
  │                                                                                     │
  │                                                            Steps 6/7/8 prints ──────┤
 ```
@@ -1796,7 +1817,7 @@ def step_01_evaluate_baseline(
 ```
 
 - Always runs single LLM judge on 5 holdout examples
-- Only runs multi-objective judge if `"no_ts_multi"` is in `run_modes`
+- Only runs multi-objective judge if `"gepa_rubric"` is in `run_modes`
 - Returns `(single_score, multi_score_or_None, multi_dims_or_None)`
 - Both scores are passed to all downstream modes so no re-evaluation is needed
 
@@ -1805,17 +1826,17 @@ def step_01_evaluate_baseline(
 Each step builds an `EvolverConfig` with the appropriate TS flags, calls `evolve_single_skill()`, and returns the metrics dict.
 
 ```python
-# step_02 (no_ts / no_ts_multi):
+# step_02 (gepa_uniform / gepa_rubric):
 config = EvolverConfig(
     ts_example_selector=False,
     ts_acceptance_gate=False,
-    scoring_mode="single",   # or "multi" for no_ts_multi
+    scoring_mode="single",   # or "multi" for gepa_rubric
     iterations=n_iterations,
     max_prompt_growth=0.5,   # more generous in demo
     ...
 )
 
-# step_03 (l2_only):
+# step_03 (gepa_focused_on_difficulty):
 config = EvolverConfig(
     ts_example_selector=True,
     ts_example_batch_size=ts_batch_size,
@@ -1824,7 +1845,7 @@ config = EvolverConfig(
     ...
 )
 
-# step_05 (l2_l3):
+# step_05 (gepa_full):
 config = EvolverConfig(
     ts_example_selector=True,
     ts_example_batch_size=ts_batch_size,
@@ -1840,21 +1861,21 @@ config = EvolverConfig(
 
 Printed only when ≥ 2 modes ran.  Shows:
 
-- Header row: `Pre-S  Pre-M  No-TS  No-TS-Multi  ...`
+- Header row: `Base-Holistic  Base-Rubric  GEPA-Uniform  GEPA-Rubric  ...`
 - Holdout score row
 - Δ over baseline row (using correct baseline per mode)
 - Accepted row (✓ / ✗)
 - Acceptance gate type
 - Example selector type
 - Best accepted line (or best-score-not-accepted if nothing was accepted)
-- Multi-run section (when `n_runs > 1`): per-run table, mean ± std, bootstrap 95% CI vs No-TS
+- Multi-run section (when `n_runs > 1`): per-run table, mean ± std, bootstrap 95% CI vs GEPA-Uniform
 
 **Step 7 — Charts**
 
 ASCII bar chart always printed.  Matplotlib PNG saved to `<workdir>/plots/comparison.png` if matplotlib is installed.  Three PNG panels:
-1. Bar chart by mode (all modes + Pre-train baseline bar + optional Pre-M dashed line)
+1. Bar chart by mode (all modes + Pre-train baseline bar + optional Base-Rubric dashed line)
 2. Run-by-run line chart (only when `n_runs > 1`)
-3. Bootstrap 95% CI forest plot vs No-TS (only when `n_runs > 1` and No-TS ran)
+3. Bootstrap 95% CI forest plot vs GEPA-Uniform (only when `n_runs > 1` and GEPA-Uniform ran)
 
 ---
 
@@ -1865,7 +1886,7 @@ ASCII bar chart always printed.  Matplotlib PNG saved to `<workdir>/plots/compar
 ```json
 {
   "scenarios":     ["rtos-review"],
-  "run_modes":     ["no_ts", "l2_only", "l3_only", "l2_l3", "no_ts_multi"],
+  "run_modes":     ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full", "gepa_rubric"],
   "api_key":       "sk-...",
   "model":         "deepseek/deepseek-chat",
   "api_base":      "https://api.deepseek.com",
@@ -1945,17 +1966,17 @@ ASCII bar chart always printed.  Matplotlib PNG saved to `<workdir>/plots/compar
 │
 ├── output_baseline/                          ← Step 1 eval artifacts
 │
-├── output_no_ts/<skill_name>/
+├── output_gepa_uniform/<skill_name>/
 │   ├── 20260602_172504/                      ← timestamp of this run
 │   │   ├── SKILL.md                          ← evolved skill (if ACCEPTED)
 │   │   ├── evolved_REGRESSION.md             ← evolved skill (if REJECTED)
 │   │   └── run_details.json                  ← full metrics + constraint results
 │   └── metrics_history.jsonl                 ← one line per run, appended forever
 │
-├── output_no_ts_multi/<skill_name>/          ← same structure for no_ts_multi
-├── output_l2_only/<skill_name>/              ← same structure for l2_only
-├── output_l3_only/<skill_name>/              ← same structure for l3_only
-├── output_l2_l3/<skill_name>/                ← same structure for l2_l3
+├── output_gepa_rubric/<skill_name>/          ← same structure for gepa_rubric
+├── output_gepa_focused_on_difficulty/<skill_name>/              ← same structure for gepa_focused_on_difficulty
+├── output_gepa_gated/<skill_name>/              ← same structure for gepa_gated
+├── output_gepa_full/<skill_name>/                ← same structure for gepa_full
 │
 ├── plots/
 │   └── comparison.png                        ← matplotlib 3-panel chart
@@ -1980,7 +2001,7 @@ Use this file to track improvement trends over many sessions:
 
 ```bash
 # Show improvement trend over last 20 runs
-grep '"accepted": true' output_no_ts_multi/rtos-review/metrics_history.jsonl \
+grep '"accepted": true' output_gepa_rubric/rtos-review/metrics_history.jsonl \
   | python -c "import sys, json; [print(json.loads(l)['evolved_score']) for l in sys.stdin]" \
   | tail -20
 ```
@@ -2087,7 +2108,7 @@ This skill will catch `malloc()` without NULL check but **not**:
 - Missing memory barriers before DMA
 - Stack overflow in FreeRTOS tasks
 
-The gap is intentional — it gives GEPA room to improve and creates the discriminating signal that TS L2 needs to learn from.
+The gap is intentional — it gives GEPA room to improve and creates the discriminating signal that TS-TrainingSelector needs to learn from.
 
 ### Difficulty baseline scores (approximate, rtos-review)
 
@@ -2187,7 +2208,7 @@ Each line shows the weighted composite and all 5 raw dimensions.
 ### Comparison table
 
 ```
-                                    Pre-S        Pre-M        No-TS  No-TS-Multi
+                                    Base-Holistic        Base-Rubric        GEPA-Uniform  GEPA-Rubric
   ────────────────────────────  ───────────  ───────────  ───────────  ───────────
   Holdout score                      0.8400       0.7600       0.8370       0.8940
   Δ over baseline                         —            —      -0.0030      +0.1340
@@ -2195,10 +2216,10 @@ Each line shows the weighted composite and all 5 raw dimensions.
   Acceptance gate                         —            —    threshold    threshold
   Example selector                        —            —    all train    all train
 
-  ▶  Best accepted: No-TS-Multi  (mean holdout 0.8940)
+  ▶  Best accepted: GEPA-Rubric  (mean holdout 0.8940)
 ```
 
-- `Pre-S` / `Pre-M` have `—` in the Δ row because they are the reference, not results
+- `Base-Holistic` / `Base-Rubric` have `—` in the Δ row because they are the reference, not results
 - `▶  Best accepted` shows the winner among modes where the evolved skill was actually deployed
 
 ### ASCII bar chart
@@ -2206,14 +2227,14 @@ Each line shows the weighted composite and all 5 raw dimensions.
 ```
   Holdout scores
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  Pre-S        █████████████████████████████████▉    0.8400          │
-  │  Pre-M        ██████████████████████████████▋       0.7600          │
-  │  No-TS        █████████████████████████████████▊    0.8370          │
-  │  No-TS-Multi  ████████████████████████████████████  0.8940          │
+  │  Base-Holistic        █████████████████████████████████▉    0.8400          │
+  │  Base-Rubric        ██████████████████████████████▋       0.7600          │
+  │  GEPA-Uniform        █████████████████████████████████▊    0.8370          │
+  │  GEPA-Rubric  ████████████████████████████████████  0.8940          │
   └─────────────────────────────────────────────────────────────────────┘
 ```
 
-All bars are on the same 0–1 scale.  Pre-M appears shorter than Pre-S here because the multi-obj judge gave a lower initial score (different rubric, not worse skill).
+All bars are on the same 0–1 scale.  Base-Rubric appears shorter than Base-Holistic here because the multi-obj judge gave a lower initial score (different rubric, not worse skill).
 
 ---
 
@@ -2222,7 +2243,7 @@ All bars are on the same 0–1 scale.  Pre-M appears shorter than Pre-S here bec
 ### Pattern 1 — Single-mode sanity check (fastest)
 
 ```json
-"run_modes": ["no_ts"],
+"run_modes": ["gepa_uniform"],
 "n_runs": 1,
 "iterations": 5
 ```
@@ -2232,35 +2253,35 @@ All bars are on the same 0–1 scale.  Pre-M appears shorter than Pre-S here bec
 ### Pattern 2 — Multi-objective vs single judge comparison
 
 ```json
-"run_modes": ["no_ts", "no_ts_multi"],
+"run_modes": ["gepa_uniform", "gepa_rubric"],
 "n_runs": 1,
 "iterations": 5
 ```
 
-Run both judges on the same GEPA procedure.  If `no_ts_multi` shows higher delta, the 5-dimension rubric is guiding GEPA toward a more complete improvement.  If they're similar, judge choice doesn't matter much for this scenario.
+Run both judges on the same GEPA procedure.  If `gepa_rubric` shows higher delta, the 5-dimension rubric is guiding GEPA toward a more complete improvement.  If they're similar, judge choice doesn't matter much for this scenario.
 
 ### Pattern 3 — TS ablation study
 
 ```json
-"run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3"],
+"run_modes": ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
 "n_runs": 3,
 "iterations": 10
 ```
 
-The standard ablation.  With `n_runs=3`, the comparison table shows bootstrap 95% CIs vs No-TS.  A CI entirely above 0 means the TS level provides a reliably detectable improvement.  With `n_runs=5`, the CIs narrow further.
+The standard ablation.  With `n_runs=3`, the comparison table shows bootstrap 95% CIs vs GEPA-Uniform.  A CI entirely above 0 means the TS level provides a reliably detectable improvement.  With `n_runs=5`, the CIs narrow further.
 
 Expected outcome pattern:
 ```
- l2_only  > no_ts   (L2 focuses budget → higher quality candidate)
- l3_only  ≈ no_ts   (L3 only filters, same budget → similar peak but higher confidence)
- l2_l3    > l2_only (both levels → highest reliable improvement)
+ gepa_focused_on_difficulty  > gepa_uniform   (TS-TrainingSelector focuses budget → higher quality candidate)
+ gepa_gated  ≈ gepa_uniform   (TS-AcceptanceGate only filters, same budget → similar peak but higher confidence)
+ gepa_full    > gepa_focused_on_difficulty (both levels → highest reliable improvement)
 ```
 
 ### Pattern 4 — Cross-scenario benchmarking
 
 ```json
 "scenarios": ["rtos-review", "paper-review", "ml-review"],
-"run_modes": ["no_ts", "l2_l3"],
+"run_modes": ["gepa_uniform", "gepa_full"],
 "n_runs": 1
 ```
 
@@ -2274,12 +2295,12 @@ cp -r /tmp/gepa_ts_rtos-review_prev/ts_state/ /tmp/gepa_ts_rtos-review_new/ts_st
 python runner.py
 ```
 
-The new run will load existing Beta arms instead of starting from Beta(1,1).  The L2 selector immediately focuses on hard examples; the L3 gate starts with the calibrated confidence bar from prior runs.  This is the recommended way to run ongoing improvement campaigns.
+The new run will load existing Beta arms instead of starting from Beta(1,1).  The TS-TrainingSelector immediately focuses on hard examples; the TS-AcceptanceGate starts with the calibrated confidence bar from prior runs.  This is the recommended way to run ongoing improvement campaigns.
 
 ### Pattern 6 — Full benchmark with statistical significance
 
 ```json
-"run_modes": ["no_ts", "l2_only", "l3_only", "l2_l3", "no_ts_multi"],
+"run_modes": ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full", "gepa_rubric"],
 "n_runs": 5,
 "iterations": 10
 ```
@@ -2287,11 +2308,11 @@ The new run will load existing Beta arms instead of starting from Beta(1,1).  Th
 The gold-standard benchmark.  With 5 runs per mode and 10 iterations per run, comparison table shows:
 - Mean ± std per mode
 - Per-run sparklines (learning curve proxy)
-- Bootstrap 95% CI vs No-TS for each TS mode
+- Bootstrap 95% CI vs GEPA-Uniform for each TS mode
 
 Reliable CI interpretation:
 ```
- CI entirely above 0  →  ★ reliably better than No-TS
+ CI entirely above 0  →  ★ reliably better than GEPA-Uniform
  CI straddles 0       →  ~ inconclusive (need more runs or stronger scenario)
  CI entirely below 0  →  ✗ reliably worse (unexpected — investigate)
 ```
@@ -2322,8 +2343,8 @@ The offline benchmark is not a one-shot analysis.  Its real value is as a **prio
 ```
  Offline GEPA (intensive, controlled):
    n_runs = 3–5, all modes, fixed evaluation dataset
-   → Calibrates which examples are hard (L2 arms)
-   → Calibrates how confident to be before deploying (L3 arms)
+   → Calibrates which examples are hard (TS-TrainingSelector arms)
+   → Calibrates how confident to be before deploying (TS-AcceptanceGate arms)
    → Finds the best skill version so far
 
  Online GEPA (lightweight, continuous, today):
@@ -2331,7 +2352,7 @@ The offline benchmark is not a one-shot analysis.  Its real value is as a **prio
    Ask the LLM: "what should this skill improve?"
    Generate a revised skill candidate
    Evaluate it against a small holdout of real examples
-   TS L3 gate decides: deploy or reject
+   TS-AcceptanceGate decides: deploy or reject
    Save TS state — arms keep accumulating evidence
 
  The offline distributions are the starting point.
@@ -2344,11 +2365,11 @@ The offline benchmark is not a one-shot analysis.  Its real value is as a **prio
 
 ```mermaid
 flowchart TD
-    A[Collect real examples\nfrom today's production traffic] --> B[Score examples with\nL2 arm sampler\n'which are the hard ones?']
+    A[Collect real examples\nfrom today's production traffic] --> B[Score examples with\nTS-TrainingSelector\n'which are the hard ones?']
     B --> C[Ask LLM: summarise what\nthe skill struggles with\nbased on hard examples]
     C --> D[LLM proposes revised\nSKILL.md — targeted\nat identified weaknesses]
     D --> E[Evaluate revised skill\non holdout of real examples\nLLM judge scores both old + new]
-    E --> F{L3 TS gate:\nP candidate > deployed\n≥ confidence threshold?}
+    E --> F{TS-AcceptanceGate:\nP candidate > deployed\n≥ confidence threshold?}
     F -- yes / accepted --> G[Deploy revised SKILL.md\nUpdate deployed arm: α++\nUpdate candidate arm: β reset]
     F -- no / rejected --> H[Keep current SKILL.md\nUpdate candidate arm: β++\nLog failure reason]
     G --> I[Save ts_gate.json\nts_examples.json\nmo_state.json]
@@ -2377,21 +2398,21 @@ todays_examples = fetch_production_examples(
 
 ---
 
-#### Step 2 — Identify hard examples using L2 arm sampler
+#### Step 2 — Identify hard examples using TS-TrainingSelector
 
 Load the offline-calibrated `ts_examples_<skill>.json`.  For each new production example, hash its input and look up the Beta arm.  If the example is new (no arm yet), it starts at `Beta(1,1)`.
 
 Thompson-sample the arms: draw θ ~ Beta(α, β) per example; select the top-`ts_batch_size` examples by θ.
 
 ```python
-# L2 sampling: which examples to focus on?
+# TS-TrainingSelector sampling: which examples to focus on?
 arm_state = load_json("ts_state/ts_examples_rtos-review.json")
 selected = thompson_sample_top_k(todays_examples, arm_state, k=4)
 # selected = the 4 examples the offline run found hardest
 # (or uniform sample if they're new examples — arms start at Beta(1,1))
 ```
 
-**Why this matters:** The offline run already learned which example *types* are hard.  If today's traffic includes a similar type (same hash or similar structure), the L2 arm immediately up-weights it — no 3-run cold start.
+**Why this matters:** The offline run already learned which example *types* are hard.  If today's traffic includes a similar type (same hash or similar structure), the TS-TrainingSelector arm immediately up-weights it — no 3-run cold start.
 
 ---
 
@@ -2473,7 +2494,7 @@ The holdout can be:
 
 ---
 
-#### Step 6 — TS L3 gate decides deployment
+#### Step 6 — TS-AcceptanceGate decides deployment
 
 Load `ts_gate_<skill>.json`.  Run Monte Carlo confidence check.
 
@@ -2510,7 +2531,7 @@ else:
 Write `ts_gate.json`, `ts_examples.json`, and `mo_state.json` back to disk atomically (write to `.tmp`, then rename — matches the offline implementation).
 
 ```python
-# Update L2 example arms based on today's GEPA fitness
+# Update TS-TrainingSelector arms based on today's GEPA fitness
 for example, fitness in zip(todays_examples, per_example_fitness):
     arm = arm_state.get(hash(example.input), {"alpha": 1.0, "beta": 1.0})
     if fitness >= 0.5:
@@ -2529,8 +2550,8 @@ save_json_atomic("ts_state/ts_gate_rtos-review.json", gate_state)
 
 | Artifact | Transfers? | Role in online loop |
 |----------|:----------:|---------------------|
-| `ts_examples_<skill>.json` | ✓ | Tells L2 sampler which example types are hard — skip 3-run cold start |
-| `ts_gate_<skill>.json` | ✓ | Tells L3 gate what quality bar the deployed skill already cleared — prevents marginal regression |
+| `ts_examples_<skill>.json` | ✓ | Tells TS-TrainingSelector which example types are hard — skip 3-run cold start |
+| `ts_gate_<skill>.json` | ✓ | Tells TS-AcceptanceGate what quality bar the deployed skill already cleared — prevents marginal regression |
 | `mo_state.json` | ✓ | Dynamic weights already calibrated — online run knows which dimensions are stagnant |
 | Best accepted `SKILL.md` | ✓ | Online GEPA starts from evolved baseline, not original weak skill |
 | `metrics_history.jsonl` | ✓ | Historical trend for cross-run delta tracking and stagnation detection |
@@ -2542,26 +2563,26 @@ save_json_atomic("ts_state/ts_gate_rtos-review.json", gate_state)
 ### Cold start vs warm start comparison
 
 ```
- L2 Example Selector — WITHOUT offline prior:
+ TS-TrainingSelector — WITHOUT offline prior:
    All arms start at Beta(1,1)
    Run 1: uniform selection — GEPA wastes budget on easy examples
    Run 2: slight differentiation, but still noisy
    Run 3: arms start to converge → first meaningful signal
    Cost: 3 wasted runs before online improvement is focused
 
- L2 Example Selector — WITH offline prior (5 runs):
+ TS-TrainingSelector — WITH offline prior (5 runs):
    Hard examples start at α ≈ 6, β ≈ 1
    Easy examples start at α ≈ 1, β ≈ 5
    Run 1: immediately selects the hard discriminating subset
    No wasted budget — focused improvement from day one
 
 
- L3 Acceptance Gate — WITHOUT offline prior:
+ TS-AcceptanceGate — WITHOUT offline prior:
    Both arms start at Beta(1,1) → P ≈ 0.50, nearly random
    First online run often gets accepted (lucky noise)
    Risk: a regression gets deployed on the first day
 
- L3 Acceptance Gate — WITH offline prior (3 accepted offline runs):
+ TS-AcceptanceGate — WITH offline prior (3 accepted offline runs):
    Deployed arm starts at α = 3, β = 0
    Candidate arm starts at α = 1, β = 1
    P(cand > deploy) ≈ 0.30 on first run — correctly skeptical
@@ -2593,11 +2614,11 @@ flowchart LR
 
     subgraph ONLINE ["Daily Online Loop"]
         RE[Collect real\nproduction examples]
-        SEL[L2 arm sampler\nselects hard examples]
+        SEL[TS-TrainingSelector\nselects hard examples]
         ASK[Ask LLM:\nwhat to improve?]
         GEN[Generate revised\nSKILL.md candidate]
         EVAL[Evaluate on holdout\nLLM judge]
-        GATE{L3 TS gate\nP ≥ threshold?}
+        GATE{TS-AcceptanceGate\nP ≥ threshold?}
         DEPLOY[Deploy new skill\nUpdate deployed arm α++]
         REJECT[Keep current skill\nUpdate candidate β++]
         SAVE[Save ts_state/\narms updated]
@@ -2622,21 +2643,21 @@ flowchart LR
 OFFLINE_DIR=/tmp/gepa_ts_rtos-review_offline
 ONLINE_TS_DIR=/path/to/online/ts_state
 
-# 1. Transfer TS arms (L2 + L3)
+# 1. Transfer TS arms (TS-TrainingSelector + TS-AcceptanceGate)
 cp ${OFFLINE_DIR}/ts_state/ts_examples_rtos-review.json  ${ONLINE_TS_DIR}/
 cp ${OFFLINE_DIR}/ts_state/ts_gate_rtos-review.json      ${ONLINE_TS_DIR}/
 
 # 2. Use best accepted skill as new online baseline
-BEST_SKILL=$(ls -t ${OFFLINE_DIR}/output_l2_l3/rtos-review/*/SKILL.md 2>/dev/null | head -1)
+BEST_SKILL=$(ls -t ${OFFLINE_DIR}/output_gepa_full/rtos-review/*/SKILL.md 2>/dev/null | head -1)
 if [ -n "$BEST_SKILL" ]; then
     cp "$BEST_SKILL" /path/to/online/skills/rtos-review/SKILL.md
     echo "Transferred: $BEST_SKILL"
 fi
 
 # 3. Transfer multi-objective state (if using multi mode online)
-BEST_MO=$(ls -t ${OFFLINE_DIR}/output_no_ts_multi/rtos-review/*/mo_state.json 2>/dev/null | head -1)
+BEST_MO=$(ls -t ${OFFLINE_DIR}/output_gepa_rubric/rtos-review/*/mo_state.json 2>/dev/null | head -1)
 if [ -n "$BEST_MO" ]; then
-    cp "$BEST_MO" /path/to/online/output_no_ts_multi/rtos-review/mo_state.json
+    cp "$BEST_MO" /path/to/online/output_gepa_rubric/rtos-review/mo_state.json
 fi
 
 # 4. Periodic re-sync: after 1 week of online runs, feed enriched arms back offline
@@ -2681,12 +2702,12 @@ cp ${ONLINE_TS_DIR}/ts_gate_rtos-review.json      ${OFFLINE_DIR}/ts_state/
            Online loop applies that confidence to today's real traffic.
            TS arms transfer between the two — no knowledge lost.
 
- Key insight: The offline L2 arms encode "which input types are hard
+ Key insight: The offline TS-TrainingSelector arms encode "which input types are hard
               for this skill" — a form of curriculum knowledge.
-              The offline L3 arms encode "what quality bar did the
+              The offline TS-AcceptanceGate arms encode "what quality bar did the
               last accepted skill version clear."
               Both are exactly what you need for safe online improvement.
 
- Result:  Online GEPA is focused (L2), conservative (L3), and starts
+ Result:  Online GEPA is focused (TS-TrainingSelector), conservative (TS-AcceptanceGate), and starts
           from the best known skill (SKILL.md transfer) — from day one.
 ```

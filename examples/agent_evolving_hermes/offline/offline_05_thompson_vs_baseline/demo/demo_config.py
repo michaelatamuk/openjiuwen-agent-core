@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List
 
 # All valid run-mode identifiers, in canonical order.
-ALL_MODES: List[str] = ["no_ts", "l2_only", "l3_only", "l2_l3", "no_ts_multi"]
+ALL_MODES: List[str] = ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full", "gepa_rubric"]
 
 
 @dataclass
@@ -24,7 +24,7 @@ class DemoConfig:
         returned by :func:`scenarios.scenario.list_scenarios`.
     run_modes:
         Which GEPA training passes to execute.  Valid values:
-        ``"no_ts"``, ``"l2_only"``, ``"l3_only"``, ``"l2_l3"``, ``"no_ts_multi"``.
+        ``"gepa_uniform"``, ``"gepa_focused_on_difficulty"``, ``"gepa_gated"``, ``"gepa_full"``, ``"gepa_rubric"``.
         Pass ``[]`` for a baseline-only evaluation (no GEPA training).
     api_key:
         API key for the LLM provider (DeepSeek by default).
@@ -37,7 +37,7 @@ class DemoConfig:
         Number of GEPA optimisation iterations per training pass.
     ts_batch_size:
         Number of examples the TS example-selector picks per batch
-        (used by ``l2_only`` and ``l2_l3`` modes).
+        (used by ``gepa_focused_on_difficulty`` and ``gepa_full`` modes).
     n_runs:
         How many independent GEPA runs to execute per mode.  With
         ``n_runs=1`` (default) the comparison table shows single values.

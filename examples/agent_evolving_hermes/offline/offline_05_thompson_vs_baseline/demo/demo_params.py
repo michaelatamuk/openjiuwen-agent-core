@@ -57,20 +57,20 @@ class DemoParams:
         return self.workdir / "output_baseline"
 
     @property
-    def output_no_ts(self) -> Path:
-        return self.workdir / "output_no_ts"
+    def output_gepa_uniform(self) -> Path:
+        return self.workdir / "output_gepa_uniform"
 
     @property
-    def output_l2_only(self) -> Path:
-        return self.workdir / "output_l2_only"
+    def output_gepa_focused_on_difficulty(self) -> Path:
+        return self.workdir / "output_gepa_focused_on_difficulty"
 
     @property
-    def output_l3_only(self) -> Path:
-        return self.workdir / "output_l3_only"
+    def output_gepa_gated(self) -> Path:
+        return self.workdir / "output_gepa_gated"
 
     @property
-    def output_l2_l3(self) -> Path:
-        return self.workdir / "output_l2_l3"
+    def output_gepa_full(self) -> Path:
+        return self.workdir / "output_gepa_full"
 
     @property
     def ts_state_dir(self) -> Path:

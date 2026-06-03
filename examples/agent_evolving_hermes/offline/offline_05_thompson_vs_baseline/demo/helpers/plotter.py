@@ -28,11 +28,11 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 _COLORS = {
     "Pre-train":   "#9E9E9E",
     "Pre-train-M": "#607D8B",
-    "No-TS":       "#2196F3",
-    "No-TS-Multi": "#00BCD4",
-    "L2 only":     "#FF9800",
-    "L3 only":     "#4CAF50",
-    "L2+L3":       "#E91E63",
+    "GEPA-Uniform":       "#2196F3",
+    "GEPA-Rubric": "#00BCD4",
+    "GEPA-Focused":     "#FF9800",
+    "GEPA-Gated":     "#4CAF50",
+    "GEPA-Full":       "#E91E63",
 }
 _DEFAULT_COLOR = "#607D8B"
 
@@ -44,11 +44,11 @@ def _color(label: str) -> str:
 def plot_results(
     baseline_score_single: float,
     baseline_score_multi: Optional[float],
-    scores_no_ts:       Optional[List[float]],
-    scores_no_ts_multi: Optional[List[float]],
-    scores_l2_l3:       Optional[List[float]],
-    scores_l2:          Optional[List[float]],
-    scores_l3:          Optional[List[float]],
+    scores_gepa_uniform:       Optional[List[float]],
+    scores_gepa_rubric: Optional[List[float]],
+    scores_gepa_full:       Optional[List[float]],
+    scores_gepa_focused:          Optional[List[float]],
+    scores_gepa_gated:          Optional[List[float]],
     output_dir: Path,
     scenario_name: str = "",
     n_runs: int = 1,
@@ -63,18 +63,18 @@ def plot_results(
 
     # ── Assemble mode data in display order ───────────────────────────────
     mode_data: list[tuple[str, List[float]]] = []
-    if scores_no_ts:        mode_data.append(("No-TS",       scores_no_ts))
-    if scores_no_ts_multi:  mode_data.append(("No-TS-Multi", scores_no_ts_multi))
-    if scores_l2:           mode_data.append(("L2 only",     scores_l2))
-    if scores_l3:           mode_data.append(("L3 only",     scores_l3))
-    if scores_l2_l3:        mode_data.append(("L2+L3",       scores_l2_l3))
+    if scores_gepa_uniform:        mode_data.append(("GEPA-Uniform",       scores_gepa_uniform))
+    if scores_gepa_rubric:  mode_data.append(("GEPA-Rubric", scores_gepa_rubric))
+    if scores_gepa_focused:           mode_data.append(("GEPA-Focused",     scores_gepa_focused))
+    if scores_gepa_gated:           mode_data.append(("GEPA-Gated",     scores_gepa_gated))
+    if scores_gepa_full:        mode_data.append(("GEPA-Full",       scores_gepa_full))
 
     if not mode_data:
         return save_path  # nothing to plot
 
     multi       = n_runs > 1
-    has_no_ts   = scores_no_ts is not None and len(scores_no_ts) > 0
-    show_ci     = multi and has_no_ts and len(mode_data) > 1
+    has_gepa_uniform   = scores_gepa_uniform is not None and len(scores_gepa_uniform) > 0
+    show_ci     = multi and has_gepa_uniform and len(mode_data) > 1
     n_panels    = 1 + (1 if multi else 0) + (1 if show_ci else 0)
 
     fig_h = 4 + 3.5 * (n_panels - 1)
@@ -164,16 +164,16 @@ def plot_results(
         ax.spines["right"].set_visible(False)
 
     # ════════════════════════════════════════════════════════════════════════
-    # Panel 3: Bootstrap CI forest plot vs No-TS  (multi-run + No-TS present)
+    # Panel 3: Bootstrap CI forest plot vs GEPA-Uniform  (multi-run + GEPA-Uniform present)
     # ════════════════════════════════════════════════════════════════════════
     if show_ci:
         ax = axes[panel]; panel += 1
 
         ci_rows: list[tuple[str, float, float, float]] = []  # (label, mean_diff, lo, hi)
         for lbl, scores in mode_data:
-            if lbl == "No-TS":
+            if lbl == "GEPA-Uniform":
                 continue
-            d_mean, lo, hi = bootstrap_ci_diff(scores_no_ts, scores)
+            d_mean, lo, hi = bootstrap_ci_diff(scores_gepa_uniform, scores)
             ci_rows.append((lbl, d_mean, lo, hi))
 
         y_pos = list(range(len(ci_rows)))
@@ -199,8 +199,8 @@ def plot_results(
 
         ax.set_yticks(y_pos)
         ax.set_yticklabels([lbl for lbl, *_ in ci_rows], fontsize=10)
-        ax.set_xlabel("Δ holdout score vs No-TS", fontsize=10)
-        ax.set_title(f"Bootstrap 95% CI  (Δ vs No-TS,  n={n_runs} runs)", fontsize=11)
+        ax.set_xlabel("Δ holdout score vs GEPA-Uniform", fontsize=10)
+        ax.set_title(f"Bootstrap 95% CI  (Δ vs GEPA-Uniform,  n={n_runs} runs)", fontsize=11)
         x_min = min(lo for _, _, lo, _ in ci_rows) - 0.06
         x_max = max(hi for _, _, _, hi in ci_rows) + 0.18   # room for verdict text
         ax.set_xlim(x_min, x_max)
