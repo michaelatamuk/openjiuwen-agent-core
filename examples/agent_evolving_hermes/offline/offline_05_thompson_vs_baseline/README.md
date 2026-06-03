@@ -12,18 +12,19 @@ A side-by-side comparison framework that evolves an agent skill with **GEPA** ac
 4. [Directory Structure](#directory-structure)
 5. [Run Modes — What Each One Does](#run-modes--what-each-one-does)
 6. [When Each Mode Excels and When It Struggles](#when-each-mode-excels-and-when-it-struggles)
-7. [How GEPA Works](#how-gepa-works)
-8. [The Fitness Metric — Inner Loop Scoring](#the-fitness-metric--inner-loop-scoring)
-9. [Thompson Sampling — Three Levels](#thompson-sampling--three-levels)
-10. [Scoring Modes — Single vs Multi-Objective](#scoring-modes--single-vs-multi-objective)
-11. [Constraint Validation](#constraint-validation)
-12. [Step-by-Step Execution Flow](#step-by-step-execution-flow)
-13. [Configuration Reference](#configuration-reference)
-14. [Output Files and Artifacts](#output-files-and-artifacts)
-15. [Scenarios and Golden Examples](#scenarios-and-golden-examples)
-16. [Reading the Output](#reading-the-output)
-17. [Good Usage Patterns](#good-usage-patterns)
-18. [Online Skill Improvement with Offline TS Priors](#online-skill-improvement-with-offline-ts-priors)
+7. [Theoretical Motivation — Why Each Mode Improves Over Pure GEPA](#theoretical-motivation--why-each-mode-improves-over-pure-gepa)
+8. [How GEPA Works](#how-gepa-works)
+9. [The Fitness Metric — Inner Loop Scoring](#the-fitness-metric--inner-loop-scoring)
+10. [Thompson Sampling — Three Levels](#thompson-sampling--three-levels)
+11. [Scoring Modes — Single vs Multi-Objective](#scoring-modes--single-vs-multi-objective)
+12. [Constraint Validation](#constraint-validation)
+13. [Step-by-Step Execution Flow](#step-by-step-execution-flow)
+14. [Configuration Reference](#configuration-reference)
+15. [Output Files and Artifacts](#output-files-and-artifacts)
+16. [Scenarios and Golden Examples](#scenarios-and-golden-examples)
+17. [Reading the Output](#reading-the-output)
+18. [Good Usage Patterns](#good-usage-patterns)
+19. [Online Skill Improvement with Offline TS Priors](#online-skill-improvement-with-offline-ts-priors)
 
 ---
 
@@ -851,6 +852,153 @@ Assuming a balanced split (~2 easy, ~4 medium, ~4 hard in training; ~1 easy, ~2 
      score variance that limits how tight the L3 gate can be
    • Expanding holdout to 8 examples (and training to 12) would make
      l2_l3 significantly more reliable
+```
+
+---
+
+## Theoretical Motivation — Why Each Mode Improves Over Pure GEPA
+
+*This section explains the scientific rationale behind each mode — why they should work, grounded in established theory.  The goal is to be convincing to someone who has read papers on optimisation, Bayesian inference, or multi-objective learning, while remaining readable without that background.  Plain-English summaries follow each technical argument.*
+
+---
+
+### Three systematic failure modes of plain gradient-free prompt optimisation
+
+GEPA without Thompson Sampling (`no_ts`) is a **zeroth-order optimiser** over the space of natural-language skill texts.  It generates candidate rewrites, evaluates them with a proxy metric (keyword fitness), and uses the best candidate to guide reflection and the next generation.  This is the prompt-optimisation equivalent of evolution strategies or random search with guided mutation.
+
+Gradient-free optimisers applied to noisy, proxy-metric objective functions face three well-known systematic failure modes.  Understanding them is the key to understanding why each mode improves over `no_ts`.
+
+---
+
+**Failure mode 1 — Training distribution mismatch**
+
+When all training examples are weighted equally, the optimiser spends equal budget on examples the current skill already handles well and examples at the frontier of what the skill can learn.  In the limit, the fitness gradient is dominated by the easy-majority rather than the hard-minority, causing the optimiser to converge to a local minimum that handles average cases well but never improves on the hardest cases.
+
+This is the core motivation for *curriculum learning* (Bengio et al., 2009): learning proceeds fastest when the training distribution adapts to the learner's current competence level, prioritising tasks that are neither trivially solved nor impossibly hard.
+
+> **In plain English:** If a student practises the questions they already know for 80% of session time, they will not improve at the questions they find hard — even though the total practice hours are identical to a student who focuses on weaknesses.  Equal time ≠ equal learning.
+
+---
+
+**Failure mode 2 — Noisy single-sample evaluation**
+
+Evaluating an evolved skill on a small holdout set with a stochastic LLM judge produces an *unbiased but high-variance* estimate of true skill quality.  Accepting a skill based on a single such evaluation introduces selection bias toward positive noise: a candidate that happens to get a lucky evaluation gets accepted; one that gets an unlucky evaluation gets rejected.  Over many runs, this means the accepted skill is not systematically better — it is the one that happened to be evaluated on a good day.
+
+This is the same problem that motivates *sequential testing* (Wald, 1945) and *Bayesian A/B testing* (Deng et al., 2016) in clinical trials and product decisions: a single observation is not sufficient to conclude that treatment A is better than treatment B.  You need to account for the probability that the observed difference is real, not noise.
+
+> **In plain English:** If you flip a fair coin 5 times, you can get 4 heads by chance.  Concluding "this coin is biased toward heads" from that would be wrong.  In the same way, concluding "this evolved skill is better" from a single 5-example holdout evaluation — with a judge that naturally varies by ±0.05 — can be wrong roughly 20–30% of the time.  A threshold rule cannot distinguish a genuinely better skill from a lucky one.
+
+---
+
+**Failure mode 3 — Single-objective reward hacking**
+
+*Goodhart's Law* (Goodhart, 1975; Strathern, 1997): *when a measure becomes a target, it ceases to be a good measure.*  A single composite fitness score gives the optimiser one number to maximise.  Any optimiser powerful enough to find improvements will eventually find rewrites that maximise the score by improving one component at the cost of a component the metric does not penalise.
+
+In prompt optimisation this manifests as: the evolved skill produces outputs that score well on correctness and conciseness, but become increasingly vague and incomplete — because vagueness reduces length (conciseness gains) without triggering keyword-match failures (correctness maintained).  The metric is gamed rather than the underlying capability improved.
+
+> **In plain English:** A student asked to maximise their grade on a multiple-choice test will study the answer patterns if they know them — not the material.  A skill optimiser that knows its score comes 20% from conciseness will learn to be shorter, even if that sacrifices completeness.  This is not a bug in GEPA specifically; it is a universal property of any optimiser given a proxy target.
+
+---
+
+### Why rubric scoring (`no_ts_multi`) addresses failure mode 3
+
+**Scientific claim:** Multi-objective scoring with a Pareto-style no-regression constraint and dynamic weight adaptation reduces reward hacking and produces evolved skills that improve across a broader front of capabilities.
+
+**Theoretical grounding:**
+
+*Multi-objective optimisation (MOO)* does not collapse multiple objectives into a single scalar; instead it seeks solutions that are *Pareto-non-dominated* — no objective can be improved without degrading another.  The `no_ts_multi` no-regression constraint (`evolved[dim] ≥ baseline[dim] − 0.02`) directly implements a weak Pareto condition: the evolved skill must not harm any dimension, even if the composite improves.
+
+The *dynamic weight update* is a form of **adaptive scalarisation with stagnation detection**.  In multi-objective evolutionary algorithms (MOEA/D, Zhang & Li, 2007; NSGA-II, Deb et al., 2002), fixed-weight scalarisation is known to under-explore directions where progress is slow.  The weight adaptation here — increase weight of stagnant dimensions, decrease weight of improving ones — is equivalent to *prioritised gradient descent* across objectives, ensuring the optimiser does not permanently ignore any dimension.
+
+**Why this matters beyond a single run:** Over multiple runs with `no_ts`, all improvement pressure stays on the single composite score.  The score can plateau while individual dimensions shift — specificity improves, completeness degrades, composite stays flat.  With multi-objective scoring, each dimension is an independent signal; the dynamic weights detect exactly which dimensions have stalled and amplify pressure there on the next run.
+
+> **In plain English:** Imagine scoring a student on one overall mark vs five separate subject marks.  With one overall mark, a student who gets 90% in maths and 30% in English can look the same as one who gets 60% in both — same average.  With separate marks, you see exactly which subject needs work, and the teacher can focus the next session accordingly.  Crucially: the separate marks prevent a student from appearing to "improve" overall while secretly getting worse at one subject.
+
+**Required condition:** The dimensions must be genuinely independent and measurable.  If the judge LLM conflates `completeness` with `correctness` (gives them near-identical scores), the multi-objective signal degrades to a noisy single-objective signal.
+
+---
+
+### Why Thompson Sampling example selection (`l2_only`) addresses failure mode 1
+
+**Scientific claim:** Adaptive example selection using Thompson Sampling converges to a training distribution that concentrates budget on the examples providing the most gradient information at the current competence level of the skill, consistent with theoretical guarantees on regret-minimising allocation.
+
+**Theoretical grounding:**
+
+The *multi-armed bandit (MAB) problem* asks: given K options with unknown reward distributions, how do you allocate exploration/exploitation budget to maximise cumulative reward?  Thompson Sampling (Thompson, 1933) solves this by maintaining a Bayesian posterior over each arm's reward probability and sampling the arm whose posterior sample is highest.  It achieves **logarithmic regret** (Agrawal & Goyal, 2012) — the theoretical best possible rate — meaning the gap between Thompson Sampling's cumulative reward and the clairvoyant optimal allocation grows only as O(log n) in the number of samples.
+
+Here, each "arm" is a training example.  The "reward" is a binary signal: did GEPA produce a good output on this example (fitness ≥ 0.5)?  The **Beta-Bernoulli** model is used because the Beta distribution is the *conjugate prior* for Bernoulli observations — posterior updates are exact and closed-form (no approximation, no hyperparameter tuning): simply α++ for success, β++ for failure.
+
+The resulting allocation has a natural curriculum structure.  Examples where GEPA reliably produces good outputs accumulate high α → arm mean θ = α/(α+β) rises toward 1 → example is sampled high and selected often.  Examples where GEPA never produces good outputs accumulate high β → arm mean falls toward 0 → deprioritised.  Examples at the frontier — where GEPA sometimes succeeds and sometimes fails — have arms with high posterior variance → Thompson sampling's randomness ensures these are regularly selected.  This is the **zone of proximal development** (Vygotsky, 1978) emerging naturally from the Bayesian allocation, without any explicit difficulty labelling.
+
+**Why this beats uniform selection:** Uniform allocation is optimal only when all examples contribute equal gradient information.  In practice, easy examples saturate quickly (the skill already handles them) and the hardest examples are temporarily out of reach (no fitness signal even after improvement).  The informative frontier is a small subset.  Thompson Sampling converges to concentrating budget there.  In MAB terms: uniform allocation accumulates O(n) regret, while Thompson Sampling accumulates O(log n) regret — a fundamental improvement.
+
+> **In plain English:** Imagine a language student choosing which vocabulary words to study.  Words they already know perfectly — studying them more adds nothing.  Words in a completely foreign writing system they have never seen — studying them also adds nothing right now; the prerequisite knowledge is not there yet.  The productive zone is words they half-know: they recognise them sometimes but forget them other times.  Thompson Sampling finds this zone automatically by keeping a win/loss record per word and using the uncertainty in that record to decide what to study next.  No teacher labelling required.
+
+**Required condition:** There must be genuine variance in per-example fitness across GEPA candidates.  If all examples produce identical fitness regardless of skill version, all arms converge identically and TS reduces to uniform selection.
+
+---
+
+### Why Thompson Sampling acceptance gate (`l3_only`) addresses failure mode 2
+
+**Scientific claim:** Bayesian acceptance testing using Beta-distributed arm comparison provides an unbiased, uncertainty-aware deployment criterion that eliminates selection bias toward lucky evaluations and implements a monotonically non-decreasing quality ratchet.
+
+**Theoretical grounding:**
+
+A threshold acceptance rule — "accept if evolved score > baseline score + δ" — is a *frequentist point decision* using a single stochastic observation.  Its type I error rate (false acceptance) is proportional to the judge's score variance; with a small holdout and a noisy LLM judge, this error rate is non-negligible.
+
+The L3 gate replaces the point decision with a **Bayesian credibility criterion**: compute P(θ_candidate > θ_deployed) where both θ values are sampled from their respective posterior Beta distributions.  Deploy only if this probability exceeds 0.75.  This is directly analogous to the *region of practical equivalence* (ROPE) criterion in Bayesian hypothesis testing (Kruschke, 2015) and to Bayesian A/B testing approaches that replace p-values with posterior probabilities.
+
+The key property is **coherent uncertainty propagation**: a candidate that scores 0.70 on one holdout evaluation contributes one Bernoulli observation to its Beta arm.  That single observation barely shifts P(θ_candidate > θ_deployed) from 0.50 — correctly reflecting high uncertainty.  Only after multiple successful evaluations (α accumulates across runs) does P rise enough to clear the 0.75 threshold.
+
+**The ratchet property (formal):** When a candidate is accepted, the deployed arm's α increments.  The deployed arm's posterior mean E[θ_deployed] = α/(α+β) increases monotonically with each acceptance.  For any fixed candidate posterior, P(θ_candidate > θ_deployed) decreases as the deployed arm accumulates acceptances.  Therefore: the quality bar that a future candidate must clear rises strictly with each successful deployment.  Regression is impossible by construction — accepting a worse skill would require it to pass a gate calibrated by better skills.
+
+> **In plain English:** Think of it like a hiring committee that keeps track of how good their recent hires have been.  A committee that has recently hired three excellent people will be more demanding about the next candidate than one that just hired its first person.  The bar rises with every good hire — not because of bureaucracy, but because the committee now has evidence of what "good" looks like.  A single impressive interview is not enough to get hired; you need to beat the accumulated record of previous hires, accounting for the fact that one interview is a noisy signal.
+
+**Required condition:** The holdout evaluation must be a reliable signal.  With ≥ 5 holdout examples and a capable judge, individual evaluations are noisy but Beta arms converge over 3+ runs.  With fewer examples or an inconsistent judge, Beta arms never concentrate and P oscillates — the gate cannot distinguish signal from noise.
+
+---
+
+### Why `l2_l3` beats either mechanism alone
+
+**Scientific claim:** L2 and L3 address statistically independent failure modes in different stages of the learning pipeline; their combination produces compound improvement that is multiplicative, not merely additive.
+
+**Theoretical grounding:**
+
+Consider the total error of a skill evolution pipeline as decomposable into:
+
+```
+Total error = Training distribution error + Evaluation noise error + Metric-gaming error
+```
+
+- `no_ts` addresses none of these
+- `l2_only` reduces **training distribution error** (better allocation → less wasted budget)
+- `l3_only` reduces **evaluation noise error** (Bayesian gate → fewer lucky acceptances)
+- `no_ts_multi` reduces **metric-gaming error** (multi-objective → harder to game any single dimension)
+- `l2_l3` reduces **both training error and evaluation error simultaneously**
+
+Because the two mechanisms act on separate, non-overlapping stages of the pipeline — L2 on training data selection, L3 on acceptance decision — they are **conditionally independent improvements**.  If L2 reduces training error by a factor f₁ (producing a better candidate to evaluate) and L3 reduces evaluation error by a factor f₂ (ensuring only genuinely better candidates are accepted), the combined error reduction is approximately f₁ × f₂ rather than f₁ + f₂.
+
+This is analogous to the *bias-variance tradeoff* in supervised learning: methods that simultaneously reduce bias (L2 → better training signal) and variance (L3 → more robust evaluation) achieve performance gains that neither bias reduction nor variance reduction alone can reach.
+
+**The convergence caveat:** Both mechanisms require multiple runs to accumulate arm evidence.  On run 1, L2 arms are all Beta(1,1) (uniform selection) and L3 arms are Beta(1,1) (uninformative gate).  The mechanism behaves identically to `no_ts` on run 1.  By run 3, both arm types have accumulated enough evidence to diverge meaningfully.  This is not a weakness — it is standard behaviour of Bayesian methods: the prior dominates when evidence is scarce, the data dominates as evidence accumulates.
+
+> **In plain English:** Imagine improving a factory's output by: (A) making sure workers practise on the tasks they're actually struggling with, and (B) setting a strict quality-control gate that only passes parts that are genuinely better than the last batch.  Doing A alone gives you better practice but your quality gate still accepts lucky-but-mediocre output.  Doing B alone gives you a stricter gate but workers are still practising the wrong tasks.  Doing both: workers improve on the right tasks AND only genuinely improved parts pass — and the two effects multiply rather than just add up.
+
+**Summary of what the evidence should show** (testable predictions from the theory):
+
+```
+ With n_runs ≥ 3 and a heterogeneous training set:
+
+ l2_l3  > l2_only  (L3 gate removes lucky l2_only acceptances)
+ l2_l3  > l3_only  (L2 training focuses produce higher-quality candidates for L3 to evaluate)
+ l2_only > no_ts   (better training → better candidates on average)
+ l3_only ≈ no_ts   (same training quality, but stricter gate; similar peak, higher reliability)
+ no_ts_multi δ ≠ no_ts δ  (different rubric, different scale — not directly comparable)
+
+ If l2_l3 does NOT outperform both l2_only and l3_only, likely explanations:
+   • n_runs too low (arms haven't converged)
+   • All examples are easy (L2 arms don't diverge — no curriculum signal)
+   • Holdout too small (L3 arms don't concentrate — evaluation noise dominates)
 ```
 
 ---
