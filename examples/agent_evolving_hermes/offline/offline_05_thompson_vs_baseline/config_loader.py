@@ -41,6 +41,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         ts_batch_size=int(data.get("ts_batch_size", 4)),
         n_runs=int(data.get("n_runs", 1)),
         verbose=bool(data.get("verbose", False)),
+        print_skill_diff=bool(data.get("print_skill_diff", False)),
     )
 
     print(f"{'═' * 70}")
@@ -49,6 +50,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
     print(f"TS batch size     : {config.ts_batch_size}")
     print(f"Runs per mode     : {config.n_runs}")
     print(f"Verbose           : {config.verbose}")
+    print(f"Print skill diff  : {config.print_skill_diff}")
     print()
 
     os.environ.setdefault("DEEPSEEK_API_KEY", config.api_key)

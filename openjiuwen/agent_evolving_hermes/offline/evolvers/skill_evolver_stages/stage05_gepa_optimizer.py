@@ -157,10 +157,15 @@ def skill_fitness_metric(
         general_score = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
         score = 0.8 * tech_score + 0.2 * general_score
     else:
-        # Fallback for examples with no extractable technical keywords
+        # Fallback for examples with no extractable technical keywords.
+        # No artificial floor: zero overlap must score zero so that TS arms
+        # correctly accumulate β for examples where the agent produces nothing
+        # useful.  The old 0.3 floor caused every no-keyword example to score
+        # ≥ 0.3 regardless of output quality, inflating α and making TS
+        # effectively random for those examples.
         expected_words = set(expected.lower().split())
         output_words = set(output_lower.split())
         overlap = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
-        score = 0.3 + 0.7 * overlap
+        score = overlap
 
     return min(1.0, max(0.0, score))

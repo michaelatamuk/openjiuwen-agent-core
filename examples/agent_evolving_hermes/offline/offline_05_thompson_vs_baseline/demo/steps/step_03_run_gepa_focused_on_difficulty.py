@@ -11,13 +11,13 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_focused_on_difficulty, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single"):
-    _banner("③-L2 GEPA — Level 2 only (Example Selector, no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
-    print(f"  Level 2 — Example Selector  : selects top {ts_batch_size} of "
+    _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
+    print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
     print("    TS learns which examples best distinguish good vs bad evolved skills")
-    print("    → hard examples (security, concurrency) accumulate higher α")
+    print("    → discriminating examples (medium difficulty) accumulate higher α")
     print()
-    print("  Level 3 — Acceptance Gate   : OFF (threshold only, improvement ≥ 0.0)")
+    print("  TS-AcceptanceGate   : OFF (threshold only, improvement ≥ 0.0)")
     print()
 
     evolver_config = EvolverConfig(
@@ -28,7 +28,7 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
         eval_model = model,
         max_prompt_growth=0.5,
         verbose=verbose,
-        # Thompson Sampling — Level 2 ON, Level 3 OFF
+        # TS-TrainingSelector ON, TS-AcceptanceGate OFF
         ts_skill_scheduler = False,
         ts_example_selector = True,
         ts_example_batch_size = ts_batch_size,
@@ -43,6 +43,6 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
 
     if verbose:
         evolved_l2 = _read_latest_evolved(output_gepa_focused_on_difficulty, skill_name)
-        _print_skill("  Evolved skill (L2 only)", evolved_l2 or "[not produced]")
+        _print_skill("  Evolved skill (TS-TrainingSelector only)", evolved_l2 or "[not produced]")
 
     return metrics_gepa_focused

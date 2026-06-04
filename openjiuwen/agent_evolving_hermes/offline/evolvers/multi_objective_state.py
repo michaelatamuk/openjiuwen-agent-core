@@ -42,12 +42,30 @@ class MultiObjectiveState:
 
     # ── Aggregate ─────────────────────────────────────────────────────────────
 
-    def aggregate(self, subscores: List[float]) -> float:
-        """Weighted mean of sub-scores.  Result is in [0, 1]."""
+    def aggregate(self, subscores: List[float], length_penalty: float = 0.0) -> float:
+        """Weighted mean of sub-scores with correctness gate and length penalty.
+
+        Correctness gate (subscores[0]):
+            If correctness < 0.25 the aggregate is gated to correctness minus the
+            length penalty — same principle as the holistic judge.  Without this,
+            a rubric run where the agent produces a completely wrong but polished
+            answer can still score ~0.6 on the other four dimensions and be
+            accepted by GEPA.
+
+        Length penalty:
+            Subtracted after the weighted mean, identical to the holistic formula
+            (ramps 0 → 0.30 between 90%–100% of max_skill_size).  Pass 0.0
+            (the default) when the evolved skill is within size limits.
+        """
+        correctness = subscores[0] if subscores else 0.0
+        if correctness < 0.25:
+            return max(0.0, correctness - length_penalty)
         total_w = sum(self.weights)
         if total_w == 0:
-            return sum(subscores) / _N_DIMS
-        return sum(w * s for w, s in zip(self.weights, subscores)) / total_w
+            raw = sum(subscores) / _N_DIMS
+        else:
+            raw = sum(w * s for w, s in zip(self.weights, subscores)) / total_w
+        return max(0.0, raw - length_penalty)
 
     # ── No-regression check ───────────────────────────────────────────────────
 

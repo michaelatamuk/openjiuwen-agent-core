@@ -24,6 +24,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage08_holdout_evaluator import (
     _eval_multi_pass,
 )
+from openjiuwen.agent_evolving_hermes.offline.evolvers.multi_objective_state import MultiObjectiveState
 
 # Modes that require a multi-objective baseline pre-evaluation.
 _MULTI_MODES = {"gepa_rubric"}
@@ -163,10 +164,15 @@ def score_multi_baseline(
         f"[bold]Evaluating pre-train skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
     )
-    composite, dims = _eval_multi_pass(
+    _, dims = _eval_multi_pass(
         baseline_module, holdout, multi_judge, MultiObjectiveFitnessScore.DIM_NAMES,
         "pre-train skill", console,
     )
+    # Use the same gated aggregate as GEPA runs so that Base-Rubric and
+    # GEPA-Rubric pre-train scores are computed with identical formulas.
+    fresh_state = MultiObjectiveState()
+    b_list = [dims[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+    composite = fresh_state.aggregate(b_list)
     console.print(
         f"  Pre-train holdout score (multi): {composite:.4f}  ({n_holdout} examples)"
     )

@@ -13,7 +13,7 @@ def _print_ts_insights(ts_state_dir: Path, skill_name: str) -> None:
             state = json.load(fh)
         arms = state.get("arms", {})
         if arms:
-            print("\n  TS Level 2 — Example Selector (arm state after training)")
+            print("\n  TS-TrainingSelector — Example Selector (arm state after training)")
             print("  Higher α/(α+β) = example was more discriminating, received more budget")
             ranked = sorted(
                 [(k, v.get("alpha", 1.0), v.get("beta", 1.0)) for k, v in arms.items()],
@@ -34,7 +34,7 @@ def _print_ts_insights(ts_state_dir: Path, skill_name: str) -> None:
         if cand:
             ac, bc = cand.get("alpha", 1.0), cand.get("beta", 1.0)
             ad, bd = dep.get("alpha",  1.0), dep.get("beta", 1.0)
-            print(f"\n  TS Level 3 — Acceptance Gate")
+            print(f"\n  TS-AcceptanceGate")
             print(f"    Candidate arm : α={ac:.1f}, β={bc:.1f}  "
                   f"(mean={ac/(ac+bc):.2f})")
             print(f"    Deployed  arm : α={ad:.1f}, β={bd:.1f}  "

@@ -15,6 +15,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     step as step_07_plot_results
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_08_final_prints import \
     step as step_08_final_prints
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill_diff import \
+    print_skill_diff
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
+    _read_latest_evolved
 
 
 class Demo:
@@ -84,6 +88,10 @@ class Demo:
                                        metrics_gepa_rubric=trainings_results.metrics_gepa_rubric,
                                        ts_batch_size=self._config.ts_batch_size)
 
+        # ── Optional: Skill diff (baseline vs winner) ─────────────────────────
+        if self._config.print_skill_diff and trainings_results.runs:
+            self._print_skill_diff(params, trainings_results)
+
         # ── Step 8: Plots ─────────────────────────────────────────────────────
         step_07_plot_results(baseline_score_single,
                              baseline_score_multi,
@@ -98,3 +106,38 @@ class Demo:
 
         # ── Step 7: Where to look ─────────────────────────────────────────────
         step_08_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir)
+
+    def _print_skill_diff(self, params: DemoParams, results: DemoTrainingsResults) -> None:
+        """Determine winner and print baseline vs winner skill side by side."""
+        from statistics import mean as _mean
+
+        label_to_dir = dict(results.runs)
+        mode_entries = [
+            ("GEPA-Uniform",  results.scores_gepa_uniform,  results.metrics_gepa_uniform),
+            ("GEPA-Rubric",   results.scores_gepa_rubric,   results.metrics_gepa_rubric),
+            ("GEPA-Focused",  results.scores_gepa_focused,  results.metrics_gepa_focused),
+            ("GEPA-Gated",    results.scores_gepa_gated,    results.metrics_gepa_gated),
+            ("GEPA-Full",     results.scores_gepa_full,     results.metrics_gepa_full),
+        ]
+        present = [(l, s, m) for l, s, m in mode_entries if s and l in label_to_dir]
+        if not present:
+            return
+
+        accepted = [(l, _mean(s), m) for l, s, m in present if m and m.get("accepted")]
+        pool = accepted if accepted else [(l, _mean(s), m) for l, s, m in present]
+        best_score = max(sc for _, sc, _ in pool)
+        winner_label = next(l for l, sc, _ in pool if sc == best_score)
+
+        baseline_path = params.skills_root / params.skill_name / "SKILL.md"
+        if not baseline_path.exists():
+            return
+        winner_text = _read_latest_evolved(label_to_dir[winner_label], params.skill_name)
+        if not winner_text:
+            return
+
+        print_skill_diff(
+            baseline_path.read_text(),
+            winner_label,
+            winner_text,
+            winner_score=best_score,
+        )

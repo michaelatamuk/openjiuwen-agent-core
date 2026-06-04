@@ -13,10 +13,10 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 def step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single"):
-    _banner("④-L3 GEPA — Level 3 only (Acceptance Gate, all examples equal weight)", run_index=run_index, n_runs=n_runs)
-    print("  Level 2 — Example Selector  : OFF (all training examples, equal weight)")
+    _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index, n_runs=n_runs)
+    print("  TS-TrainingSelector : OFF (all training examples, equal weight)")
     print()
-    print(f"  Level 3 — Acceptance Gate   : P(candidate > deployed) ≥ 0.75")
+    print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
     print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
     print()
 
@@ -28,7 +28,7 @@ def step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state
         eval_model = model,
         max_prompt_growth=0.5,
         verbose=verbose,
-        # Thompson Sampling — Level 2 OFF, Level 3 ON
+        # TS-TrainingSelector OFF, TS-AcceptanceGate ON
         ts_skill_scheduler = False,
         ts_example_selector = False,
         ts_acceptance_gate = True,
@@ -45,6 +45,6 @@ def step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state
 
     if verbose:
         evolved_l3 = _read_latest_evolved(output_gepa_gated, skill_name)
-        _print_skill("  Evolved skill (L3 only)", evolved_l3 or "[not produced]")
+        _print_skill("  Evolved skill (TS-AcceptanceGate only)", evolved_l3 or "[not produced]")
 
     return metrics_gepa_gated

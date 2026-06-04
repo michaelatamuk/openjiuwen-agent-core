@@ -46,6 +46,9 @@ class DemoConfig:
         lucky on a single run.
     verbose:
         ``True`` → show full DSPy INFO training logs.
+    print_skill_diff:
+        ``True`` → after the comparison table, print the baseline skill and
+        the winner skill side by side so changes are easy to read.
     """
 
     scenario_names: List[str]
@@ -57,3 +60,4 @@ class DemoConfig:
     ts_batch_size: int = 4
     n_runs: int = 1
     verbose: bool = False
+    print_skill_diff: bool = False

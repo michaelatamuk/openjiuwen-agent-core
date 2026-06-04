@@ -147,8 +147,17 @@ def evolve_single_skill(
         # Replace scalar aggregate with dynamic-weight aggregate.
         # Both baseline and evolved use the same weights so improvement is consistent,
         # and baseline_score stored in metrics matches the evolved_score scoring system.
-        evolved_score = mo_state.aggregate(e_list)
-        baseline_score = mo_state.aggregate(b_list)
+        # Length penalty mirrors the holistic judge: ramps 0 → 0.30 between 90–100% of max_size.
+        _max_size = getattr(config, "max_skill_size", 15_000)
+        def _length_penalty(text: str) -> float:
+            _len = len(text)
+            _thr = _max_size * 0.90
+            if _len <= _thr:
+                return 0.0
+            return min(0.30, 0.30 * (_len - _thr) / (_max_size - _thr))
+
+        evolved_score = mo_state.aggregate(e_list, length_penalty=_length_penalty(evolved_text))
+        baseline_score = mo_state.aggregate(b_list, length_penalty=_length_penalty(skill["raw"]))
         improvement    = evolved_score - baseline_score
 
         # Update weight state (always, regardless of acceptance)

@@ -268,7 +268,7 @@ class ThompsonAcceptanceGate:
         conf_pct = int(round(ts_conf * 100))
         need_pct = int(round(self._confidence * 100))
 
-        console.print("\nAcceptance gate  (Thompson Sampling L3):")
+        console.print("\nAcceptance gate  (TS-AcceptanceGate):")
 
         # Check 1: score change
         if hard_pass:

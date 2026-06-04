@@ -305,10 +305,10 @@ def main(
             click.echo(f"  Optimizer model : {optimizer_model}")
             click.echo(f"  Eval model      : {eval_model}")
             click.echo(f"  Min improvement : {min_improvement:+.4f}")
-            click.echo(f"  TS L1 scheduler : {'ON' if config.ts_skill_scheduler else 'off'}")
-            click.echo(f"  TS L2 examples  : {'ON' if config.ts_example_selector else 'off'}"
+            click.echo(f"  TS skill-sched  : {'ON' if config.ts_skill_scheduler else 'off'}")
+            click.echo(f"  TS-TrainSelector: {'ON' if config.ts_example_selector else 'off'}"
                        + (f" (batch={config.ts_example_batch_size or 'all'})" if config.ts_example_selector else ""))
-            click.echo(f"  TS L3 gate      : {'ON' if config.ts_acceptance_gate else 'off'}"
+            click.echo(f"  TS-AcceptGate   : {'ON' if config.ts_acceptance_gate else 'off'}"
                        + (f" (conf={config.ts_acceptance_confidence:.0%})" if config.ts_acceptance_gate else ""))
 
             skill_path = find_skill(name, config.skills_root)

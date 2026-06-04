@@ -19,6 +19,13 @@ class FitnessScore:
 
     @property
     def composite(self) -> float:
+        # Correctness gate: a fundamentally wrong answer must score near-zero
+        # regardless of how polished it was.  Without this gate, an agent that
+        # follows the skill instructions perfectly but produces a completely wrong
+        # answer still scores 0.50 composite (0×0.5 + 1×0.3 + 1×0.2), which
+        # looks acceptable to GEPA and prevents it from pivoting the skill.
+        if self.correctness < 0.25:
+            return max(0.0, self.correctness - self.length_penalty)
         raw = (
             0.50 * self.correctness
             + 0.30 * self.procedure_following
