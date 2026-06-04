@@ -119,6 +119,8 @@ _DEEP_EVENTS = frozenset(
     }
 )
 
+_SUB_AGENTS_DIR = "sub_agents"
+
 
 class DeepAgent(BaseAgent):
     """High-level agent that delegates to an internal ReActAgent."""
@@ -921,9 +923,9 @@ class DeepAgent(BaseAgent):
 
         if not self._deep_config.workspace or isinstance(self._deep_config.workspace, str):
             workspace_path = (
-                f"{self._deep_config.workspace}/{subsession_id}"
+                str(Path(self._deep_config.workspace) / _SUB_AGENTS_DIR / subsession_id)
                 if self._deep_config.workspace
-                else f"./{subsession_id}"
+                else str(Path(".") / _SUB_AGENTS_DIR / subsession_id)
             )
             workspace = Workspace(
                 root_path=workspace_path,
@@ -931,7 +933,7 @@ class DeepAgent(BaseAgent):
             )
         else:
             workspace = Workspace(
-                root_path=Path(self._deep_config.workspace.root_path) / subsession_id,
+                root_path=Path(self._deep_config.workspace.root_path) / _SUB_AGENTS_DIR / subsession_id,
                 language=self._deep_config.language
             )
 
@@ -978,7 +980,7 @@ class DeepAgent(BaseAgent):
             "enable_async_subagent": False,
             "add_general_purpose_agent": False,
             "enable_plan_mode": spec.enable_plan_mode,
-            "restrict_to_work_dir": spec.restrict_to_work_dir,
+            "restrict_to_work_dir": spec.restrict_to_work_dir or self._deep_config.restrict_to_work_dir,
         }
 
         if spec.factory_name:
@@ -1314,10 +1316,12 @@ class DeepAgent(BaseAgent):
                     for d in resources.skills.dirs
                 ]
             # Try appending to existing SkillUseRail
+            # Check both _registered_rails (already initialized) and
+            # _pending_rails (queued during configure() but not yet initialized)
             existing_skill_rail: (
                 SkillUseRail | None
             ) = None
-            for r in self._registered_rails:
+            for r in (*self._registered_rails, *self._pending_rails):
                 if isinstance(r, SkillUseRail):
                     existing_skill_rail = r
                     break
@@ -1340,6 +1344,11 @@ class DeepAgent(BaseAgent):
                         *existing,
                     ]
                 existing_skill_rail.enable_cache = False
+                # Ensure sys_operation is set for reading SKILL.md files
+                if existing_skill_rail.sys_operation is None:
+                    existing_skill_rail.set_sys_operation(
+                        self.deep_config.sys_operation
+                    )
                 await existing_skill_rail.reload_skills()
             else:
                 mode = (

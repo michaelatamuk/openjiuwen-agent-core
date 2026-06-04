@@ -128,6 +128,7 @@ class AudioModelConfig:
             ),
             question_answering_model=(
                 os.getenv("AUDIO_QUESTION_ANSWERING_MODEL")
+                or os.getenv("AUDIO_MODEL_NAME")
                 or DEFAULT_OPENAI_AUDIO_QA_MODEL
             ),
             max_retries=_parse_int_from_env("AUDIO_MAX_RETRIES", 3),
@@ -229,6 +230,10 @@ class DeepAgentConfig:
     # Tool permission guardrail (tiered_policy / interrupt confirm)
     permissions: PermissionsSection | None = None
     permission_host: Any = None
+
+    # Filesystem sandbox: when True, file ops are restricted to workspace/project root.
+    # Subagents inherit the stricter of their own spec and this value.
+    restrict_to_work_dir: bool = True
 
 
 @dataclass
