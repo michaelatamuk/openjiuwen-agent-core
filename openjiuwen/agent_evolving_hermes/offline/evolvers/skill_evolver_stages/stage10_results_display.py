@@ -19,21 +19,22 @@ _MO_DIM_NAMES: List[str] = [
 
 
 def display_results_table(
-    skill_name: str,
-    optimizer_name: str,
-    iterations: int,
-    baseline_score: float,
-    evolved_score: float,
-    improvement: float,
-    cross_run_delta: Optional[float],
-    accepted: bool,
-    elapsed: float,
-    baseline_chars: int,
-    evolved_chars: int,
-    console,
-    constraint_checks: Optional[List] = None,
-    multi_scores: Optional[dict] = None,
-    mo_weights: Optional[List[float]] = None,
+        skill_name: str,
+        optimizer_name: str,
+        iterations: int,
+        baseline_score: float,
+        evolved_score: float,
+        improvement: float,
+        cross_run_delta: Optional[float],
+        accepted: bool,
+        elapsed: float,
+        baseline_chars: int,
+        evolved_chars: int,
+        console,
+        constraint_checks: Optional[List] = None,
+        prior_baseline_dims_multi=None,
+        evolved_dims_multi=None ,
+        mo_weights: Optional[List[float]] = None,
 ) -> None:
     """Print a Rich table (or plain-text fallback) with the evolution results.
 
@@ -104,17 +105,17 @@ def display_results_table(
                     f"[{clr}]{icon} {_msg(c)}[/{clr}]",
                 )
 
-        if multi_scores is not None:
-            b_map = multi_scores.get("baseline", {})
-            e_map = multi_scores.get("evolved", {})
+        if prior_baseline_dims_multi is not None and evolved_dims_multi is not None:
+            #b_map = multi_scores.get("baseline", {})
+            #e_map = multi_scores.get("evolved", {})
             table.add_row("", "")  # visual separator
             table.add_row(
                 "Sub-scores (multi)",
                 "[dim]baseline → evolved   delta[/dim]",
             )
             for dim in _MO_DIM_NAMES:
-                b = b_map.get(dim, 0.0)
-                e = e_map.get(dim, 0.0)
+                b = prior_baseline_dims_multi.get(dim, 0.0)
+                e = evolved_dims_multi.get(dim, 0.0)
                 d = e - b
                 d_sign = "+" if d >= 0 else ""
                 d_color = "green" if d >= 0 else "red"
@@ -140,13 +141,13 @@ def display_results_table(
             for c in constraint_checks:
                 icon = "✓" if _passed(c) else "✗"
                 console.print(f"  {icon} {_name(c)}: {_msg(c)}")
-        if multi_scores is not None:
-            b_map = multi_scores.get("baseline", {})
-            e_map = multi_scores.get("evolved", {})
+        if prior_baseline_dims_multi is not None and evolved_dims_multi is not None:
+            #b_map = multi_scores.get("baseline", {})
+            #e_map = multi_scores.get("evolved", {})
             console.print("\n  Sub-scores:")
             for dim in _MO_DIM_NAMES:
-                b = b_map.get(dim, 0.0)
-                e = e_map.get(dim, 0.0)
+                b = prior_baseline_dims_multi.get(dim, 0.0)
+                e = evolved_dims_multi.get(dim, 0.0)
                 d = e - b
                 sign = "+" if d >= 0 else ""
                 console.print(f"    {dim:24s}  {b:.4f} → {e:.4f}  {sign}{d:.4f}")

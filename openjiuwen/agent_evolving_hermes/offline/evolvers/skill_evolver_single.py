@@ -47,8 +47,9 @@ def evolve_single_skill(
     config: Optional[EvolverConfig] = None,
     reuse_dataset: bool = False,
     min_improvement: float = 0.0,
-    prior_baseline_score: Optional[float] = None,
-    prior_multi_baseline_dims=None,
+    prior_baseline_score_single: Optional[float] = None,
+    prior_baseline_score_multi: Optional[float] = None,
+    prior_baseline_dims_multi = None
 ) -> dict:
     """Run one GEPA evolution pass on a skill.
 
@@ -64,11 +65,10 @@ def evolve_single_skill(
             saved as evolved_REGRESSION.md but NOT deployed to evolved_skill.md.
             Use 0.0 (default) to accept any positive improvement.
             Use a negative value (e.g. -0.05) to accept minor regressions.
-        prior_baseline_score: Pre-computed single-score baseline from step_01.
+        prior_baseline_score_single: Pre-computed single-score baseline from step_01.
             When provided, stage08 skips re-evaluating the baseline module.
-        prior_multi_baseline_dims: Pre-computed per-dimension baseline scores
-            from step_01's multi evaluation.  When provided, stage08 skips
-            re-evaluating the baseline in multi mode.
+        prior_baseline_score_multi: Pre-computed multi-score baseline from step_01.
+            When provided, stage08 skips re-evaluating the baseline module.
 
     Returns:
         Metrics dict including baseline_score, evolved_score, improvement,
@@ -113,23 +113,23 @@ def evolve_single_skill(
     )
 
     # ── Step 8: Evaluate on holdout ──────────────────────────────────────────
-    baseline_score, evolved_score, improvement, cross_run_delta, multi_scores = \
+    baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_multi = \
         evaluate_on_holdout(
             baseline_module, optimized_module, dataset, config, console, prior_metrics,
-            prior_baseline_score=prior_baseline_score,
+            prior_baseline_score_single=prior_baseline_score_single,
             scoring_mode=getattr(config, "scoring_mode", "single"),
-            prior_multi_baseline_dims=prior_multi_baseline_dims,
+            prior_baseline_score_multi=prior_baseline_score_multi,
         )
 
     # ── Step 8b: Multi-objective processing ──────────────────────────────────
     mo_state = None
-    if getattr(config, "scoring_mode", "single") == "multi" and multi_scores is not None:
+    if getattr(config, "scoring_mode", "single") == "multi" and evolved_dims_multi is not None:
         # mo_state.json lives in config.output_dir (the mode root, e.g. output_no_ts/)
         # so dynamic weights persist and accumulate across multiple GEPA runs.
         mo_state_path = config.output_dir / "mo_state.json"
         mo_state = MultiObjectiveState.load_or_create(mo_state_path)
-        b_list = [multi_scores["baseline"][d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
-        e_list = [multi_scores["evolved"][d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+        b_list = [prior_baseline_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+        e_list = [evolved_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
 
         # No-regression check — reject if any dimension drops > 0.02
         nr_passed, failed_dims = mo_state.no_regression_passed(e_list, b_list)
@@ -174,7 +174,8 @@ def evolve_single_skill(
         cross_run_delta, accepted, elapsed,
         len(skill["raw"]), len(evolved_text), console,
         constraint_checks=evolved_checks,
-        multi_scores=multi_scores,
+        prior_baseline_dims_multi=prior_baseline_dims_multi,
+        evolved_dims_multi=evolved_dims_multi,
         mo_weights=mo_state.weights if mo_state is not None else None,
     )
 

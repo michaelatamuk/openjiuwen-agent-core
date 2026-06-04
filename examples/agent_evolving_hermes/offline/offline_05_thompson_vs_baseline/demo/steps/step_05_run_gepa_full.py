@@ -43,7 +43,7 @@ def step(skills_root, skill_name, model, itrations, ts_batch_size, examples, out
     )
     metrics_ts = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
-        prior_baseline_score=baseline_score,
+        prior_baseline_score_single=baseline_score,
     )
     _print_ts_insights(ts_state_dir, skill_name)
 

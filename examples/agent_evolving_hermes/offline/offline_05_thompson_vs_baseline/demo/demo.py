@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_config import DemoConfig
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_params import DemoParams
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_trainings import DemoTrainings
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_trainings_results import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.trainings import DemoTrainings
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import \
     DemoTrainingsResults
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_save_skill_and_dataset import \
     step as step_00_save_skill_and_dataset
@@ -64,7 +64,8 @@ class Demo:
 
         # ── Training passes ───────────────────────────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(
-            params, baseline_score=baseline_score_single, multi_baseline_dims=multi_baseline_dims,
+            params, baseline_score_single=baseline_score_single, baseline_score_multi=baseline_score_multi,
+            baseline_dims_multi=multi_baseline_dims
         )
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────

@@ -38,7 +38,7 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
     )
     metrics_gepa_focused = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
-        prior_baseline_score=baseline_score,
+        prior_baseline_score_single=baseline_score,
     )
 
     if verbose:

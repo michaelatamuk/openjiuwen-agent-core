@@ -66,9 +66,9 @@ def evaluate_on_holdout(
     config: EvolverConfig,
     console,
     prior_metrics: Optional[dict] = None,
-    prior_baseline_score: Optional[float] = None,
+    prior_baseline_score_single: Optional[float] = None,
     scoring_mode: str = "single",
-    prior_multi_baseline_dims: Optional[Dict[str, float]] = None,
+    prior_baseline_score_multi: Optional[float] = None,
 ) -> Tuple:
     """Score the evolved module on holdout.
 
@@ -114,8 +114,8 @@ def evaluate_on_holdout(
                 console.print(f"  [{i}/{n_holdout}] {label} → {sc:.4f}")
             return sum(scores) / len(scores) if scores else 0.0
 
-        if prior_baseline_score is not None:
-            baseline_score = prior_baseline_score
+        if prior_baseline_score_single is not None:
+            baseline_score = prior_baseline_score_single
             console.print(
                 f"[dim]  Pre-train score (pre-computed): {baseline_score:.4f}"
                 f"  — skipping re-evaluation[/dim]"
@@ -154,11 +154,9 @@ def evaluate_on_holdout(
 
     # Baseline: use pre-computed dims
     # if available, otherwise fall back to evaluating here.
-    if prior_multi_baseline_dims is not None:
-        baseline_dims = prior_multi_baseline_dims
-        baseline_composite = sum(baseline_dims.values()) / len(baseline_dims)
+    if prior_baseline_score_multi is not None:
         console.print(
-            f"[dim]  Pre-train score (multi, pre-computed): {baseline_composite:.4f}"
+            f"[dim]  Pre-train score (multi, pre-computed): {prior_baseline_score_multi:.4f}"
             f"  — skipping re-evaluation[/dim]"
         )
     else:
@@ -166,11 +164,11 @@ def evaluate_on_holdout(
             f"[bold]Evaluating pre-train skill on holdout…[/bold] "
             f"[dim]({n_holdout} examples, multi-objective)[/dim]"
         )
-        baseline_composite, baseline_dims = _eval_multi_pass(
+        prior_baseline_score_multi, _ = _eval_multi_pass(
             baseline_module, holdout, multi_judge, dim_names, "pre-train skill", console
         )
         console.print(
-            f"  Pre-train holdout score: {baseline_composite:.4f}  ({n_holdout} examples)"
+            f"  Pre-train holdout score: {prior_baseline_score_multi:.4f}  ({n_holdout} examples)"
         )
 
     console.print(
@@ -184,15 +182,10 @@ def evaluate_on_holdout(
         f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)"
     )
 
-    improvement = evolved_composite - baseline_composite
+    improvement = evolved_composite - prior_baseline_score_multi
 
     cross_run_delta = None
     if prior_metrics and "evolved_score" in prior_metrics:
         cross_run_delta = round(evolved_composite - prior_metrics["evolved_score"], 4)
 
-    multi_scores: Dict[str, Dict[str, float]] = {
-        "baseline": baseline_dims,
-        "evolved": evolved_dims,
-    }
-
-    return baseline_composite, evolved_composite, improvement, cross_run_delta, multi_scores
+    return prior_baseline_score_multi, evolved_composite, improvement, cross_run_delta, evolved_dims
