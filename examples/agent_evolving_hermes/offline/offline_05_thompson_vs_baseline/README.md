@@ -35,7 +35,7 @@ A side-by-side comparison framework that evolves an agent skill with **GEPA** ac
 
 ### What we have today — Base-Holistic
 
-GEPA (*Gradient-free Evolutionary Prompt Adaptation*) iteratively rewrites an agent's skill instruction using an LLM, evaluates the result on held-out examples with a single holistic judge (composite score: correctness × 0.5 + procedure × 0.3 + conciseness × 0.2), and keeps the rewrite if it exceeds a fixed fitness threshold.  This produces our current production baseline, measured as **Base-Holistic**.
+GEPA (*Genetic-Pareto Reflective Prompt Evolution*) iteratively rewrites an agent's skill instruction using an LLM, evaluates the result on held-out examples with a single holistic judge (composite score: correctness × 0.5 + procedure × 0.3 + conciseness × 0.2), and keeps the rewrite if it exceeds a fixed fitness threshold.  This produces our current production baseline, measured as **Base-Holistic**.
 
 *Plain English: we ask an LLM to improve the instructions, score the result on test cases, and keep it if it scores higher.*
 
@@ -1040,7 +1040,7 @@ This is analogous to the *bias-variance tradeoff* in supervised learning: method
 
 ## How GEPA Works
 
-GEPA (Genetic Enhancement of Prompt-based Agents) is a DSPy optimizer that treats the skill text as an evolvable string, applying LLM-guided reflection and rewriting to improve it.
+GEPA (Genetic-Pareto Reflective Prompt Evolution) is a DSPy optimizer that treats the skill text as an evolvable string, applying LLM-guided reflection and rewriting to improve it.
 
 ### The two-loop structure
 
