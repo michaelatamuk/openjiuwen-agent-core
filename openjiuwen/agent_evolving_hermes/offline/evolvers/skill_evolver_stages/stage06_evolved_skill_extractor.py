@@ -14,5 +14,9 @@ def extract_evolved_skill(
     Combines the original frontmatter with the optimised body text.
     Returns the full evolved SKILL.md string ready for constraint validation.
     """
+    # Pull the GEPA-optimised instruction (stored in the DSPy signature) back
+    # into _skill_text_value so that both this function and stage08 see the
+    # evolved text rather than the stale baseline copy.
+    optimized_module.sync_from_optimized()
     evolved_body = optimized_module._skill_text_value
     return reassemble_skill(skill["frontmatter_text"], evolved_body)

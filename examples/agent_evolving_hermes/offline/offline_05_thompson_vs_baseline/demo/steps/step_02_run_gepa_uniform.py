@@ -22,7 +22,7 @@ def step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbos
         iterations=iterations,
         optimizer_model=model,
         eval_model=model,
-        max_prompt_growth=0.5,   # allow up to 50% growth; baseline skill is intentionally short
+        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
         verbose=verbose,
         # Thompson Sampling — all OFF
         ts_skill_scheduler=False,

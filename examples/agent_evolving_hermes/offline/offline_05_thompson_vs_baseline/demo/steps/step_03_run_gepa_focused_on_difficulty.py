@@ -10,7 +10,7 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_focused_on_difficulty, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
-         scoring_mode: str = "single"):
+         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None):
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
     print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
@@ -26,7 +26,7 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
         iterations = iterations,
         optimizer_model = model,
         eval_model = model,
-        max_prompt_growth=0.5,
+        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
         verbose=verbose,
         # TS-TrainingSelector ON, TS-AcceptanceGate OFF
         ts_skill_scheduler = False,
@@ -39,6 +39,8 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
     metrics_gepa_focused = evolve_single_skill(
         skill_name, "golden", config=evolver_config, min_improvement=0.0,
         prior_baseline_score_single=baseline_score,
+        prior_baseline_score_multi=baseline_score_multi,
+        prior_baseline_dims_multi=baseline_dims_multi,
     )
 
     if verbose:

@@ -36,7 +36,10 @@ class DemoTrainings:
         runs: list[tuple[str, object]] = []
 
         # ── gepa_uniform ─────────────────────────────────────────────────────────────
-        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = self._run_gepa_uniform(params, baseline_score_single)
+        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = self._run_gepa_uniform(
+            params, baseline_score_single,
+            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+        )
         if scores_gepa_uniform:
             runs.append(("GEPA-Uniform", last_out_gepa_uniform))
 
@@ -48,17 +51,26 @@ class DemoTrainings:
             runs.append(("GEPA-Rubric", last_out_gepa_rubric))
 
         # ── gepa_focused_on_difficulty ───────────────────────────────────────────────────────────
-        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = self._run_gepa_focused_on_difficulty(params, baseline_score_single)
+        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = self._run_gepa_focused_on_difficulty(
+            params, baseline_score_single,
+            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+        )
         if scores_gepa_focused:
             runs.append(("GEPA-Focused", last_out_gepa_focused))
 
         # ── gepa_gated ───────────────────────────────────────────────────────────
-        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = self._run_gepa_gated(params, baseline_score_single)
+        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = self._run_gepa_gated(
+            params, baseline_score_single,
+            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+        )
         if scores_gepa_gated:
             runs.append(("GEPA-Gated", last_out_gepa_gated))
 
         # ── gepa_full ─────────────────────────────────────────────────────────────
-        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = self._run_gepa_full(params, baseline_score_single)
+        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = self._run_gepa_full(
+            params, baseline_score_single,
+            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+        )
         if scores_gepa_full:
             runs.append(("GEPA-Full", last_out_gepa_full))
 
@@ -76,7 +88,8 @@ class DemoTrainings:
             metrics_gepa_rubric=metrics_gepa_rubric,
         )
 
-    def _run_gepa_uniform(self, params: DemoParams, baseline_score: float = None):
+    def _run_gepa_uniform(self, params: DemoParams, baseline_score: float = None,
+                          baseline_score_multi: float = None, baseline_dims_multi=None):
         scores_gepa_uniform: list[float] = []
         metrics_gepa_uniform = None
         last_out_gepa_uniform = params.output_gepa_uniform
@@ -129,7 +142,8 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Rubric", elapsed)
         return scores, metrics, last_out
 
-    def _run_gepa_full(self, params: DemoParams, baseline_score: float = None):
+    def _run_gepa_full(self, params: DemoParams, baseline_score: float = None,
+                      baseline_score_multi: float = None, baseline_dims_multi=None):
         scores_gepa_full: list[float] = []
         metrics_gepa_full = None
         last_out_gepa_full = params.output_gepa_full
@@ -156,7 +170,8 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Full", elapsed)
         return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
 
-    def _run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None):
+    def _run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None,
+                                        baseline_score_multi: float = None, baseline_dims_multi=None):
         scores_gepa_focused: list[float] = []
         metrics_gepa_focused = None
         last_out_gepa_focused = params.output_gepa_focused_on_difficulty
@@ -183,7 +198,8 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Focused", elapsed)
         return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
 
-    def _run_gepa_gated(self, params: DemoParams, baseline_score: float = None):
+    def _run_gepa_gated(self, params: DemoParams, baseline_score: float = None,
+                       baseline_score_multi: float = None, baseline_dims_multi=None):
         scores_gepa_gated: list[float] = []
         metrics_gepa_gated = None
         last_out_gepa_gated = params.output_gepa_gated

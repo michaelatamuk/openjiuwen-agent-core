@@ -1,6 +1,6 @@
 {
     "scenarios": [
-        "paper-review"
+        "rtos-review"
     ],
     "_scenarios": [
         "paper-review",
@@ -10,7 +10,7 @@
         "api-security",
         "code-review"
     ],
-    "run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
+    "run_modes": ["gepa_uniform", "gepa_rubric"],
     "_run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
     "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
     "model": "deepseek/deepseek-chat",
@@ -18,6 +18,6 @@
     "iterations": 20,
     "ts_batch_size": 4,
     "n_runs": 1,
-    "verbose": false,
+    "verbose": true,
     "print_skill_diff": true
 }
