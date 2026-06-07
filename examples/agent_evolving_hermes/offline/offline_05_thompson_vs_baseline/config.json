@@ -1,6 +1,6 @@
 {
     "scenarios": [
-        "pokemon-player"
+        "blades-in-the-dark"
     ],
     "_scenarios": [
         "paper-review",
@@ -9,7 +9,8 @@
         "ml-review",
         "api-security",
         "code-review",
-        "pokemon-player"
+        "pokemon-player",
+        "blades-in-the-dark"
     ],
     "run_modes": ["gepa_uniform", "gepa_rubric"],
     "_run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],

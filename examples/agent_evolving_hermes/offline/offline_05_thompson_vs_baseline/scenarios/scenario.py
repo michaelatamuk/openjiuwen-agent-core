@@ -26,6 +26,10 @@ Available scenarios
                         ★ Low baseline: ~0.10-0.25 (hard examples test exact operational
                           values only in the skill: API endpoints, action names, port 9876,
                           screenshot path, PKM memory prefixes, tunnel setup, batch size)
+    blades-in-the-dark — BitD TTRPG GM facilitation; D&D 5e baseline primes wrong answers
+                        ★ Low baseline: ~0.05-0.15 (Flashback, Engagement Roll, Devil's
+                          Bargain, Harm levels, Heat/Entanglements, Fortune Roll, Vice,
+                          Trauma — all incompatible with D&D d20/HP/Long-Rest framework)
 """
 from __future__ import annotations
 
@@ -125,6 +129,12 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _PK_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pokemon_player.golden_examples.all import \
         GOLDEN_EXAMPLES as _PK_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.blades_in_the_dark.skill.body import \
+        SKILL_BODY as _BD_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.blades_in_the_dark.skill.frontmatter import \
+        SKILL_FRONTMATTER as _BD_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.blades_in_the_dark.golden_examples.all import \
+        GOLDEN_EXAMPLES as _BD_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -175,6 +185,13 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_PK_FM,
             golden_examples=_PK_EXAMPLES,
             description="Pokemon Red/Blue/Yellow gameplay — operational procedure recall (API, actions, paths, prefixes)",
+        ),
+        "blades-in-the-dark": Scenario(
+            name="blades-in-the-dark",
+            skill_body=_BD_BODY,
+            skill_frontmatter=_BD_FM,
+            golden_examples=_BD_EXAMPLES,
+            description="Blades in the Dark GM facilitation — D&D baseline primes systematically wrong answers for BitD mechanics",
         ),
     }
 
