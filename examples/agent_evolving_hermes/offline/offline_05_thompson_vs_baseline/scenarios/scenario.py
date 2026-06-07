@@ -22,6 +22,10 @@ Available scenarios
                         ★ Low baseline: ~0.10-0.20 (non-software, recommended for demos)
     contract-review   — Commercial contract review (penalties, force majeure, IP, non-compete)
                         ★ Low baseline: ~0.05-0.15 (non-software, non-technical)
+    pokemon-player    — Pokemon Red/Blue/Yellow gameplay decisions (non-code, game domain)
+                        ★ Low baseline: ~0.10-0.25 (hard examples test exact operational
+                          values only in the skill: API endpoints, action names, port 9876,
+                          screenshot path, PKM memory prefixes, tunnel setup, batch size)
 """
 from __future__ import annotations
 
@@ -115,6 +119,12 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _CT_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.contract_review.golden_examples.all import \
         GOLDEN_EXAMPLES as _CT_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pokemon_player.skill.body import \
+        SKILL_BODY as _PK_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pokemon_player.skill.frontmatter import \
+        SKILL_FRONTMATTER as _PK_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pokemon_player.golden_examples.all import \
+        GOLDEN_EXAMPLES as _PK_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -158,6 +168,13 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_CT_FM,
             golden_examples=_CT_EXAMPLES,
             description="Commercial contract review — penalties, force majeure, IP, non-compete",
+        ),
+        "pokemon-player": Scenario(
+            name="pokemon-player",
+            skill_body=_PK_BODY,
+            skill_frontmatter=_PK_FM,
+            golden_examples=_PK_EXAMPLES,
+            description="Pokemon Red/Blue/Yellow gameplay — operational procedure recall (API, actions, paths, prefixes)",
         ),
     }
 

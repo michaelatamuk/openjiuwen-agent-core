@@ -1,6 +1,6 @@
 {
     "scenarios": [
-        "rtos-review"
+        "pokemon-player"
     ],
     "_scenarios": [
         "paper-review",
@@ -8,7 +8,8 @@
         "rtos-review",
         "ml-review",
         "api-security",
-        "code-review"
+        "code-review",
+        "pokemon-player"
     ],
     "run_modes": ["gepa_uniform", "gepa_rubric"],
     "_run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
