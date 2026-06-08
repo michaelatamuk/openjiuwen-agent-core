@@ -50,8 +50,8 @@ def run_step(skills_root: Path,
              skill_name: str,
              model: str,
              output_dir: Path,
-             verbose: bool = False,
-             console = None) -> SharedEvolutionObjects:
+             console,
+             verbose: bool = False) -> SharedEvolutionObjects:
     """Build shared evolution objects (stages 1 / 2 / 3 / 4) for reuse by all GEPA passes.
 
     Parameters

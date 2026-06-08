@@ -78,8 +78,8 @@ class Demo:
                                                  params.skill_name,
                                                  self._config.model,
                                                  params.output_baseline,
-                                                 verbose=self._config.verbose,
-                                                 console=console))
+                                                 console=console,
+                                                 verbose=self._config.verbose))
 
         # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
