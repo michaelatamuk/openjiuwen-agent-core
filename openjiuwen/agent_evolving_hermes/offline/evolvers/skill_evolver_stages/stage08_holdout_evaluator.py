@@ -6,10 +6,10 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config impo
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from ..adaptive_rubric_weights import AdaptiveRubricWeights
-from ..skill_evolver_stages.stage08_holdout_evaluator_judge import LLMJudge
-from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
-    MultiObjectiveFitnessScore,
-    MultiObjectiveLLMJudge,
+from ..skill_evolver_stages.stage08_holdout_evaluator_judge_holistic import HolisticLLMJudge
+from ..skill_evolver_stages.stage08_holdout_evaluator_judge_by_rubrics import (
+    MultiRubricFitnessScore,
+    MultiRubricsLLMJudge,
 )
 
 # ── Private helpers ────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
 def _score_module_single(
     module: SkillModule,
     holdout: list,
-    judge: LLMJudge,
+    judge: HolisticLLMJudge,
     n_holdout: int,
     console,
     label: str,
@@ -45,7 +45,7 @@ def _score_module_single(
 def _eval_multi_pass(
     module: SkillModule,
     holdout: list,
-    multi_judge: MultiObjectiveLLMJudge,
+    multi_judge: MultiRubricsLLMJudge,
     dim_names: List[str],
     label: str,
     console,
@@ -111,7 +111,7 @@ def evaluate_on_holdout(
 
     # ── SINGLE mode ───────────────────────────────────────────────────────────
     if scoring_mode != "multi":
-        judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+        judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
         if prior_baseline_score_single is not None:
             baseline_score = prior_baseline_score_single
@@ -147,8 +147,8 @@ def evaluate_on_holdout(
         return baseline_score, evolved_score, improvement, cross_run_delta, None
 
     # ── MULTI mode ────────────────────────────────────────────────────────────
-    multi_judge = MultiObjectiveLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
-    dim_names = MultiObjectiveFitnessScore.DIM_NAMES
+    multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    dim_names = MultiRubricFitnessScore.DIM_NAMES
 
     if prior_baseline_score_multi is not None:
         console.print(
@@ -203,7 +203,7 @@ def evaluate_baseline_on_holdout(
     """
     holdout = dataset.holdout or dataset.val
     n_holdout = len(holdout)
-    judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
     single_score = round(
         _score_module_single(baseline_module, holdout, judge, n_holdout, console, "pre-train (single)"), 4
@@ -213,16 +213,16 @@ def evaluate_baseline_on_holdout(
     if not needs_multi:
         return single_score, None, None
 
-    multi_judge = MultiObjectiveLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     console.print(
         f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
     )
     _, dims = _eval_multi_pass(
         baseline_module, holdout, multi_judge,
-        MultiObjectiveFitnessScore.DIM_NAMES, "pre-train skill", console,
+        MultiRubricFitnessScore.DIM_NAMES, "pre-train skill", console,
     )
-    b_list = [dims[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+    b_list = [dims[d] for d in MultiRubricFitnessScore.DIM_NAMES]
     multi_score = AdaptiveRubricWeights().aggregate(b_list)
     console.print(f"  Pre-train holdout score (multi): {multi_score:.4f}  ({n_holdout} examples)")
     return single_score, multi_score, dims

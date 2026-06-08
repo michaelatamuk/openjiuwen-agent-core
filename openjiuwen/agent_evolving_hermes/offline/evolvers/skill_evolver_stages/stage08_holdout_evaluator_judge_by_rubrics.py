@@ -20,7 +20,7 @@ import dspy
 
 
 @dataclass
-class MultiObjectiveFitnessScore:
+class MultiRubricFitnessScore:
     correctness: float = 0.0
     procedure_following: float = 0.0
     conciseness: float = 0.0
@@ -46,14 +46,14 @@ class MultiObjectiveFitnessScore:
         ]
 
 
-class MultiObjectiveLLMJudge:
+class MultiRubricsLLMJudge:
     """LLM-as-judge scorer with 5 independent quality dimensions.
 
     Used only when ``scoring_mode="multi"``.  The existing ``LLMJudge`` is
     untouched; this class is purely additive.
     """
 
-    class MultiObjectiveJudgeSignature(dspy.Signature):
+    class MultiRubricJudgeSignature(dspy.Signature):
         """Score an agent response across five independent quality dimensions.
 
         Return five independent float scores (0.0–1.0) and brief feedback.
@@ -88,7 +88,7 @@ class MultiObjectiveLLMJudge:
         )
 
     def __init__(self, model: str, max_skill_size: int = 15_000) -> None:
-        self.judge = dspy.ChainOfThought(self.MultiObjectiveJudgeSignature)
+        self.judge = dspy.ChainOfThought(self.MultiRubricJudgeSignature)
         self.model = model
         self.max_skill_size = max_skill_size
 
@@ -98,7 +98,7 @@ class MultiObjectiveLLMJudge:
         expected_behavior: str,
         agent_output: str,
         skill_text: str,
-    ) -> MultiObjectiveFitnessScore:
+    ) -> MultiRubricFitnessScore:
         lm = dspy.LM(self.model)
         with dspy.context(lm=lm):
             result = self.judge(
@@ -108,7 +108,7 @@ class MultiObjectiveLLMJudge:
                 skill_text=skill_text,
             )
 
-        return MultiObjectiveFitnessScore(
+        return MultiRubricFitnessScore(
             correctness=float(getattr(result, "correctness", 0.5)),
             procedure_following=float(getattr(result, "procedure_following", 0.5)),
             conciseness=float(getattr(result, "conciseness", 0.5)),

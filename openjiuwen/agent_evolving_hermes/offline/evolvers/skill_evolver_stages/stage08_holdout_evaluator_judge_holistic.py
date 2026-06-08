@@ -34,7 +34,7 @@ class FitnessScore:
         return max(0.0, raw - self.length_penalty)
 
 
-class LLMJudge:
+class HolisticLLMJudge:
     """Full LLM-as-judge scorer.
 
     Used for final holdout evaluation, not during GEPA search
