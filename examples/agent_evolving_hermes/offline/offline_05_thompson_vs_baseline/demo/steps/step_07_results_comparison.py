@@ -116,7 +116,7 @@ def run_step(baseline_score_holistic: float,
             if m2 and "baseline_score" in m2
             else (
                 (baseline_score_rubrics if baseline_score_rubrics is not None else baseline_score_holistic)
-                if mode_part == "gepa_plain_rubric"
+                if mode_part == "gepa_plain_rubrics"
                 else baseline_score_holistic
             )
         )

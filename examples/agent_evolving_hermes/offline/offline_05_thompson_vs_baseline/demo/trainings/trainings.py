@@ -173,12 +173,12 @@ class DemoTrainings:
                 scoring_mode="holistic",
             ) or {}
 
-        if mode == "gepa_plain_rubric":
+        if mode == "gepa_plain_rubrics":
             return step_03_run_gepa_plain(
                 **common,
                 iterations=self._config.iterations,
                 baseline_score_holistic=baseline_score_holistic,
-                scoring_mode="rubric",
+                scoring_mode="rubrics",
                 baseline_score_rubrics=baseline_score_rubrics,
                 baseline_dims_rubrics=baseline_dims_rubrics,
             ) or {}

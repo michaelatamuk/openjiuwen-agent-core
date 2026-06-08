@@ -40,7 +40,7 @@ _CYCLE_COLORS = ["\033[33m", "\033[35m", "\033[32m", "\033[34m", "\033[31m"]
 _color_cache: Dict[str, str] = {}
 
 BAR_CHARS = "▏▎▍▌▋▊▉█"   # eighth-block glyphs for smooth bars
-_BAR_W    = 36            # total horizontal bar width in characters
+_BAR_W    = 50            # total horizontal bar width in characters
 
 
 def _color(label: str, text: str) -> str:

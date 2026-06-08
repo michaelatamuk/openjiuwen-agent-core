@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 # Canonical display label for each mode identifier.
 _MODE_LABELS: Dict[str, str] = {
     "gepa_plain_holistic": "GEPA-Plain-Holistic",
-    "gepa_plain_rubric": "GEPA-Plain-Rubric",
+    "gepa_plain_rubrics": "GEPA-Plain-Rubrics",
     "gepa_focused_on_difficulty": "GEPA-Focused",
     "gepa_gated":                 "GEPA-Gated",
     "gepa_full":                  "GEPA-Full",

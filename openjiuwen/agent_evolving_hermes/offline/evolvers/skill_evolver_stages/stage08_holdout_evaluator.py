@@ -110,14 +110,14 @@ def evaluate_on_holdout(
     holdout = dataset.holdout or dataset.val
     n_holdout = len(holdout)
 
-    # ── SINGLE mode ───────────────────────────────────────────────────────────
+    # ── HOLISTIC mode ───────────────────────────────────────────────────────────
     if scoring_mode != "rubrics":
         judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
         if prior_baseline_score_holistic is not None:
             baseline_score = prior_baseline_score_holistic
             console.print(
-                f"[dim]  Pre-train score (pre-computed): {baseline_score:.4f}"
+                f"[dim]  Pre-train score (holistic, pre-computed): {baseline_score:.4f}"
                 f"  — skipping re-evaluation[/dim]"
             )
         else:
@@ -144,22 +144,22 @@ def evaluate_on_holdout(
         if prior_metrics and "evolved_score" in prior_metrics:
             cross_run_delta = round(evolved_score - prior_metrics["evolved_score"], 4)
 
-        console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Single) ~~~[/blue]")
+        console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Holistic) ~~~[/blue]")
         return baseline_score, evolved_score, improvement, cross_run_delta, None
 
-    # ── MULTI mode ────────────────────────────────────────────────────────────
+    # ── RUBRICS mode ────────────────────────────────────────────────────────────
     multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     dim_names = MultiRubricFitnessScore.DIM_NAMES
 
     if prior_baseline_score_rubrics is not None:
         console.print(
-            f"[dim]  Pre-train score (multi, pre-computed): {prior_baseline_score_rubrics:.4f}"
+            f"[dim]  Pre-train score (rubrics, pre-computed): {prior_baseline_score_rubrics:.4f}"
             f"  — skipping re-evaluation[/dim]"
         )
     else:
         console.print(
             f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
-            f"[dim]({n_holdout} examples, multi-objective)[/dim]"
+            f"[dim]({n_holdout} examples, multi-rubrics)[/dim]"
         )
         prior_baseline_score_rubrics, _ = _eval_rubrics_pass(
             baseline_module, holdout, multi_judge, dim_names, "pre-train skill", console
@@ -180,7 +180,7 @@ def evaluate_on_holdout(
     if prior_metrics and "evolved_score" in prior_metrics:
         cross_run_delta = round(evolved_composite - prior_metrics["evolved_score"], 4)
 
-    console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Multi) ~~~[/blue]")
+    console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Rubrics) ~~~[/blue]")
     return prior_baseline_score_rubrics, evolved_composite, improvement, cross_run_delta, evolved_dims
 
 
@@ -217,7 +217,7 @@ def evaluate_baseline_on_holdout(
     multi_rubric_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     console.print(
         f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples, multi-rubric, pre-GEPA)[/dim]"
+        f"[dim]({n_holdout} examples, rubrics)[/dim]"
     )
     _, rubrics_dims = _eval_rubrics_pass(
         baseline_module, holdout, multi_rubric_judge,
