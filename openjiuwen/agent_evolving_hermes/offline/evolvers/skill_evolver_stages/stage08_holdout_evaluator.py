@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
+from ..adaptive_rubric_weights import AdaptiveRubricWeights
 from ..skill_evolver_stages.stage08_holdout_evaluator_judge import LLMJudge
 from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
     MultiObjectiveFitnessScore,
@@ -121,7 +122,7 @@ def evaluate_on_holdout(baseline_module: SkillModule,
             )
         else:
             console.print(
-                f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+                f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
                 f"[dim]({n_holdout} examples, cached)[/dim]"
             )
             baseline_score = _score_single(baseline_module, "pre-train skill")
@@ -161,7 +162,7 @@ def evaluate_on_holdout(baseline_module: SkillModule,
         )
     else:
         console.print(
-            f"[bold]Evaluating pre-train skill on holdout…[/bold] "
+            f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
             f"[dim]({n_holdout} examples, multi-objective)[/dim]"
         )
         prior_baseline_score_multi, _ = _eval_multi_pass(
@@ -190,3 +191,74 @@ def evaluate_on_holdout(baseline_module: SkillModule,
 
     console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Multi) ~~~[/blue]")
     return prior_baseline_score_multi, evolved_composite, improvement, cross_run_delta, evolved_dims
+
+
+def evaluate_baseline_on_holdout(
+    baseline_module: SkillModule,
+    dataset: EvalDataset,
+    config: EvolverConfig,
+    console,
+    needs_multi: bool = False,
+) -> Tuple[float, Optional[float], Optional[Dict[str, float]]]:
+    """Score only the baseline (pre-GEPA) module on holdout.
+
+    Called before any GEPA pass to establish pre-training scores.  The
+    returned values are passed back into ``evaluate_on_holdout`` as
+    ``prior_baseline_score_single`` / ``prior_baseline_score_multi`` so
+    that the baseline is never re-evaluated during evolution.
+
+    Args:
+        baseline_module: The unmodified skill module.
+        dataset:         EvalDataset with holdout (or val) split.
+        config:          EvolverConfig — supplies eval_model and max_skill_size.
+        console:         Rich Console for progress output.
+        needs_multi:     When True, also run the multi-objective judge and
+                         return per-dimension scores.
+
+    Returns:
+        (single_score, multi_score, multi_dims).
+        multi_score and multi_dims are None when needs_multi is False.
+    """
+    holdout = dataset.holdout or dataset.val
+    n_holdout = len(holdout)
+
+    # ── Single scoring ────────────────────────────────────────────────────────
+    judge = LLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    scores: List[float] = []
+    for i, ex in enumerate(holdout, start=1):
+        sc = 0.0
+        try:
+            pred = baseline_module(task_input=ex.task_input)
+            s = judge.score(
+                task_input=ex.task_input,
+                expected_behavior=ex.expected_behavior,
+                agent_output=getattr(pred, "output", ""),
+                skill_text=baseline_module._skill_text_value,
+            )
+            sc = s.composite
+        except Exception:
+            pass
+        scores.append(sc)
+        console.print(f"  [{i}/{n_holdout}] pre-train (single) → {sc:.4f}")
+    single_score = round(sum(scores) / len(scores), 4) if scores else 0.0
+    console.print(f"  Pre-train holdout score (single): {single_score:.4f}  ({n_holdout} examples)")
+
+    if not needs_multi:
+        return single_score, None, None
+
+    # ── Multi-objective scoring ───────────────────────────────────────────────
+    multi_judge = MultiObjectiveLLMJudge(
+        model=config.eval_model, max_skill_size=config.max_skill_size
+    )
+    console.print(
+        f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
+        f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
+    )
+    _, dims = _eval_multi_pass(
+        baseline_module, holdout, multi_judge,
+        MultiObjectiveFitnessScore.DIM_NAMES, "pre-train skill", console,
+    )
+    b_list = [dims[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+    multi_score = AdaptiveRubricWeights().aggregate(b_list)
+    console.print(f"  Pre-train holdout score (multi): {multi_score:.4f}  ({n_holdout} examples)")
+    return single_score, multi_score, dims
