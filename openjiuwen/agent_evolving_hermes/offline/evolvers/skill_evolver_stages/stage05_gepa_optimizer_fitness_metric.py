@@ -41,7 +41,7 @@ def skill_fitness_metric(example: dspy.Example,
                          trace=None,
                          pred_name=None,
                          pred_trace=None) -> float:
-    """Fast technical-keyword metric for GEPA's inner optimisation loop.
+    """Fast technical-keyword metric for GEPA's inner optimization loop.
 
     Uses high-signal terms (backtick-wrapped tokens, ALL-CAPS acronyms,
     snake_case/dotted identifiers) extracted from expected_behavior rather
@@ -56,22 +56,19 @@ def skill_fitness_metric(example: dspy.Example,
       mentions → high variance → TS focuses budget here.
     This creates the discriminating signal TS needs to outperform plain GEPA.
     """
-    agent_output = getattr(prediction, "output", "") or ""
-    expected = getattr(example, "expected_behavior", "") or ""
-
-    if not agent_output.strip():
+    if not prediction.output.strip():
         return 0.0
 
-    output_lower = agent_output.lower()
+    expected_words = set(example.expected_behavior.lower().split())
+    output_words = set(prediction.output.lower().split())
 
-    tech_keywords = _extract_technical_keywords(expected)
+    tech_keywords = _extract_technical_keywords(example.expected_behavior)
     if tech_keywords:
         # Primary score: fraction of technical keywords present in output
-        hits = sum(1 for kw in tech_keywords if kw in output_lower)
+        hits = sum(1 for kw in tech_keywords if kw in prediction.output.lower())
         tech_score = hits / len(tech_keywords)
+
         # Blend: 80% technical keyword coverage + 20% general word presence
-        expected_words = set(expected.lower().split())
-        output_words = set(output_lower.split())
         general_score = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
         score = 0.8 * tech_score + 0.2 * general_score
     else:
@@ -81,8 +78,7 @@ def skill_fitness_metric(example: dspy.Example,
         # useful.  The old 0.3 floor caused every no-keyword example to score
         # ≥ 0.3 regardless of output quality, inflating α and making TS
         # effectively random for those examples.
-        expected_words = set(expected.lower().split())
-        output_words = set(output_lower.split())
+
         overlap = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
         score = overlap
 
