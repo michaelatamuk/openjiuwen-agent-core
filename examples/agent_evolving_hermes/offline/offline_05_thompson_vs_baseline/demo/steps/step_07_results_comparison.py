@@ -33,7 +33,7 @@ def run_step(baseline_score_single: float,
     detail table (learning-curve proxy), and bootstrap 95% CIs.
     """
 
-    console.print(f"\n*** Demo Step 07: Compare Results Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 07: Compare Results Started ***[/bold cyan]")
 
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
@@ -215,4 +215,4 @@ def run_step(baseline_score_single: float,
                 verdict = "~ inconclusive"
             console.print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
 
-    console.print(f"*** Demo Step 07: Compare Results Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 07: Compare Results Finished ***[/bold cyan]")

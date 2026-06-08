@@ -16,7 +16,7 @@ def run_step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path, 
     ts_state_dir:
         Directory holding the shared TS arm-state JSON files.
     """
-    console.print(f"\n*** Demo Step 09: Final Prints Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 09: Final Prints Started ***[/bold cyan]")
 
     label_w = max((max(len(l) for l, _ in runs) if runs else 0), 8) + 2
 
@@ -36,4 +36,4 @@ def run_step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path, 
     console.print("  To re-run with your own skill, edit SKILL_FRONTMATTER / SKILL_BODY")
     console.print("  and add your own entries to GOLDEN_EXAMPLES in the scenario file.")
 
-    console.print(f"*** Demo Step 09: Final Prints Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 09: Final Prints Finished ***[/bold cyan]")

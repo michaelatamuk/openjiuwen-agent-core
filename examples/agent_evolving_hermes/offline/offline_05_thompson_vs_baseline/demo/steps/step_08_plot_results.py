@@ -24,7 +24,7 @@ def run_step(baseline_score_single: float,
     The PNG is skipped silently if matplotlib is not installed.
     """
 
-    console.print(f"\n*** Demo Step 08: Plot Results Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 08: Plot Results Started ***[/bold cyan]")
 
     any_mode_ran = any(
         s for s in [scores_gepa_uniform, scores_gepa_rubric, scores_gepa_full, scores_gepa_focused, scores_gepa_gated] if s
@@ -72,4 +72,4 @@ def run_step(baseline_score_single: float,
     except Exception as exc:
         console.print(f"  [plots] PNG rendering failed: {exc}")
 
-    console.print(f"*** Demo Step 08: Plot Results Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 08: Plot Results Finished ***[/bold cyan]")

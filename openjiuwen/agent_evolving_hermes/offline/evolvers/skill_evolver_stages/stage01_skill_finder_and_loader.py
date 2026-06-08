@@ -27,7 +27,7 @@ def find_and_load_skill(
         )
     skill = load_skill(skill_path)
     console.print(
-        f"[bold]Loaded skill[/bold] '{skill['name']}' ({len(skill['raw'])} chars)"
+        f"[green]Loaded skill '{skill['name']}' ({len(skill['raw'])} chars[/green])"
     )
 
     prior_metrics = _load_prior_metrics(skill_name, config.output_dir)

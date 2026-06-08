@@ -17,7 +17,7 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_s
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    console.print(f"\n*** Demo Step 05: Run GEPA Gated Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 05: Run GEPA Gated Started ***[/bold cyan]")
 
     _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index,
             n_runs=n_runs, console=console)
@@ -65,5 +65,5 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_s
         evolved_l3 = _read_latest_evolved(output_gepa_gated, skill_name)
         _print_skill("  Evolved skill (TS-AcceptanceGate only)", evolved_l3 or "[not produced]", console)
 
-    console.print(f"*** Demo Step 05: Run GEPA Gated Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 05: Run GEPA Gated Finished ***[/bold cyan]")
     return metrics_gepa_gated

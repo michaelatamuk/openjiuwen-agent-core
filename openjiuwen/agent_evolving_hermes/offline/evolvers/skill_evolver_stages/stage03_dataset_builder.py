@@ -96,13 +96,13 @@ def build_or_load_dataset(
         raise ValueError(f"Unknown eval_source '{eval_source}'")
 
     console.print(
-        f"Dataset: [bold]train={len(dataset.train)}[/bold] "
-        f"val={len(dataset.val)} holdout={len(dataset.holdout)}"
+        f"[green]Dataset: [bold]train={len(dataset.train)} "
+        f"val={len(dataset.val)} holdout={len(dataset.holdout)}[/green]"
     )
     if not dataset.train:
         raise ValueError("Empty training set — cannot evolve.")
 
-    console.print("Stage 03 - Dataset Build/Load Finished")
+    console.print("[blue]~~~ Evolving Stage 03 - Dataset Build/Load Finished ~~~[/blue]")
     return dataset, cached_path
 
 

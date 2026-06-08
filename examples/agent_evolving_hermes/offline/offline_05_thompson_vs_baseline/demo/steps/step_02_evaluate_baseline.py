@@ -82,7 +82,7 @@ def run_step(skills_root: Path,
                             judge, or ``None`` when no multi mode was requested.
     """
 
-    console.print(f"\n*** Demo Step 02: Evaluate Baseline Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 02: Evaluate Baseline Started ***[/bold cyan]")
 
     needs_multi = bool(run_modes and _MULTI_MODES.intersection(run_modes))
     modes_label = "single + multi" if needs_multi else "single"
@@ -157,7 +157,7 @@ def run_step(skills_root: Path,
         console.print()
         multi_score, multi_dims = _score_multi_baseline(baseline_module, dataset, evolver_config, console)
 
-    console.print(f"*** Demo Step 02: Evaluate Baseline Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 02: Evaluate Baseline Finished ***[/bold cyan]")
     return single_score, multi_score, multi_dims
 
 

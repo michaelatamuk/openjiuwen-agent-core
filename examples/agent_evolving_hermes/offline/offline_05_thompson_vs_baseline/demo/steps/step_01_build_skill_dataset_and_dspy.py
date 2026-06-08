@@ -105,7 +105,7 @@ def run_step(skills_root: Path,
         Populated with ``skill``, ``dataset``, ``baseline_module``,
         ``trainset``, ``valset``.
     """
-    console.print(f"\n*** Demo Step 01: Build Skill Dataset and DSPY Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 01: Build Skill Dataset and DSPY Started ***[/bold cyan]")
 
     _banner("① SHARED PREP — stages 1–4 (built once for all GEPA passes)", console=console)
     output_dir = Path(output_dir)
@@ -143,7 +143,7 @@ def run_step(skills_root: Path,
     )
 
     console.print(
-        f"  Shared objects ready — skill: {len(skill['raw'])} chars | "
+        f"Shared objects ready — skill: {len(skill['raw'])} chars | "
         f"dataset: {len(dataset.train or []) + len(dataset.val or []) + len(dataset.holdout or [])} examples | "
         f"train: {len(trainset)} / val: {len(valset)}"
     )
@@ -154,6 +154,6 @@ def run_step(skills_root: Path,
                                            trainset=trainset,
                                            valset=valset)
 
-    console.print(f"*** Demo Step 01: Build Skill Dataset and DSPY Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 01: Build Skill Dataset and DSPY Finished ***[/bold cyan]")
 
     return shared_object

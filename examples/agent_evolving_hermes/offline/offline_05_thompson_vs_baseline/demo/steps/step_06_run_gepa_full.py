@@ -16,7 +16,7 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    console.print(f"\n*** Demo Step 06: Run GEPA Full Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 06: Run GEPA Full Started ***[/bold cyan]")
 
     _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index,
             n_runs=n_runs, console=console)
@@ -67,5 +67,5 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
         evolved_ts = _read_latest_evolved(output_ts, skill_name)
         _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]", console)
 
-    console.print(f"*** Demo Step 06: Run GEPA Full Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 06: Run GEPA Full Finished ***[/bold cyan]")
     return metrics_ts

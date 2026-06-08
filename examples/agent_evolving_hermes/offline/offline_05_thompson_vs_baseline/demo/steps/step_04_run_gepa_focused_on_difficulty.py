@@ -15,7 +15,7 @@ def run_step(skills_root, skill_name, model, iterations, ts_batch_size, output_g
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    console.print(f"\n*** Demo Step 04: Run GEPA Focused On Difficulty Started ***")
+    console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,
             n_runs=n_runs, console=console)
@@ -62,5 +62,5 @@ def run_step(skills_root, skill_name, model, iterations, ts_batch_size, output_g
         evolved_l2 = _read_latest_evolved(output_gepa_focused_on_difficulty, skill_name)
         _print_skill("  Evolved skill (TS-TrainingSelector only)", evolved_l2 or "[not produced]", console)
 
-    console.print(f"*** Demo Step 04: Run GEPA Focused On Difficulty Finished ***")
+    console.print(f"[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Finished ***[/bold cyan]")
     return metrics_gepa_focused
