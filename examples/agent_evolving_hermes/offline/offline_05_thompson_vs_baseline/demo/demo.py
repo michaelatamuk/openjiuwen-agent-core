@@ -6,17 +6,17 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import \
     DemoTrainingsResults
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_save_skill_and_dataset import \
-    step as step_00_save_skill_and_dataset
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_evaluate_baseline import \
-    step as step_01_evaluate_baseline
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01b_prepare_shared_objects import \
-    step as step_01b_prepare_shared_objects
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_06_results_comparison import \
-    step as step_06_results_comparison
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_07_plot_results import \
-    step as step_07_plot_results
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_08_final_prints import \
-    step as step_08_final_prints
+    run_step as step_00_save_skill_and_dataset
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_prepare_shared_objects import \
+    run_step as step_01_prepare_shared_objects
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_evaluate_baseline import \
+    run_step as step_02_evaluate_baseline
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_07_results_comparison import \
+    run_step as step_07_results_comparison
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_08_plot_results import \
+    run_step as step_08_plot_results
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_09_final_prints import \
+    run_step as step_09_final_prints
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill_diff import \
     print_skill_diff
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
@@ -63,7 +63,7 @@ class Demo:
         # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
         # The resulting objects are passed to both step_01 and all GEPA
         # training passes so these stages never execute more than once per run.
-        shared = step_01b_prepare_shared_objects(
+        shared = step_01_prepare_shared_objects(
             params.skills_root, params.skill_name, self._config.model,
             params.output_baseline, verbose=self._config.verbose,
         )
@@ -73,7 +73,7 @@ class Demo:
         # multi-objective baseline when "gepa_rubric" is in run_modes so that
         # GEPA runs never need to re-evaluate the baseline themselves.
         # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
-        baseline_score_single, baseline_score_multi, multi_baseline_dims = step_01_evaluate_baseline(
+        baseline_score_single, baseline_score_multi, multi_baseline_dims = step_02_evaluate_baseline(
             params.skills_root, params.skill_name, self._config.model,
             params.output_baseline, self._config.verbose,
             run_modes=self._config.run_modes,
@@ -90,7 +90,7 @@ class Demo:
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:
-            step_06_results_comparison(baseline_score_single,
+            step_07_results_comparison(baseline_score_single,
                                        baseline_score_multi,
                                        scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
                                        scores_gepa_full=trainings_results.scores_gepa_full or None,
@@ -109,7 +109,7 @@ class Demo:
             self._print_skill_diff(params, trainings_results)
 
         # ── Step 8: Plots ─────────────────────────────────────────────────────
-        step_07_plot_results(baseline_score_single,
+        step_08_plot_results(baseline_score_single,
                              baseline_score_multi,
                              scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
                              scores_gepa_rubric=trainings_results.scores_gepa_rubric or None,
@@ -121,7 +121,7 @@ class Demo:
                              n_runs=self._config.n_runs)
 
         # ── Step 7: Where to look ─────────────────────────────────────────────
-        step_08_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir)
+        step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir)
 
     def _print_skill_diff(self, params: DemoParams, results: DemoTrainingsResults) -> None:
         """Determine winner and print baseline vs winner skill side by side."""

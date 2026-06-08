@@ -7,7 +7,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import _write_skill
 
 
-def step(skills_root, skill_name, skill_body, skill_frontmatter, examples, verbose: bool = False) -> None:
+def run_step(skills_root, skill_name, skill_body, skill_frontmatter, examples, verbose: bool = False) -> None:
 
     # ── Step 1: Write baseline skill + golden dataset ─────────────────────────
     skill_path = _write_skill(skills_root, skill_name, skill_frontmatter, skill_body)

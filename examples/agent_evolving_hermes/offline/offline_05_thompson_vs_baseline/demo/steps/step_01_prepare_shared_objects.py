@@ -76,7 +76,7 @@ class SharedEvolutionObjects:
     valset: List[Any]
 
 
-def step(
+def run_step(
     skills_root: Path,
     skill_name: str,
     model: str,

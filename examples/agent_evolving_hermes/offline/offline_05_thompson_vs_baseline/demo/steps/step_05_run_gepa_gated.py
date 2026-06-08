@@ -10,7 +10,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
-def step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state_dir,
+def run_step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,

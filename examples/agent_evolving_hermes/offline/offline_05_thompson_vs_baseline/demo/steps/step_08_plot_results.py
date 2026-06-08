@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 
-def step(
+def run_step(
     baseline_score_single: float,
     baseline_score_multi: float,
     *,

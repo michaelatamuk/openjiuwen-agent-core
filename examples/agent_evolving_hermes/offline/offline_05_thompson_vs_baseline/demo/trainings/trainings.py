@@ -12,16 +12,16 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     print_mode_summary, print_mode_timing
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import \
     _write_skill
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01b_prepare_shared_objects import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_prepare_shared_objects import \
     SharedEvolutionObjects
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_run_gepa_uniform import \
-    step as step_02_run_gepa_uniform
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_focused_on_difficulty import \
-    step as step_03_run_gepa_focused_on_difficulty
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_gated import \
-    step as step_04_run_gepa_gated
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_full import \
-    step as step_05_run_gepa_full
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_uniform import \
+    run_step as step_02_run_gepa_uniform
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_focused_on_difficulty import \
+    run_step as step_03_run_gepa_focused_on_difficulty
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_gated import \
+    run_step as step_04_run_gepa_gated
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_06_run_gepa_full import \
+    run_step as step_05_run_gepa_full
 
 
 class DemoTrainings:

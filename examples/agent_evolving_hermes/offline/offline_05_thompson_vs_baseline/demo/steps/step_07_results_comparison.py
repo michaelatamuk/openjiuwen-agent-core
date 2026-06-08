@@ -11,7 +11,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 )
 
 
-def step(
+def run_step(
     baseline_score_single: float,
     baseline_score_multi: Optional[float],
     *,

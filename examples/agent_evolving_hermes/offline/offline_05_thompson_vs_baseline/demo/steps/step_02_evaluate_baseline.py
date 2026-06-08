@@ -30,7 +30,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.multi_objective_state imp
 _MULTI_MODES = {"gepa_rubric"}
 
 
-def step(
+def run_step(
     skills_root: Path,
     skill_name: str,
     model: str,
