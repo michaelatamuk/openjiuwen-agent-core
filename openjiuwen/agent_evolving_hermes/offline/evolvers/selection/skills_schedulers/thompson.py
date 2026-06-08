@@ -1,38 +1,10 @@
-# coding: utf-8
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Level 1 Thompson Sampling — Skill Scheduler.
-
-Decides the priority order in which skills are evolved during a batch run.
-
-┌─────────────────────────┬──────────────────────────────────────────────┐
-│ RoundRobinSkillScheduler│ Preserves the existing behaviour: skills     │
-│  (legacy)               │ are returned in registration order.          │
-├─────────────────────────┼──────────────────────────────────────────────┤
-│ ThompsonSkillScheduler  │ Ranks skills by a single Beta(α, β) sample   │
-│  (TS)                   │ drawn at schedule time.  Skills with more    │
-│                         │ improvement history are preferred while      │
-│                         │ unexplored skills still get a chance.        │
-└─────────────────────────┴──────────────────────────────────────────────┘
-
-Factory
--------
-    make_skill_scheduler(config, skill_names) → SkillSchedulerProtocol
-
-The factory reads ``config.ts_skill_scheduler`` to pick the implementation.
-
-Arm state persists to ``<ts_state_dir>/ts_skill_scheduler.json`` (default
-location: ``config.skills_root``).  On first use the state is bootstrapped
-from existing ``metrics.json`` files found anywhere under ``skills_root``.
-"""
 from __future__ import annotations
 
 import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
-
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from typing import Dict, List, Optional, Tuple
 
 
 # ── Shared Beta arm ───────────────────────────────────────────────────────────
@@ -59,38 +31,6 @@ class _BetaArm:
     def mean(self) -> float:
         """Posterior mean E[θ] = α / (α + β)."""
         return self.alpha / (self.alpha + self.beta)
-
-
-# ── Round-robin (legacy) ──────────────────────────────────────────────────────
-
-class RoundRobinSkillScheduler:
-    """Return skills in registration order — preserves current behaviour.
-
-    ``schedule()`` returns the skill list unchanged.
-    ``record()`` is a no-op (outcomes are not used).
-    """
-
-    def __init__(self) -> None:
-        self._names: List[str] = []
-
-    def register(self, skill_names: List[str]) -> None:
-        for name in skill_names:
-            if name not in self._names:
-                self._names.append(name)
-
-    def schedule(self, skill_names: List[str]) -> List[str]:
-        """Return *skill_names* in the order they were registered."""
-        # Preserve registration order; honour any subset passed in
-        registered_set = set(self._names)
-        ordered = [n for n in self._names if n in set(skill_names)]
-        extras = [n for n in skill_names if n not in registered_set]
-        return ordered + extras
-
-    def record(self, skill_name: str, improvement: float) -> None:
-        pass  # round-robin ignores outcomes
-
-    def rankings(self) -> List[Tuple[str, float]]:
-        return [(name, 0.5) for name in self._names]
 
 
 # ── Thompson Sampling scheduler ───────────────────────────────────────────────
@@ -218,43 +158,3 @@ class ThompsonSkillScheduler:
             key=lambda x: x[1],
             reverse=True,
         )
-
-
-# ── Factory ───────────────────────────────────────────────────────────────────
-
-def make_skill_scheduler(
-    config: "EvolverConfig",
-    skill_names: List[str],
-) -> "RoundRobinSkillScheduler | ThompsonSkillScheduler":
-    """Return the correct scheduler based on ``config.ts_skill_scheduler``.
-
-    Also calls ``register(skill_names)`` so the returned scheduler is ready
-    to use immediately.
-
-    Parameters
-    ----------
-    config:
-        EvolverConfig instance.  Read fields: ``ts_skill_scheduler``,
-        ``skills_root``, ``ts_state_dir``.
-    skill_names:
-        The complete list of skills that will be evolved in this batch.
-
-    Usage::
-
-        scheduler = make_skill_scheduler(config, all_skill_names)
-        ordered   = scheduler.schedule(all_skill_names)
-        for name in ordered:
-            result = evolve_single_skill(name, config=config)
-            scheduler.record(name, result["improvement"])
-    """
-    if getattr(config, "ts_skill_scheduler", False):
-        state_dir: Optional[Path] = getattr(config, "ts_state_dir", None)
-        scheduler: RoundRobinSkillScheduler | ThompsonSkillScheduler = ThompsonSkillScheduler(
-            skills_root=config.skills_root,
-            state_dir=state_dir,
-        )
-    else:
-        scheduler = RoundRobinSkillScheduler()
-
-    scheduler.register(skill_names)
-    return scheduler

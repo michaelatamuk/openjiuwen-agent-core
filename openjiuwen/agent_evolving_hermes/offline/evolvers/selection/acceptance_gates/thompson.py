@@ -1,35 +1,3 @@
-# coding: utf-8
-# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Level 3 Thompson Sampling — Acceptance Gate.
-
-Decides whether to deploy an evolved skill candidate.
-
-┌────────────────────────┬───────────────────────────────────────────────┐
-│ ThresholdAcceptanceGate│ Accept if improvement >= min_improvement.     │
-│  (legacy)              │ Identical to the original apply_acceptance_   │
-│                        │ gate() function.  ts_confidence is None.      │
-├────────────────────────┼───────────────────────────────────────────────┤
-│ ThompsonAcceptanceGate │ Adds a second gate on top of the hard        │
-│  (TS)                  │ threshold: P(θ_candidate > θ_deployed) must  │
-│                        │ reach ts_acceptance_confidence.  This        │
-│                        │ prevents deploying one-off lucky runs and    │
-│                        │ requires sustained evidence of improvement.  │
-└────────────────────────┴───────────────────────────────────────────────┘
-
-Both classes implement AcceptanceGateProtocol (from protocols.py).
-
-Factory
--------
-    make_acceptance_gate(config, min_improvement) → AcceptanceGateProtocol
-
-The factory reads ``config.ts_acceptance_gate`` to pick the implementation.
-
-Thompson arm state persists per-skill to
-``<ts_state_dir>/ts_gate_<skill_name>.json``.
-Two arms are maintained per skill:
-  ``<skill>__candidate`` — updated every time a candidate is evaluated
-  ``<skill>__deployed``  — updated only when a candidate is accepted
-"""
 from __future__ import annotations
 
 import json
@@ -38,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.acceptance_gates.base import BaseAcceptanceGate
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
 
@@ -61,82 +30,9 @@ class _BetaArm:
         return random.betavariate(self.alpha, self.beta)
 
 
-# ── Shared helper ─────────────────────────────────────────────────────────────
-
-def _trend_line(cross_run_delta: Optional[float]) -> Optional[str]:
-    """Return a one-line trend note, or None if no prior run exists."""
-    if cross_run_delta is None:
-        return None
-    if cross_run_delta >= 0:
-        return (f"  Trend vs last run: {cross_run_delta:+.4f}"
-                f"  (candidate improving across runs)")
-    return (f"  Trend vs last run: {cross_run_delta:+.4f}"
-            f"  (candidate getting worse across runs)")
-
-
-# ── Threshold gate (no TS) ────────────────────────────────────────────────────
-
-class ThresholdAcceptanceGate:
-    """Accept if improvement >= min_improvement — identical to the original.
-
-    ``decide()`` always returns ``(accepted, None)``; the second element is
-    always None because there is no TS confidence to report.
-    """
-
-    def __init__(self, min_improvement: float = 0.0) -> None:
-        self._min = min_improvement
-
-    def decide(
-        self,
-        improvement: float,
-        evolved_score: float,
-        skill_name: str,
-        evolved_text: str,
-        cross_run_delta: Optional[float],
-        output_dir: Path,
-        console,
-    ) -> Tuple[bool, Optional[float]]:
-        accepted = improvement >= self._min
-
-        sign = "+" if improvement >= 0 else ""
-        score_line = f"  Score change: {sign}{improvement:.4f}"
-
-        console.print("\nAcceptance gate  (threshold only):")
-
-        if accepted:
-            if improvement < 0:
-                console.print(
-                    f"{score_line}  "
-                    f"[yellow]below zero but threshold allows ≥ {self._min:+.4f}[/yellow]"
-                )
-            else:
-                console.print(
-                    f"{score_line}  [green]✓ above minimum {self._min:.4f}[/green]"
-                )
-            console.print(
-                "  Decision: [green]ACCEPTED — evolved skill will be deployed[/green]"
-            )
-        else:
-            console.print(
-                f"{score_line}  [red]✗ below minimum {self._min:.4f}[/red]"
-            )
-            console.print(
-                "  Decision: [red]REJECTED — saved to evolved_REGRESSION.md[/red]"
-            )
-            (output_dir / "evolved_REGRESSION.md").write_text(
-                evolved_text, encoding="utf-8"
-            )
-            trend = _trend_line(cross_run_delta)
-            if trend:
-                color = "green" if cross_run_delta >= 0 else "red"
-                console.print(f"  [{color}]{trend.strip()}[/{color}]")
-
-        return accepted, None
-
-
 # ── Thompson Sampling gate ────────────────────────────────────────────────────
 
-class ThompsonAcceptanceGate:
+class ThompsonAcceptanceGate(BaseAcceptanceGate):
     """Accept only when both the hard threshold AND a TS confidence test pass.
 
     Two Beta(α, β) arms are maintained per skill:
@@ -326,41 +222,9 @@ class ThompsonAcceptanceGate:
             console.print(
                 "  [dim](saved to evolved_REGRESSION.md)[/dim]"
             )
-            trend = _trend_line(cross_run_delta)
+            trend = self._trend_line(cross_run_delta)
             if trend:
                 color = "green" if cross_run_delta >= 0 else "red"
                 console.print(f"  [{color}]{trend.strip()}[/{color}]")
 
         return accepted, ts_conf
-
-
-# ── Factory ───────────────────────────────────────────────────────────────────
-
-def make_acceptance_gate(
-    config: "EvolverConfig",
-    min_improvement: float = 0.0,
-) -> "ThresholdAcceptanceGate | ThompsonAcceptanceGate":
-    """Return the correct acceptance gate based on ``config.ts_acceptance_gate``.
-
-    Parameters
-    ----------
-    config:
-        EvolverConfig instance.  Read fields: ``ts_acceptance_gate``,
-        ``ts_acceptance_confidence``, ``ts_acceptance_n_samples``,
-        ``ts_state_dir``, ``output_dir``.
-    min_improvement:
-        The hard minimum improvement threshold.  Applied by both gate types.
-        Passed in separately (rather than read from config) to keep the
-        existing call-site signature.
-
-    Usage (inside skill_evolver_single)::
-
-        gate = make_acceptance_gate(config, min_improvement)
-        accepted, ts_conf = gate.decide(
-            improvement, evolved_score, skill_name,
-            evolved_text, cross_run_delta, output_dir, console,
-        )
-    """
-    if getattr(config, "ts_acceptance_gate", False):
-        return ThompsonAcceptanceGate(config, min_improvement=min_improvement)
-    return ThresholdAcceptanceGate(min_improvement=min_improvement)
