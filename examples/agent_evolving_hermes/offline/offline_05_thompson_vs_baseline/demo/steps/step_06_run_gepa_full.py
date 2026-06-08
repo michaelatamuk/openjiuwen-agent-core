@@ -33,7 +33,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 06: Run GEPA Full Started ***[/bold cyan]")
 
-    _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index,
+    _banner("⑤ GEPA — Full (Focused + Gated)", run_index=run_index,
             n_runs=n_runs, console=console)
     console.print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
                   f"{int(len(examples)*0.5)} train examples per iteration")
@@ -42,6 +42,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     console.print()
     console.print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
     console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
+    console.print(f"  Fitness metric      : {fitness_metric}")
+    console.print(f"  Holdout scoring   : {scoring_mode}")
     console.print()
 
     evolver_config = EvolverConfig(skills_root = skills_root,

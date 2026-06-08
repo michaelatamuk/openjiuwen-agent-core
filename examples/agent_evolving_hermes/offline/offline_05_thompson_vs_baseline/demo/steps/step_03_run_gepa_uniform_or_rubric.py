@@ -28,10 +28,12 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Uniform Started ***[/bold cyan]")
 
-    _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index,
+    _banner(f"② GEPA - Classic", run_index=run_index,
             n_runs=n_runs, console=console)
     console.print("  Example selector : all training examples, equal weight")
     console.print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
+    console.print(f"  Fitness metric   : {fitness_metric}")
+    console.print(f"  Holdout scoring  : {scoring_mode}")
     console.print()
 
     evolver_config = EvolverConfig(skills_root=skills_root,

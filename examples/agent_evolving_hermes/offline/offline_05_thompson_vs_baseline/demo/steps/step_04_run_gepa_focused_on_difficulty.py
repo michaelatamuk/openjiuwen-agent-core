@@ -30,14 +30,16 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
-    _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,
+    _banner("③ GEPA — Focused On Difficulty", run_index=run_index,
             n_runs=n_runs, console=console)
-    console.print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
+    console.print(f"  Thompson Sampling - Examples Selector : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
     console.print("    TS learns which examples best distinguish good vs bad evolved skills")
     console.print("    → discriminating examples (medium difficulty) accumulate higher α")
     console.print()
     console.print("  TS-AcceptanceGate   : OFF (threshold only, improvement ≥ 0.0)")
+    console.print(f"  Fitness metric      : {fitness_metric}")
+    console.print(f"  Holdout scoring   : {scoring_mode}")
     console.print()
 
     evolver_config = EvolverConfig(skills_root = skills_root,

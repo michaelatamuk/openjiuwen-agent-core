@@ -31,12 +31,14 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 05: Run GEPA Gated Started ***[/bold cyan]")
 
-    _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index,
+    _banner("④ GEPA — Gated (all examples equal weight)", run_index=run_index,
             n_runs=n_runs, console=console)
     console.print("  TS-TrainingSelector : OFF (all training examples, equal weight)")
     console.print()
     console.print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
     console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
+    console.print(f"  Fitness metric      : {fitness_metric}")
+    console.print(f"  Holdout scoring   : {scoring_mode}")
     console.print()
 
     evolver_config = EvolverConfig(skills_root = skills_root,

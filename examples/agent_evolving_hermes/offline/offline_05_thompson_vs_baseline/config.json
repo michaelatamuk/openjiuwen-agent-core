@@ -13,7 +13,7 @@
         "blades-in-the-dark",
         "smarthub-support"
     ],
-    "run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated"],
+    "run_modes": ["gepa_uniform", "gepa_rubric"],
     "_run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
     "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
     "model": "deepseek/deepseek-chat",
@@ -23,7 +23,7 @@
     "n_runs": 1,
     "verbose": false,
     "print_skill_diff": true,
-    "fitness_metrics": ["hermes"],
+    "fitness_metrics": ["hermes", "jiuwen"],
     "_fitness_metrics": ["hermes", "jiuwen", "examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"]
 
 }
