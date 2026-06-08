@@ -85,12 +85,12 @@ class Demo:
         # GEPA runs never need to re-evaluate the baseline themselves.
         # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
         baseline_score_single, baseline_score_multi, multi_baseline_dims = (
-            step_02_evaluate_baseline(params.skills_root,
-                                      self._config.model,
-                                      params.output_baseline,
-                                      self._config.verbose,
+            step_02_evaluate_baseline(shared_evolution_object=shared_evolution_object,
+                                      skills_root=params.skills_root,
+                                      model=self._config.model,
+                                      output_dir=params.output_baseline,
+                                      verbose=self._config.verbose,
                                       run_modes=self._config.run_modes,
-                                      shared_evolution_object=shared_evolution_object,
                                       console=console))
 
         # ── Training passes (Steps 03, 04, 05, 06) ───────────────────────────────────────────────────

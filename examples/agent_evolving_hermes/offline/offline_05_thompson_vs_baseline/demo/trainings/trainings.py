@@ -120,18 +120,17 @@ class DemoTrainings:
             for i in range(1, self._config.n_runs + 1):
                 out = self._out(params, "output_gepa_uniform", i)
                 self._step_restore_baseline_skill(params)
-                m = step_02_run_gepa_uniform(
-                    params.skills_root, params.skill_name, self._config.model,
-                    self._config.iterations, out, verbose=self._config.verbose,
-                    baseline_score_single=baseline_score,
-                    run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared_evolution_object.skill,
-                    prebuilt_dataset=shared_evolution_object.dataset,
-                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
-                    prebuilt_trainset=shared_evolution_object.trainset,
-                    prebuilt_valset=shared_evolution_object.valset,
-                    console=console
-                )
+                m = step_02_run_gepa_uniform(shared_evolution_object=shared_evolution_object,
+                                             skills_root=params.skills_root,
+                                             skill_name=params.skill_name,
+                                             model=self._config.model,
+                                             iterations=self._config.iterations,
+                                             output_gepa_uniform=out,
+                                             verbose=self._config.verbose,
+                                             baseline_score_single=baseline_score,
+                                             run_index=i,
+                                             n_runs=self._config.n_runs,
+                                             console=console)
                 scores_gepa_uniform.append(m.get("evolved_score", 0.0))
                 metrics_gepa_uniform = m
                 last_out_gepa_uniform = out
@@ -158,21 +157,20 @@ class DemoTrainings:
             for i in range(1, self._config.n_runs + 1):
                 out = self._out(params, "output_gepa_rubric", i)
                 self._step_restore_baseline_skill(params)
-                m = step_02_run_gepa_uniform(
-                    params.skills_root, params.skill_name, self._config.model,
-                    self._config.iterations, out, verbose=self._config.verbose,
-                    baseline_score_single=baseline_score_single,
-                    run_index=i, n_runs=self._config.n_runs,
-                    scoring_mode="multi",
-                    baseline_score_multi=baseline_score_multi,
-                    baseline_dims_multi=baseline_dims_multi,
-                    prebuilt_skill=shared_evolution_object.skill,
-                    prebuilt_dataset=shared_evolution_object.dataset,
-                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
-                    prebuilt_trainset=shared_evolution_object.trainset,
-                    prebuilt_valset=shared_evolution_object.valset,
-                    console=console
-                )
+                m = step_02_run_gepa_uniform(shared_evolution_object=shared_evolution_object,
+                                             skills_root=params.skills_root,
+                                             skill_name=params.skill_name,
+                                             model=self._config.model,
+                                             iterations=self._config.iterations,
+                                             output_gepa_uniform=out,
+                                             verbose=self._config.verbose,
+                                             baseline_score_single=baseline_score_single,
+                                             run_index=i,
+                                             n_runs=self._config.n_runs,
+                                             scoring_mode="multi",
+                                             baseline_score_multi=baseline_score_multi,
+                                             baseline_dims_multi=baseline_dims_multi,
+                                             console=console)
                 scores.append(m.get("evolved_score", 0.0))
                 metrics = m
                 last_out = out
@@ -198,21 +196,22 @@ class DemoTrainings:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
                 out = self._out(params, "output_gepa_full", i)
-                ts  = self._ts(params, i)
+                ts_state_dir  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_05_run_gepa_full(
-                    params.skills_root, params.skill_name, self._config.model,
-                    self._config.iterations, self._config.ts_batch_size, params.golden_examples,
-                    out, ts, verbose=self._config.verbose,
-                    baseline_score=baseline_score,
-                    run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared_evolution_object.skill,
-                    prebuilt_dataset=shared_evolution_object.dataset,
-                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
-                    prebuilt_trainset=shared_evolution_object.trainset,
-                    prebuilt_valset=shared_evolution_object.valset,
-                    console=console
-                )
+                m = step_05_run_gepa_full(shared_evolution_object=shared_evolution_object,
+                                          skills_root=params.skills_root,
+                                          skill_name=params.skill_name,
+                                          model=self._config.model,
+                                          itrations=self._config.iterations,
+                                          ts_batch_size=self._config.ts_batch_size,
+                                          examples=params.golden_examples,
+                                          output_ts=out,
+                                          ts_state_dir=ts_state_dir,
+                                          verbose=self._config.verbose,
+                                          baseline_score=baseline_score,
+                                          run_index=i,
+                                          n_runs=self._config.n_runs,
+                                          console=console)
                 scores_gepa_full.append(m.get("evolved_score", 0.0))
                 metrics_gepa_full = m
                 last_out_gepa_full = out
@@ -238,21 +237,21 @@ class DemoTrainings:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
                 out = self._out(params, "output_gepa_focused_on_difficulty", i)
-                ts  = self._ts(params, i)
+                ts_state_dir  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_03_run_gepa_focused_on_difficulty(
-                    params.skills_root, params.skill_name, self._config.model,
-                    self._config.iterations, self._config.ts_batch_size,
-                    out, ts, verbose=self._config.verbose,
-                    baseline_score=baseline_score,
-                    run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared_evolution_object.skill,
-                    prebuilt_dataset=shared_evolution_object.dataset,
-                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
-                    prebuilt_trainset=shared_evolution_object.trainset,
-                    prebuilt_valset=shared_evolution_object.valset,
-                    console=console
-                )
+                m = step_03_run_gepa_focused_on_difficulty(shared_evolution_object=shared_evolution_object,
+                                                           skills_root=params.skills_root,
+                                                           skill_name=params.skill_name,
+                                                           model=self._config.model,
+                                                           iterations=self._config.iterations,
+                                                           ts_batch_size=self._config.ts_batch_size,
+                                                           output_gepa_focused_on_difficulty=out,
+                                                           ts_state_dir=ts_state_dir,
+                                                           verbose=self._config.verbose,
+                                                           baseline_score=baseline_score,
+                                                           run_index=i,
+                                                           n_runs=self._config.n_runs,
+                                                           console=console)
                 scores_gepa_focused.append(m.get("evolved_score", 0.0))
                 metrics_gepa_focused = m
                 last_out_gepa_focused = out
@@ -278,20 +277,20 @@ class DemoTrainings:
             t_start = time.monotonic()
             for i in range(1, self._config.n_runs + 1):
                 out = self._out(params, "output_gepa_gated", i)
-                ts  = self._ts(params, i)
+                ts_state_dir  = self._ts(params, i)
                 self._step_restore_baseline_skill(params)
-                m = step_04_run_gepa_gated(
-                    params.skills_root, params.skill_name, self._config.model,
-                    self._config.iterations, out, ts, verbose=self._config.verbose,
-                    baseline_score=baseline_score,
-                    run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared_evolution_object.skill,
-                    prebuilt_dataset=shared_evolution_object.dataset,
-                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
-                    prebuilt_trainset=shared_evolution_object.trainset,
-                    prebuilt_valset=shared_evolution_object.valset,
-                    console=console
-                )
+                m = step_04_run_gepa_gated(shared_evolution_object=shared_evolution_object,
+                                           skills_root=params.skills_root,
+                                           skill_name=params.skill_name,
+                                           model=self._config.model,
+                                           iterations=self._config.iterations,
+                                           output_gepa_gated=out,
+                                           ts_state_dir=ts_state_dir,
+                                           verbose=self._config.verbose,
+                                           baseline_score=baseline_score,
+                                           run_index=i,
+                                           n_runs=self._config.n_runs,
+                                           console=console)
                 scores_gepa_gated.append(m.get("evolved_score", 0.0))
                 metrics_gepa_gated = m
                 last_out_gepa_gated = out

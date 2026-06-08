@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
+    SharedEvolutionObjects
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
@@ -9,11 +11,20 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _read_latest_evolved
 
 
-def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbose: bool = False,
-         baseline_score_single=None, run_index: int = 1, n_runs: int = 1,
-         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
-         *, prebuilt_skill, prebuilt_dataset, prebuilt_baseline_module,
-         prebuilt_trainset, prebuilt_valset, console=None):
+def run_step(shared_evolution_object: SharedEvolutionObjects,
+             skills_root,
+             skill_name,
+             model,
+             iterations,
+             output_gepa_uniform,
+             verbose: bool = False,
+             baseline_score_single=None,
+             run_index: int = 1,
+             n_runs: int = 1,
+             scoring_mode: str = "single",
+             baseline_score_multi=None,
+             baseline_dims_multi=None,
+             console=None):
     console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Uniform Started ***[/bold cyan]")
 
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index,
@@ -44,11 +55,11 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
                                                     prior_baseline_score_single=baseline_score_single,
                                                     prior_baseline_score_multi=baseline_score_multi,
                                                     prior_baseline_dims_multi=baseline_dims_multi,
-                                                    prebuilt_skill=prebuilt_skill,
-                                                    prebuilt_dataset=prebuilt_dataset,
-                                                    prebuilt_baseline_module=prebuilt_baseline_module,
-                                                    prebuilt_trainset=prebuilt_trainset,
-                                                    prebuilt_valset=prebuilt_valset,
+                                                    prebuilt_skill=shared_evolution_object.skill,
+                                                    prebuilt_dataset=shared_evolution_object.dataset,
+                                                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                                                    prebuilt_trainset=shared_evolution_object.trainset,
+                                                    prebuilt_valset=shared_evolution_object.valset,
                                                     console=console)
     metrics_gepa_uniform = evolve_single_skill(params)
 

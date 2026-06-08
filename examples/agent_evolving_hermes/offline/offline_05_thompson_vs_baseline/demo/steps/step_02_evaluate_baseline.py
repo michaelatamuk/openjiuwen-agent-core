@@ -21,13 +21,13 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.multi_objective_state imp
 _MULTI_MODES = {"gepa_rubric"}
 
 
-def run_step(skills_root: Path,
+def run_step(shared_evolution_object: SharedEvolutionObjects,
+             skills_root: Path,
              model: str,
              output_dir: Path,
              verbose: bool = False,
              run_modes: Optional[List[str]] = None,
-             shared_evolution_object: SharedEvolutionObjects = None,
-             console = None) -> Tuple[float, Optional[Dict[str, float]]]:
+             console = None):
     """Score the baseline skill on holdout for every scoring system that will be used.
 
     Evaluates the single-score baseline unconditionally.  If any mode in
@@ -75,13 +75,11 @@ def run_step(skills_root: Path,
     _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})", console=console)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    evolver_config = EvolverConfig(
-        skills_root=skills_root,
-        output_dir=output_dir,
-        optimizer_model=model,
-        eval_model=model,
-        verbose=verbose,
-    )
+    evolver_config = EvolverConfig(skills_root=skills_root,
+                                   output_dir=output_dir,
+                                   optimizer_model=model,
+                                   eval_model=model,
+                                   verbose=verbose)
 
     # ── Shared objects from step_01_build_skill_dataset_and_dspy ──────────
     dataset = shared_evolution_object.dataset
