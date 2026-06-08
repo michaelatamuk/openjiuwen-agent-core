@@ -5,10 +5,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.trainings import DemoTrainings
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import \
     DemoTrainingsResults
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_save_skill_and_dataset import \
-    run_step as step_00_save_skill_and_dataset
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_prepare_shared_objects import \
-    run_step as step_01_prepare_shared_objects
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_write_demo_scenario_files import \
+    run_step as step_00_write_demo_scenario_files
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_build_skill_dataset_and_dspy import \
+    run_step as step_01_build_skill_dataset_and_dspy
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_evaluate_baseline import \
     run_step as step_02_evaluate_baseline
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_07_results_comparison import \
@@ -54,16 +54,16 @@ class Demo:
         Use ``[]`` to run only the baseline holdout evaluation (no GEPA training).
         """
 
-        # ── Step 0: Write baseline skill + golden dataset ─────────────────────
-        step_00_save_skill_and_dataset(params.skills_root, params.skill_name, params.skill_body,
-                                       params.skill_frontmatter, params.golden_examples, verbose=self._config.verbose)
+        # ── Step 00: Write demo scenario files to disk (demo-only; not needed in production) ──
+        step_00_write_demo_scenario_files(params.skills_root, params.skill_name, params.skill_body,
+                                          params.skill_frontmatter, params.golden_examples, verbose=self._config.verbose)
 
-        # ── Step 01b: Build shared objects ONCE (stages 1–4) ────────────────
+        # ── Step 01: Build skill / dataset / DSPy ONCE (stages 1–4) ────────────
         # Runs find_and_load_skill / validate_baseline_constraints /
         # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
         # The resulting objects are passed to both step_01 and all GEPA
         # training passes so these stages never execute more than once per run.
-        shared = step_01_prepare_shared_objects(
+        shared = step_01_build_skill_dataset_and_dspy(
             params.skills_root, params.skill_name, self._config.model,
             params.output_baseline, verbose=self._config.verbose,
         )

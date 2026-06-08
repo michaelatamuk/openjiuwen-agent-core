@@ -66,13 +66,13 @@ def run_step(
         baseline evaluation is performed.  Pass ``None`` / ``[]`` to
         skip multi evaluation.
     prebuilt_skill:
-        Pre-built skill dict from step_01b.  When provided,
+        Pre-built skill dict from step_01_build_skill_dataset_and_dspy.  When provided,
         ``find_and_load_skill`` is skipped.
     prebuilt_dataset:
-        Pre-built EvalDataset from step_01b.  When provided,
+        Pre-built EvalDataset from step_01_build_skill_dataset_and_dspy.  When provided,
         ``build_or_load_dataset`` is skipped.
     prebuilt_baseline_module:
-        Pre-built SkillModule from step_01b.  When provided,
+        Pre-built SkillModule from step_01_build_skill_dataset_and_dspy.  When provided,
         ``configure_dspy_and_prepare_sets`` is skipped.
 
     Returns
