@@ -79,7 +79,8 @@ def skill_fitness_metric(example: dspy.Example,
         # ≥ 0.3 regardless of output quality, inflating α and making TS
         # effectively random for those examples.
 
-        overlap = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
-        score = overlap
+        score = 0.0
+        if expected_words:
+            score = len(expected_words & output_words) / len(expected_words)
 
     return min(1.0, max(0.0, score))
