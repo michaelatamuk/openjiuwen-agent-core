@@ -33,20 +33,18 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     console.print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
     console.print()
 
-    evolver_config = EvolverConfig(
-        skills_root=skills_root,
-        output_dir=output_dir,
-        iterations=iterations,
-        optimizer_model=model,
-        eval_model=model,
-        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
-        verbose=verbose,
-        # Thompson Sampling — all OFF
-        ts_skill_scheduler=False,
-        ts_example_selector=False,
-        ts_acceptance_gate=False,
-        scoring_mode=scoring_mode,
-    )
+    evolver_config = EvolverConfig(skills_root=skills_root,
+                                   output_dir=output_dir,
+                                   iterations=iterations,
+                                   optimizer_model=model,
+                                   eval_model=model,
+                                   max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
+                                   verbose=verbose,
+                                   # Thompson Sampling — all OFF
+                                   ts_skill_scheduler=False,
+                                   ts_example_selector=False,
+                                   ts_acceptance_gate=False,
+                                   scoring_mode=scoring_mode)
 
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",
@@ -64,7 +62,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     metrics_gepa_uniform = evolve_single_skill(params)
 
     if verbose:
-        evolved_gepa_uniform = _read_latest_evolved(output_gepa_uniform, skill_name)
+        evolved_gepa_uniform = _read_latest_evolved(output_dir, skill_name)
         _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]", console)
 
     console.print(f"[bold cyan]*** Demo Step 03: Run GEPA Uniform Finished ***[/bold cyan]")
