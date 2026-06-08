@@ -71,7 +71,7 @@ def _eval_rubrics_pass(
             composite = sum(vals) / len(vals)
             composites.append(composite)
             dims_str = ", ".join([f"{d}: {v:.2f}" for d, v in zip(dim_names, vals)])
-            console.print(f"  [{i}/{n}] {label} → composite {composite:.4f} | ({dims_str})")
+            console.print(f"  [{i}/{n}] {label} → raw {composite:.4f} | ({dims_str})")
         except Exception:
             for d in dim_names:
                 dim_accum[d].append(0.0)
@@ -173,7 +173,10 @@ def evaluate_on_holdout(
     evolved_composite, evolved_dims = _eval_rubrics_pass(
         optimized_module, holdout, multi_judge, dim_names, "evolved skill", console
     )
-    console.print(f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)")
+    console.print(
+        f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)"
+        f"  [dim](unweighted; adaptive weighting applied in stage 8b)[/dim]"
+    )
 
     improvement = evolved_composite - prior_baseline_score_rubrics
     cross_run_delta = None

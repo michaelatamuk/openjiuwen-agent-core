@@ -121,6 +121,10 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
         evolved_score = multi_rubrics_state.aggregate(e_list, length_penalty=_length_penalty(evolved_text))
         baseline_score = multi_rubrics_state.aggregate(b_list, length_penalty=_length_penalty(params.prebuilt_skill["raw"]))
         improvement = evolved_score - baseline_score
+        params.console.print(
+            f"  Weighted scores (stage 8b): baseline={baseline_score:.4f}  evolved={evolved_score:.4f}"
+            f"  Δ={improvement:+.4f}"
+        )
 
         multi_rubrics_state.update_weights(e_list, b_list)
         multi_rubrics_state.save(multi_rubrics_state_path)
