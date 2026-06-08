@@ -26,13 +26,11 @@ independently in tests or ad-hoc scripts.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
-
-from rich.console import Console
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
+    SharedEvolutionObjects
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
     find_and_load_skill,
@@ -46,34 +44,6 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
     configure_dspy_and_prepare_sets,
 )
-
-
-@dataclass
-class SharedEvolutionObjects:
-    """Objects built once and reused by every GEPA training pass.
-
-    Attributes
-    ----------
-    skill:
-        Skill dict returned by ``find_and_load_skill`` (keys include
-        ``"raw"``, ``"name"``, ``"frontmatter"``).
-    dataset:
-        :class:`EvalDataset` instance with train / val / holdout splits.
-    baseline_module:
-        :class:`SkillModule` wrapping the baseline skill text, ready for
-        DSPy optimisation.  DSPy optimisers work on copies of the module,
-        so the same instance is safe to pass to multiple sequential passes.
-    trainset:
-        DSPy-formatted training examples (list of ``dspy.Example``).
-    valset:
-        DSPy-formatted validation examples.
-    """
-
-    skill: dict
-    dataset: Any
-    baseline_module: Any
-    trainset: List[Any]
-    valset: List[Any]
 
 
 def run_step(skills_root: Path,

@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
+    SharedEvolutionObjects
 from openjiuwen.agent_evolving_hermes.offline import SkillModule, EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage08_holdout_evaluator_judge_multi import \
     MultiObjectiveLLMJudge, MultiObjectiveFitnessScore
@@ -20,16 +22,12 @@ _MULTI_MODES = {"gepa_rubric"}
 
 
 def run_step(skills_root: Path,
-             skill_name: str,
              model: str,
              output_dir: Path,
              verbose: bool = False,
              run_modes: Optional[List[str]] = None,
-             prebuilt_skill: dict = None,
-             prebuilt_dataset = None,
-             prebuilt_baseline_module = None,
-             console = None
-) -> Tuple[float, Optional[Dict[str, float]]]:
+             shared_evolution_object: SharedEvolutionObjects = None,
+             console = None) -> Tuple[float, Optional[Dict[str, float]]]:
     """Score the baseline skill on holdout for every scoring system that will be used.
 
     Evaluates the single-score baseline unconditionally.  If any mode in
@@ -86,8 +84,8 @@ def run_step(skills_root: Path,
     )
 
     # ── Shared objects from step_01_build_skill_dataset_and_dspy ──────────
-    dataset = prebuilt_dataset
-    baseline_module = prebuilt_baseline_module
+    dataset = shared_evolution_object.dataset
+    baseline_module = shared_evolution_object.baseline_module
 
     # ── Single-score evaluation ───────────────────────────────────────────
     judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)

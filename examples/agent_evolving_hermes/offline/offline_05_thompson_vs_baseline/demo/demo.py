@@ -71,12 +71,13 @@ class Demo:
         # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
         # The resulting objects are passed to both step_01 and all GEPA
         # training passes so these stages never execute more than once per run.
-        shared = step_01_build_skill_dataset_and_dspy(params.skills_root,
-                                                      params.skill_name,
-                                                      self._config.model,
-                                                      params.output_baseline,
-                                                      verbose=self._config.verbose,
-                                                      console=console)
+        shared_evolution_object: SharedEvolutionObjects = (
+            step_01_build_skill_dataset_and_dspy(params.skills_root,
+                                                 params.skill_name,
+                                                 self._config.model,
+                                                 params.output_baseline,
+                                                 verbose=self._config.verbose,
+                                                 console=console))
 
         # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
@@ -85,14 +86,11 @@ class Demo:
         # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
         baseline_score_single, baseline_score_multi, multi_baseline_dims = (
             step_02_evaluate_baseline(params.skills_root,
-                                      params.skill_name,
                                       self._config.model,
                                       params.output_baseline,
                                       self._config.verbose,
                                       run_modes=self._config.run_modes,
-                                      prebuilt_skill=shared.skill,
-                                      prebuilt_dataset=shared.dataset,
-                                      prebuilt_baseline_module=shared.baseline_module,
+                                      shared_evolution_object=shared_evolution_object,
                                       console=console))
 
         # ── Training passes (Steps 03, 04, 05, 06) ───────────────────────────────────────────────────
@@ -100,9 +98,8 @@ class Demo:
                                                                       baseline_score_single=baseline_score_single,
                                                                       baseline_score_multi=baseline_score_multi,
                                                                       baseline_dims_multi=multi_baseline_dims,
-                                                                      shared_evolution_object=shared,
-                                                                      console=console
-                                                                      )
+                                                                      shared_evolution_object=shared_evolution_object,
+                                                                      console=console)
 
         # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:

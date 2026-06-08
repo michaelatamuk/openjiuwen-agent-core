@@ -12,7 +12,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     print_mode_summary, print_mode_timing
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import \
     _write_skill
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_build_skill_dataset_and_dspy import \
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
     SharedEvolutionObjects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_uniform import \
     run_step as step_02_run_gepa_uniform
