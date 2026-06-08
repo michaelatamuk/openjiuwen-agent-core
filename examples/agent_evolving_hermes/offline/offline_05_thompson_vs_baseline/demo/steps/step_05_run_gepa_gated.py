@@ -13,22 +13,21 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _read_latest_evolved
 
 
-
 def run_step(shared_evolution_object: SharedEvolutionObjects,
              skills_root,
              skill_name,
              model,
              iterations,
-             output_gepa_gated,
+             output_dir,
              ts_state_dir,
+             console,
              verbose: bool = False,
              baseline_score=None,
              run_index: int = 1,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None,
-             console=None):
+             baseline_dims_multi=None):
     console.print(f"\n[bold cyan]*** Demo Step 05: Run GEPA Gated Started ***[/bold cyan]")
 
     _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index,
@@ -39,23 +38,21 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
     console.print()
 
-    evolver_config = EvolverConfig(
-        skills_root = skills_root,
-        output_dir = output_gepa_gated,
-        iterations = iterations,
-        optimizer_model = model,
-        eval_model = model,
-        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
-        verbose=verbose,
-        # TS-TrainingSelector OFF, TS-AcceptanceGate ON
-        ts_skill_scheduler = False,
-        ts_example_selector = False,
-        ts_acceptance_gate = True,
-        ts_acceptance_confidence = 0.75,
-        ts_acceptance_n_samples = 100,
-        ts_state_dir = ts_state_dir,
-        scoring_mode=scoring_mode,
-    )
+    evolver_config = EvolverConfig(skills_root = skills_root,
+                                   output_dir = output_dir,
+                                   iterations = iterations,
+                                   optimizer_model = model,
+                                   eval_model = model,
+                                   max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
+                                   verbose=verbose,
+                                   # TS-TrainingSelector OFF, TS-AcceptanceGate ON
+                                   ts_skill_scheduler = False,
+                                   ts_example_selector = False,
+                                   ts_acceptance_gate = True,
+                                   ts_acceptance_confidence = 0.75,
+                                   ts_acceptance_n_samples = 100,
+                                   ts_state_dir = ts_state_dir,
+                                   scoring_mode=scoring_mode)
 
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",
@@ -74,7 +71,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     _print_ts_insights(ts_state_dir, skill_name, console)
 
     if verbose:
-        evolved_l3 = _read_latest_evolved(output_gepa_gated, skill_name)
+        evolved_l3 = _read_latest_evolved(output_dir, skill_name)
         _print_skill("  Evolved skill (TS-AcceptanceGate only)", evolved_l3 or "[not produced]", console)
 
     console.print(f"[bold cyan]*** Demo Step 05: Run GEPA Gated Finished ***[/bold cyan]")

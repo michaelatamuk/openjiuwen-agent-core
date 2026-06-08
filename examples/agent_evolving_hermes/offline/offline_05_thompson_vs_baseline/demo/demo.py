@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
+    SharedEvolutionObjects
 from openjiuwen.agent_evolving_hermes.offline.evolvers._console_maker import _make_console
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_config import DemoConfig
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_params import DemoParams
@@ -89,9 +91,9 @@ class Demo:
                                       skills_root=params.skills_root,
                                       model=self._config.model,
                                       output_dir=params.output_baseline,
-                                      verbose=self._config.verbose,
                                       run_modes=self._config.run_modes,
-                                      console=console))
+                                      console=console,
+                                      verbose=self._config.verbose))
 
         # ── Training passes (Steps 03, 04, 05, 06) ───────────────────────────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(params,

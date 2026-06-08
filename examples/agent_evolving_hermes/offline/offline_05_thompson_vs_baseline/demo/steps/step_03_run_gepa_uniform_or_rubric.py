@@ -16,15 +16,15 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              skill_name,
              model,
              iterations,
-             output_gepa_uniform,
+             output_dir,
+             console,
              verbose: bool = False,
              baseline_score_single=None,
              run_index: int = 1,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None,
-             console=None):
+             baseline_dims_multi=None):
     console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Uniform Started ***[/bold cyan]")
 
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index,
@@ -35,7 +35,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,
-        output_dir=output_gepa_uniform,
+        output_dir=output_dir,
         iterations=iterations,
         optimizer_model=model,
         eval_model=model,

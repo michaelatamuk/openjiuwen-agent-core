@@ -37,21 +37,32 @@ def run_step(baseline_score_single: float,
 
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
-    if scores_gepa_uniform:       mode_data.append(("GEPA-Uniform",       scores_gepa_uniform,       metrics_gepa_uniform))
-    if scores_gepa_rubric: mode_data.append(("GEPA-Rubric", scores_gepa_rubric, metrics_gepa_rubric))
-    if scores_gepa_focused:          mode_data.append(("GEPA-Focused",     scores_gepa_focused,          metrics_gepa_focused))
-    if scores_gepa_gated:          mode_data.append(("GEPA-Gated",     scores_gepa_gated,          metrics_gepa_gated))
-    if scores_gepa_full:       mode_data.append(("GEPA-Full",       scores_gepa_full,       metrics_gepa_full))
+    if scores_gepa_uniform:
+        mode_data.append(("GEPA-Uniform", scores_gepa_uniform, metrics_gepa_uniform))
+
+    if scores_gepa_rubric:
+        mode_data.append(("GEPA-Rubric", scores_gepa_rubric, metrics_gepa_rubric))
+
+    if scores_gepa_focused:
+        mode_data.append(("GEPA-Focused", scores_gepa_focused, metrics_gepa_focused))
+
+    if scores_gepa_gated:
+        mode_data.append(("GEPA-Gated", scores_gepa_gated, metrics_gepa_gated))
+
+    if scores_gepa_full:
+        mode_data.append(("GEPA-Full", scores_gepa_full, metrics_gepa_full))
 
     ran_labels = [label for label, _, _ in mode_data]
     pre_labels = ["Base-Holistic", "Base-Rubric"] if baseline_score_multi is not None else ["Base-Holistic"]
     all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
-    _banner("COMPARISON — " + "  ·  ".join(all_labels), console)
+    _banner("COMPARISON — " + "  ·  ".join(all_labels), console=console)
 
     if not mode_data:
         console.print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
         if baseline_score_multi is not None:
             console.print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
+
+        console.print(f"[bold cyan]*** Demo Step 07: Compare Results Finished - no data ***[/bold cyan]")
         return
 
     n_runs = len(mode_data[0][1])  # all modes ran the same number of times

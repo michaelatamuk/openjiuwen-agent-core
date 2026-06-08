@@ -20,16 +20,16 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              itrations,
              ts_batch_size,
              examples,
-             output_ts,
+             output_dir,
              ts_state_dir,
+             console,
              verbose: bool = False,
              baseline_score=None,
              run_index: int = 1,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None,
-             console=None):
+             baseline_dims_multi=None):
     console.print(f"\n[bold cyan]*** Demo Step 06: Run GEPA Full Started ***[/bold cyan]")
 
     _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index,
@@ -43,24 +43,23 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
     console.print()
 
-    evolver_config = EvolverConfig(
-        skills_root = skills_root,
-        output_dir = output_ts,
-        iterations = itrations,
-        optimizer_model = model,
-        eval_model = model,
-        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
-        verbose=verbose,
-        # TS-TrainingSelector + TS-AcceptanceGate ON
-        ts_skill_scheduler = False,          # skill scheduler only matters for --all runs
-        ts_example_selector = True,
-        ts_example_batch_size = ts_batch_size,
-        ts_acceptance_gate = True,
-        ts_acceptance_confidence = 0.75,
-        ts_acceptance_n_samples = 100,
-        ts_state_dir = ts_state_dir,
-        scoring_mode=scoring_mode,
-    )
+    evolver_config = EvolverConfig(skills_root = skills_root,
+                                   output_dir = output_dir,
+                                   iterations = itrations,
+                                   optimizer_model = model,
+                                   eval_model = model,
+                                   max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
+                                   verbose=verbose,
+                                   # TS-TrainingSelector + TS-AcceptanceGate ON
+                                   ts_skill_scheduler = False,          # skill scheduler only matters for --all runs
+                                   ts_example_selector = True,
+                                   ts_example_batch_size = ts_batch_size,
+                                   ts_acceptance_gate = True,
+                                   ts_acceptance_confidence = 0.75,
+                                   ts_acceptance_n_samples = 100,
+                                   ts_state_dir = ts_state_dir,
+                                   scoring_mode=scoring_mode)
+
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",
                                                     config=evolver_config,
@@ -78,7 +77,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     _print_ts_insights(ts_state_dir, skill_name, console)
 
     if verbose:
-        evolved_ts = _read_latest_evolved(output_ts, skill_name)
+        evolved_ts = _read_latest_evolved(output_dir, skill_name)
         _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]", console)
 
     console.print(f"[bold cyan]*** Demo Step 06: Run GEPA Full Finished ***[/bold cyan]")

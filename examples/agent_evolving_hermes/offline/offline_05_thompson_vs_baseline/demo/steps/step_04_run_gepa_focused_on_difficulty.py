@@ -17,16 +17,16 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              model,
              iterations,
              ts_batch_size,
-             output_gepa_focused_on_difficulty,
+             output_dir,
              ts_state_dir,
+             console,
              verbose: bool = False,
              baseline_score=None,
              run_index: int = 1,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None,
-             console=None):
+             baseline_dims_multi=None):
     console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,
@@ -39,22 +39,21 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     console.print("  TS-AcceptanceGate   : OFF (threshold only, improvement ≥ 0.0)")
     console.print()
 
-    evolver_config = EvolverConfig(
-        skills_root = skills_root,
-        output_dir = output_gepa_focused_on_difficulty,
-        iterations = iterations,
-        optimizer_model = model,
-        eval_model = model,
-        max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
-        verbose=verbose,
-        # TS-TrainingSelector ON, TS-AcceptanceGate OFF
-        ts_skill_scheduler = False,
-        ts_example_selector = True,
-        ts_example_batch_size = ts_batch_size,
-        ts_acceptance_gate = False,
-        ts_state_dir = ts_state_dir,
-        scoring_mode=scoring_mode,
-    )
+    evolver_config = EvolverConfig(skills_root = skills_root,
+                                   output_dir = output_dir,
+                                   iterations = iterations,
+                                   optimizer_model = model,
+                                   eval_model = model,
+                                   max_prompt_growth=20.0,  # allow up to 2000% growth; GEPA now rewrites the full skill body
+                                   verbose=verbose,
+                                   # TS-TrainingSelector ON, TS-AcceptanceGate OFF
+                                   ts_skill_scheduler = False,
+                                   ts_example_selector = True,
+                                   ts_example_batch_size = ts_batch_size,
+                                   ts_acceptance_gate = False,
+                                   ts_state_dir = ts_state_dir,
+                                   scoring_mode=scoring_mode)
+
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",
                                                     config=evolver_config,
@@ -71,7 +70,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     metrics_gepa_focused = evolve_single_skill(params)
 
     if verbose:
-        evolved_l2 = _read_latest_evolved(output_gepa_focused_on_difficulty, skill_name)
+        evolved_l2 = _read_latest_evolved(output_dir, skill_name)
         _print_skill("  Evolved skill (TS-TrainingSelector only)", evolved_l2 or "[not produced]", console)
 
     console.print(f"[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Finished ***[/bold cyan]")

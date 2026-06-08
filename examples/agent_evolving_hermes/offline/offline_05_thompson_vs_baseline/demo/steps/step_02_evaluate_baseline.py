@@ -25,9 +25,9 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              skills_root: Path,
              model: str,
              output_dir: Path,
-             verbose: bool = False,
-             run_modes: Optional[List[str]] = None,
-             console = None):
+             run_modes: Optional[List[str]],
+             console,
+             verbose: bool = False,):
     """Score the baseline skill on holdout for every scoring system that will be used.
 
     Evaluates the single-score baseline unconditionally.  If any mode in
@@ -81,13 +81,9 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    eval_model=model,
                                    verbose=verbose)
 
-    # ── Shared objects from step_01_build_skill_dataset_and_dspy ──────────
-    dataset = shared_evolution_object.dataset
-    baseline_module = shared_evolution_object.baseline_module
-
     # ── Single-score evaluation ───────────────────────────────────────────
     judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)
-    holdout = dataset.holdout or dataset.val
+    holdout = shared_evolution_object.dataset.holdout or shared_evolution_object.dataset.val
     total = len(holdout)
 
     console.print(f"\n  Evaluating {total} holdout examples with single LLM-as-judge (~20–30s each)…")
@@ -95,13 +91,11 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     for i, ex in enumerate(holdout, start=1):
         score = 0.0
         try:
-            pred = baseline_module(task_input=ex.task_input)
-            fs = judge.score(
-                task_input=ex.task_input,
-                expected_behavior=ex.expected_behavior,
-                agent_output=getattr(pred, "output", ""),
-                skill_text=baseline_module._skill_text_value,
-            )
+            pred = shared_evolution_object.baseline_module(task_input=ex.task_input)
+            fs = judge.score(task_input=ex.task_input,
+                             expected_behavior=ex.expected_behavior,
+                             agent_output=getattr(pred, "output", ""),
+                             skill_text=shared_evolution_object.baseline_module._skill_text_value)
             score = fs.composite
         except Exception:
             pass
@@ -116,7 +110,10 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     multi_score = None
     if needs_multi:
         console.print()
-        multi_score, multi_dims = _score_multi_baseline(baseline_module, dataset, evolver_config, console)
+        multi_score, multi_dims = _score_multi_baseline(shared_evolution_object.baseline_module,
+                                                        shared_evolution_object.dataset,
+                                                        evolver_config,
+                                                        console)
 
     console.print(f"[bold cyan]*** Demo Step 02: Evaluate Baseline Finished ***[/bold cyan]")
     return single_score, multi_score, multi_dims
@@ -126,8 +123,7 @@ def _score_multi_baseline(
     baseline_module: SkillModule,
     dataset: EvalDataset,
     config: EvolverConfig,
-    console,
-) -> Tuple[float, Dict[str, float]]:
+    console):
     """Evaluate baseline skill with the multi-objective judge BEFORE GEPA.
 
     Call this after step 4 (baseline_module is ready) and pass the result to
@@ -155,7 +151,5 @@ def _score_multi_baseline(
     fresh_state = MultiObjectiveState()
     b_list = [dims[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
     composite = fresh_state.aggregate(b_list)
-    console.print(
-        f"  Pre-train holdout score (multi): {composite:.4f}  ({n_holdout} examples)"
-    )
+    console.print(f"  Pre-train holdout score (multi): {composite:.4f}  ({n_holdout} examples)")
     return composite, dims
