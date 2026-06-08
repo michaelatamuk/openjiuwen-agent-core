@@ -1,6 +1,6 @@
 {
     "scenarios": [
-        "blades-in-the-dark"
+        "smarthub-support"
     ],
     "_scenarios": [
         "paper-review",
@@ -10,7 +10,8 @@
         "api-security",
         "code-review",
         "pokemon-player",
-        "blades-in-the-dark"
+        "blades-in-the-dark",
+        "smarthub-support"
     ],
     "run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated"],
     "_run_modes": ["gepa_uniform", "gepa_rubric", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
@@ -20,6 +21,6 @@
     "iterations": 5,
     "ts_batch_size": 4,
     "n_runs": 1,
-    "verbose": true,
+    "verbose": false,
     "print_skill_diff": true
 }

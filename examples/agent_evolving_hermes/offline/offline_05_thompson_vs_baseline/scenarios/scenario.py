@@ -30,6 +30,13 @@ Available scenarios
                         ★ Low baseline: ~0.05-0.15 (Flashback, Engagement Roll, Devil's
                           Bargain, Harm levels, Heat/Entanglements, Fortune Roll, Vice,
                           Trauma — all incompatible with D&D d20/HP/Long-Rest framework)
+    smarthub-support  — Customer support for SmartHub networking device; generic baseline
+                        ★ Low baseline: ~0.05-0.20 (hard examples require exact invented
+                          product facts: firmware 3.2.1 MAC bug, error E-7734, serial
+                          prefix SH2-B escalation, LED 3-red-blink overtemp, rollback path,
+                          ports 8443/8080, XR-500 DMZ fix, Gen 2/3 cross-flash risk)
+                        ★ EXECUTIVE DEMO SCENARIO — before/after answer delta is immediately
+                          readable by non-technical audiences; no domain expertise required
 """
 from __future__ import annotations
 
@@ -135,6 +142,12 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _BD_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.blades_in_the_dark.golden_examples.all import \
         GOLDEN_EXAMPLES as _BD_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.smarthub_support.skill.body import \
+        SKILL_BODY as _SH_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.smarthub_support.skill.frontmatter import \
+        SKILL_FRONTMATTER as _SH_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.smarthub_support.golden_examples.all import \
+        GOLDEN_EXAMPLES as _SH_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -192,6 +205,13 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_BD_FM,
             golden_examples=_BD_EXAMPLES,
             description="Blades in the Dark GM facilitation — D&D baseline primes systematically wrong answers for BitD mechanics",
+        ),
+        "smarthub-support": Scenario(
+            name="smarthub-support",
+            skill_body=_SH_BODY,
+            skill_frontmatter=_SH_FM,
+            golden_examples=_SH_EXAMPLES,
+            description="SmartHub customer support — generic baseline vs product-specific knowledge (exec demo scenario)",
         ),
     }
 
