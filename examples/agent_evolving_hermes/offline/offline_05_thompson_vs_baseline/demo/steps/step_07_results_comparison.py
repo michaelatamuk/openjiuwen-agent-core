@@ -11,21 +11,21 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 )
 
 
-def run_step(
-    baseline_score_single: float,
-    baseline_score_multi: Optional[float],
-    *,
-    scores_gepa_uniform:        Optional[List[float]] = None,
-    scores_gepa_full:        Optional[List[float]] = None,
-    scores_gepa_focused:           Optional[List[float]] = None,
-    scores_gepa_gated:           Optional[List[float]] = None,
-    scores_gepa_rubric:  Optional[List[float]] = None,
-    metrics_gepa_uniform:        Optional[dict] = None,
-    metrics_gepa_full:        Optional[dict] = None,
-    metrics_gepa_focused:           Optional[dict] = None,
-    metrics_gepa_gated:           Optional[dict] = None,
-    metrics_gepa_rubric:  Optional[dict] = None,
-    ts_batch_size:        int = 4,
+def run_step(baseline_score_single: float,
+             baseline_score_multi: Optional[float],
+             *,
+             scores_gepa_uniform:        Optional[List[float]] = None,
+             scores_gepa_full:        Optional[List[float]] = None,
+             scores_gepa_focused:           Optional[List[float]] = None,
+             scores_gepa_gated:           Optional[List[float]] = None,
+             scores_gepa_rubric:  Optional[List[float]] = None,
+             metrics_gepa_uniform:        Optional[dict] = None,
+             metrics_gepa_full:        Optional[dict] = None,
+             metrics_gepa_focused:           Optional[dict] = None,
+             metrics_gepa_gated:           Optional[dict] = None,
+             metrics_gepa_rubric:  Optional[dict] = None,
+             ts_batch_size:        int = 4,
+             console=None
 ) -> None:
     """Print comparison for whichever training modes ran.
 

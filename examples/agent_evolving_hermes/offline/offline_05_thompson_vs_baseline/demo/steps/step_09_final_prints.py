@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def run_step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path) -> None:
+def run_step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path, console=None) -> None:
     """Print output-file locations for whichever training passes actually ran.
 
     Parameters

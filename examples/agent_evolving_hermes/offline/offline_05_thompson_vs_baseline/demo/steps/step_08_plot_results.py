@@ -6,19 +6,18 @@ from pathlib import Path
 from typing import List, Optional
 
 
-def run_step(
-    baseline_score_single: float,
-    baseline_score_multi: float,
-    *,
-    scores_gepa_uniform:  Optional[List[float]] = None,
-    scores_gepa_rubric: Optional[List[float]] = None,
-    scores_gepa_full:  Optional[List[float]] = None,
-    scores_gepa_focused:     Optional[List[float]] = None,
-    scores_gepa_gated:     Optional[List[float]] = None,
-    output_dir: Path,
-    scenario_name: str = "",
-    n_runs: int = 1,
-) -> None:
+def run_step(baseline_score_single: float,
+             baseline_score_multi: float,
+             *,
+             scores_gepa_uniform:  Optional[List[float]] = None,
+             scores_gepa_rubric: Optional[List[float]] = None,
+             scores_gepa_full:  Optional[List[float]] = None,
+             scores_gepa_focused:     Optional[List[float]] = None,
+             scores_gepa_gated:     Optional[List[float]] = None,
+             output_dir: Path,
+             scenario_name: str = "",
+             n_runs: int = 1,
+             console=None) -> None:
     """Print ASCII charts to the terminal, then save a matplotlib PNG.
 
     ASCII charts are always shown (no extra dependencies).

@@ -76,13 +76,12 @@ class SharedEvolutionObjects:
     valset: List[Any]
 
 
-def run_step(
-    skills_root: Path,
-    skill_name: str,
-    model: str,
-    output_dir: Path,
-    verbose: bool = False,
-) -> SharedEvolutionObjects:
+def run_step(skills_root: Path,
+             skill_name: str,
+             model: str,
+             output_dir: Path,
+             verbose: bool = False,
+             console = None) -> SharedEvolutionObjects:
     """Build shared evolution objects (stages 1 / 2 / 3 / 4) for reuse by all GEPA passes.
 
     Parameters
@@ -109,8 +108,6 @@ def run_step(
     _banner("① SHARED PREP — stages 1–4 (built once for all GEPA passes)")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    console = Console(force_terminal=True, width=200)
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,

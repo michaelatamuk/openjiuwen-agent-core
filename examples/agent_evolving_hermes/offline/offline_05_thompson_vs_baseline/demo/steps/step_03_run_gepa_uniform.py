@@ -13,7 +13,7 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
          baseline_score_single=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
-         prebuilt_trainset=None, prebuilt_valset=None):
+         prebuilt_trainset=None, prebuilt_valset=None, console=None):
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index, n_runs=n_runs)
     print("  Example selector : all training examples, equal weight")
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
@@ -45,7 +45,8 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
                                                     prebuilt_dataset=prebuilt_dataset,
                                                     prebuilt_baseline_module=prebuilt_baseline_module,
                                                     prebuilt_trainset=prebuilt_trainset,
-                                                    prebuilt_valset=prebuilt_valset,)
+                                                    prebuilt_valset=prebuilt_valset,
+                                                    console=console)
     metrics_gepa_uniform = evolve_single_skill(params)
 
     if verbose:

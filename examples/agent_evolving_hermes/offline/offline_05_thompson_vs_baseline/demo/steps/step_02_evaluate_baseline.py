@@ -30,16 +30,16 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.multi_objective_state imp
 _MULTI_MODES = {"gepa_rubric"}
 
 
-def run_step(
-    skills_root: Path,
-    skill_name: str,
-    model: str,
-    output_dir: Path,
-    verbose: bool = False,
-    run_modes: Optional[List[str]] = None,
-    prebuilt_skill: Optional[dict] = None,
-    prebuilt_dataset = None,
-    prebuilt_baseline_module = None,
+def run_step(skills_root: Path,
+             skill_name: str,
+             model: str,
+             output_dir: Path,
+             verbose: bool = False,
+             run_modes: Optional[List[str]] = None,
+             prebuilt_skill: Optional[dict] = None,
+             prebuilt_dataset = None,
+             prebuilt_baseline_module = None,
+             console = None
 ) -> Tuple[float, Optional[Dict[str, float]]]:
     """Score the baseline skill on holdout for every scoring system that will be used.
 
@@ -87,8 +87,6 @@ def run_step(
     modes_label = "single + multi" if needs_multi else "single"
     _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})")
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    console = Console(force_terminal=True, width=200)
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,

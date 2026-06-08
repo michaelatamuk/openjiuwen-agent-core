@@ -75,11 +75,18 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
         Metrics dict including baseline_score, evolved_score, improvement,
         accepted (bool), and cross_run_delta (vs prior best if available).
     """
-    console = _make_console()
+    if params.console:
+        console = params.console
+    else:
+        console = _make_console()
+
     console.print("Single Skill Evolver - Evolve Started")
 
     if params.config is None:
         config = EvolverConfig()
+    else:
+        config = params.config
+
     if params.iterations is not None:
         config.iterations = params.iterations
 

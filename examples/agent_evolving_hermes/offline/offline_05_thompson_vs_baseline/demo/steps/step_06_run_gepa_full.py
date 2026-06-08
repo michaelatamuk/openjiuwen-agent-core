@@ -15,7 +15,7 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
-         prebuilt_trainset=None, prebuilt_valset=None):
+         prebuilt_trainset=None, prebuilt_valset=None, console=None):
     _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index, n_runs=n_runs)
     print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
           f"{int(len(examples)*0.5)} train examples per iteration")
@@ -55,7 +55,8 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
                                                     prebuilt_dataset=prebuilt_dataset,
                                                     prebuilt_baseline_module=prebuilt_baseline_module,
                                                     prebuilt_trainset=prebuilt_trainset,
-                                                    prebuilt_valset=prebuilt_valset,)
+                                                    prebuilt_valset=prebuilt_valset,
+                                                    console=console)
     metrics_ts = evolve_single_skill(params)
     _print_ts_insights(ts_state_dir, skill_name)
 

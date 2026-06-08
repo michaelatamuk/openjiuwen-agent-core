@@ -21,6 +21,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     print_skill_diff
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
     _read_latest_evolved
+from offline.evolvers._console_maker import _make_console
 
 
 class Demo:
@@ -54,19 +55,28 @@ class Demo:
         Use ``[]`` to run only the baseline holdout evaluation (no GEPA training).
         """
 
+        console = _make_console()
+
         # ── Step 00: Write demo scenario files to disk (demo-only; not needed in production) ──
-        step_00_write_demo_scenario_files(params.skills_root, params.skill_name, params.skill_body,
-                                          params.skill_frontmatter, params.golden_examples, verbose=self._config.verbose)
+        step_00_write_demo_scenario_files(params.skills_root,
+                                          params.skill_name,
+                                          params.skill_body,
+                                          params.skill_frontmatter,
+                                          params.golden_examples,
+                                          verbose=self._config.verbose,
+                                          console=console)
 
         # ── Step 01: Build skill / dataset / DSPy ONCE (stages 1–4) ────────────
         # Runs find_and_load_skill / validate_baseline_constraints /
         # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
         # The resulting objects are passed to both step_01 and all GEPA
         # training passes so these stages never execute more than once per run.
-        shared = step_01_build_skill_dataset_and_dspy(
-            params.skills_root, params.skill_name, self._config.model,
-            params.output_baseline, verbose=self._config.verbose,
-        )
+        shared = step_01_build_skill_dataset_and_dspy(params.skills_root,
+                                                      params.skill_name,
+                                                      self._config.model,
+                                                      params.output_baseline,
+                                                      verbose=self._config.verbose,
+                                                      console=console)
 
         # ── Step 1: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
@@ -80,6 +90,7 @@ class Demo:
             prebuilt_skill=shared.skill,
             prebuilt_dataset=shared.dataset,
             prebuilt_baseline_module=shared.baseline_module,
+            console=console
         )
 
         # ── Training passes ───────────────────────────────────────────────────
@@ -102,7 +113,8 @@ class Demo:
                                        metrics_gepa_focused=trainings_results.metrics_gepa_focused,
                                        metrics_gepa_gated=trainings_results.metrics_gepa_gated,
                                        metrics_gepa_rubric=trainings_results.metrics_gepa_rubric,
-                                       ts_batch_size=self._config.ts_batch_size)
+                                       ts_batch_size=self._config.ts_batch_size,
+                                       console=console)
 
         # ── Optional: Skill diff (baseline vs winner) ─────────────────────────
         if self._config.print_skill_diff and trainings_results.runs:
@@ -118,10 +130,11 @@ class Demo:
                              scores_gepa_gated=trainings_results.scores_gepa_gated or None,
                              output_dir=params.workdir / "plots",
                              scenario_name=params.skill_name,
-                             n_runs=self._config.n_runs)
+                             n_runs=self._config.n_runs,
+                             console=console)
 
         # ── Step 7: Where to look ─────────────────────────────────────────────
-        step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir)
+        step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir, console)
 
     def _print_skill_diff(self, params: DemoParams, results: DemoTrainingsResults) -> None:
         """Determine winner and print baseline vs winner skill side by side."""
