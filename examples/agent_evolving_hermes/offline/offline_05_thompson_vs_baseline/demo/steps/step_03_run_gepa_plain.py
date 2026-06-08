@@ -19,17 +19,16 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              output_dir,
              console,
              verbose: bool = False,
-             baseline_score_single=None,
+             baseline_score_holistic=None,
              run_index: int = 1,
              n_runs: int = 1,
-             scoring_mode: str = "single",
-             baseline_score_multi=None,
-             baseline_dims_multi=None,
+             scoring_mode: str = "holistic",
+             baseline_score_rubrics=None,
+             baseline_dims_rubrics=None,
              fitness_metric: str = "jiuwen"):
-    console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Uniform Started ***[/bold cyan]")
+    console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Plain Started ***[/bold cyan]")
 
-    _banner(f"② GEPA - Classic", run_index=run_index,
-            n_runs=n_runs, console=console)
+    _banner(f"② GEPA - Plain", run_index=run_index, n_runs=n_runs, console=console)
     console.print("  Example selector : all training examples, equal weight")
     console.print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
     console.print(f"  Fitness metric   : {fitness_metric}")
@@ -54,20 +53,20 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                                     "golden",
                                                     config=evolver_config,
                                                     min_improvement=0.0,
-                                                    prior_baseline_score_single=baseline_score_single,
-                                                    prior_baseline_score_multi=baseline_score_multi,
-                                                    prior_baseline_dims_multi=baseline_dims_multi,
+                                                    prior_baseline_score_holistic=baseline_score_holistic,
+                                                    prior_baseline_score_rubrics=baseline_score_rubrics,
+                                                    prior_baseline_dims_rubrics=baseline_dims_rubrics,
                                                     prebuilt_skill=shared_evolution_object.skill,
                                                     prebuilt_dataset=shared_evolution_object.dataset,
                                                     prebuilt_baseline_module=shared_evolution_object.baseline_module,
                                                     prebuilt_trainset=shared_evolution_object.trainset,
                                                     prebuilt_valset=shared_evolution_object.valset,
                                                     console=console)
-    metrics_gepa_uniform = evolve_single_skill(params)
+    metrics_gepa_plain = evolve_single_skill(params)
 
     if verbose:
-        evolved_gepa_uniform = _read_latest_evolved(output_dir, skill_name)
-        _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]", console)
+        evolved_gepa_plain = _read_latest_evolved(output_dir, skill_name)
+        _print_skill("  Evolved skill (no TS)", evolved_gepa_plain or "[not produced]", console)
 
-    console.print(f"[bold cyan]*** Demo Step 03: Run GEPA Uniform Finished ***[/bold cyan]")
-    return metrics_gepa_uniform
+    console.print(f"[bold cyan]*** Demo Step 03: Run GEPA Plain Finished ***[/bold cyan]")
+    return metrics_gepa_plain

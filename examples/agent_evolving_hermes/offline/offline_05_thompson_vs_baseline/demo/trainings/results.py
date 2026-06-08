@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Tuple
 
 # Canonical display label for each mode identifier.
 _MODE_LABELS: Dict[str, str] = {
-    "gepa_uniform":               "GEPA-Uniform",
-    "gepa_rubric":                "GEPA-Rubric",
+    "gepa_plain_holistic": "GEPA-Plain-Holistic",
+    "gepa_plain_rubric": "GEPA-Plain-Rubric",
     "gepa_focused_on_difficulty": "GEPA-Focused",
     "gepa_gated":                 "GEPA-Gated",
     "gepa_full":                  "GEPA-Full",
@@ -16,8 +16,8 @@ _MODE_LABELS: Dict[str, str] = {
 def run_key_label(run_key: str) -> str:
     """Convert a run key to a human-readable label.
 
-    Single-metric run key  ``"gepa_uniform"``            → ``"GEPA-Uniform"``
-    Multi-metric run key   ``"gepa_uniform__jiuwen"``    → ``"GEPA-Uniform (jiuwen)"``
+    Single-metric run key  ``"gepa_plain_holistic"``            → ``"GEPA-Plain-Uniform"``
+    Multi-metric run key   ``"gepa_plain_holistic__jiuwen"``    → ``"GEPA-Plain-Uniform (jiuwen)"``
     """
     parts = run_key.split("__", 1)
     mode_label = _MODE_LABELS.get(parts[0], parts[0])
@@ -41,9 +41,9 @@ class DemoTrainingsResults:
     Keys
     ----
     When a single fitness metric is used the key is just the mode name
-    (``"gepa_uniform"``), preserving backward-compatible output directory
+    (``"gepa_plain_holistic"``), preserving backward-compatible output directory
     names.  When multiple metrics are configured the key is
-    ``"<mode>__<metric>"`` (e.g. ``"gepa_uniform__jiuwen"``).
+    ``"<mode>__<metric>"`` (e.g. ``"gepa_plain_holistic__jiuwen"``).
 
     Attributes
     ----------

@@ -10,9 +10,9 @@ class SkillEvolverParams:
                  external_sources: Optional[list] = None,
                  reuse_dataset: bool = False,
                  min_improvement: float = 0.0,
-                 prior_baseline_score_single: Optional[float] = None,
-                 prior_baseline_score_multi: Optional[float] = None,
-                 prior_baseline_dims_multi=None,
+                 prior_baseline_score_holistic: Optional[float] = None,
+                 prior_baseline_score_rubrics: Optional[float] = None,
+                 prior_baseline_dims_rubrics=None,
                  prior_metrics=None,
                  cached_path=None,
                  *,
@@ -29,9 +29,9 @@ class SkillEvolverParams:
         self.config: EvolverConfig = config
         self.reuse_dataset: bool = reuse_dataset
         self.min_improvement: float = min_improvement
-        self.prior_baseline_score_single: Optional[float] = prior_baseline_score_single
-        self.prior_baseline_score_multi: Optional[float] = prior_baseline_score_multi
-        self.prior_baseline_dims_multi = prior_baseline_dims_multi
+        self.prior_baseline_score_holistic: Optional[float] = prior_baseline_score_holistic
+        self.prior_baseline_score_rubrics: Optional[float] = prior_baseline_score_rubrics
+        self.prior_baseline_dims_rubrics = prior_baseline_dims_rubrics
         self.prior_metrics = prior_metrics
         self.cached_path = cached_path
         self.prebuilt_skill: dict = prebuilt_skill

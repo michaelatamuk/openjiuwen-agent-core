@@ -13,8 +13,8 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
     evaluate_baseline_on_holdout,
 )
 
-# Modes that require a multi-objective baseline pre-evaluation.
-_MULTI_MODES = {"gepa_rubric"}
+# Modes that require a multi-rubric baseline pre-evaluation.
+_RUBRIC_MODES = {"gepa_plain_rubrics"}
 
 
 def run_step(shared_evolution_object: SharedEvolutionObjects,
@@ -27,7 +27,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     """Score the baseline skill on holdout for every scoring system that will be used.
 
     Evaluates the single-score baseline unconditionally.  If any mode in
-    *run_modes* requires multi-objective scoring (currently ``"gepa_rubric"``),
+    *run_modes* requires multi-objective scoring (currently ``"gepa_plain_rubrics"``),
     the 5-dimension baseline is also evaluated here so that GEPA runs never
     need to re-evaluate the baseline themselves.
 
@@ -59,8 +59,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
     """
     console.print(f"\n[bold cyan]*** Demo Step 02: Evaluate Baseline Started ***[/bold cyan]")
 
-    needs_multi = bool(run_modes and _MULTI_MODES.intersection(run_modes))
-    modes_label = "single + multi" if needs_multi else "single"
+    needs_rubrics = bool(run_modes and _RUBRIC_MODES.intersection(run_modes))
+    modes_label = "holistic + rubrics" if needs_rubrics else "holistic"
     _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})", console=console)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,13 +70,13 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    eval_model=model,
                                    verbose=verbose)
 
-    single_score, multi_score, multi_dims = evaluate_baseline_on_holdout(
+    single_score, rubrics_score, rubrics_dims = evaluate_baseline_on_holdout(
         shared_evolution_object.baseline_module,
         shared_evolution_object.dataset,
         evolver_config,
         console,
-        needs_multi=needs_multi,
+        needs_rubrics=needs_rubrics,
     )
 
     console.print(f"[bold cyan]*** Demo Step 02: Evaluate Baseline Finished ***[/bold cyan]")
-    return single_score, multi_score, multi_dims
+    return single_score, rubrics_score, rubrics_dims

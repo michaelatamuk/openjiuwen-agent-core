@@ -52,11 +52,11 @@ class Demo:
         Set ``run_modes`` and ``fitness_metrics`` in ``config.json``.
 
         Valid ``run_modes``:
-        * ``"gepa_uniform"``              — plain GEPA, all training examples, threshold gate
+        * ``"gepa_plain_holistic"``             — plain GEPA, all training examples, threshold gate
+        * ``"gepa_plain_rubrics"``               — 5-dimension multi-objective scoring
         * ``"gepa_focused_on_difficulty"`` — TS Example Selector; focuses on discriminating examples
         * ``"gepa_gated"``                — TS Acceptance Gate; requires P(better) ≥ 0.75
         * ``"gepa_full"``                 — both TS levels active simultaneously
-        * ``"gepa_rubric"``               — 5-dimension multi-objective scoring
 
         Valid ``fitness_metrics`` (used inside the GEPA optimizer loop):
         * ``"jiuwen"``  — stop-word-filtered weighted F1 (general-purpose, default)
@@ -87,7 +87,7 @@ class Demo:
                                                  verbose=self._config.verbose))
 
         # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
-        baseline_score_single, baseline_score_multi, multi_baseline_dims = (
+        baseline_score_holistic, baseline_score_rubrics, baseline_rubrics_dims = (
             step_02_evaluate_baseline(shared_evolution_object=shared_evolution_object,
                                       skills_root=params.skills_root,
                                       model=self._config.model,
@@ -99,9 +99,9 @@ class Demo:
         # ── Training passes (Steps 03, 04, 05, 06) ──────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(
             params,
-            baseline_score_single=baseline_score_single,
-            baseline_score_multi=baseline_score_multi,
-            baseline_dims_multi=multi_baseline_dims,
+            baseline_score_holistic=baseline_score_holistic,
+            baseline_score_rubrics=baseline_score_rubrics,
+            baseline_dims_rubrics=baseline_rubrics_dims,
             shared_evolution_object=shared_evolution_object,
             console=console,
         )
@@ -109,8 +109,8 @@ class Demo:
         # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ──────────────────
         if len(trainings_results.runs) >= 2:
             step_07_results_comparison(
-                baseline_score_single,
-                baseline_score_multi,
+                baseline_score_holistic,
+                baseline_score_rubrics,
                 scores=trainings_results.scores,
                 metrics=trainings_results.metrics,
                 ts_batch_size=self._config.ts_batch_size,
@@ -123,8 +123,8 @@ class Demo:
 
         # ── Step 08: Plots ─────────────────────────────────────────────────────
         step_08_plot_results(
-            baseline_score_single,
-            baseline_score_multi,
+            baseline_score_holistic,
+            baseline_score_rubrics,
             scores=trainings_results.scores,
             output_dir=params.workdir / "plots",
             scenario_name=params.skill_name,

@@ -17,8 +17,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _write_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
     SharedEvolutionObjects
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_uniform_or_rubric import \
-    run_step as _step_uniform_or_rubric
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_plain import \
+    run_step as step_03_run_gepa_plain
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_focused_on_difficulty import \
     run_step as _step_focused
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_gated import \
@@ -35,9 +35,9 @@ class DemoTrainings:
             self,
             params: DemoParams,
             shared_evolution_object: SharedEvolutionObjects,
-            baseline_score_single: float = None,
-            baseline_score_multi: float = None,
-            baseline_dims_multi=None,
+            baseline_score_holistic: float = None,
+            baseline_score_rubrics: float = None,
+            baseline_dims_rubrics=None,
             console=None,
     ) -> DemoTrainingsResults:
         """Run every (mode, fitness_metric) combination and return aggregated results.
@@ -46,10 +46,10 @@ class DemoTrainings:
         ``config.fitness_metrics``:
 
         * When ``len(fitness_metrics) == 1``, the run key equals the mode
-          name (``"gepa_uniform"``), keeping output dirs identical to
+          name (``"gepa_plain_holistic"``), keeping output dirs identical to
           the single-metric behaviour.
         * When ``len(fitness_metrics) > 1``, the run key is
-          ``"<mode>__<metric>"`` (e.g. ``"gepa_uniform__jiuwen"``) and the
+          ``"<mode>__<metric>"`` (e.g. ``"gepa_plain_holistic__jiuwen"``) and the
           output dir gets a matching suffix so every combination is stored
           independently.
         """
@@ -72,9 +72,9 @@ class DemoTrainings:
                     output_base=output_base,
                     params=params,
                     shared=shared_evolution_object,
-                    baseline_score_single=baseline_score_single,
-                    baseline_score_multi=baseline_score_multi,
-                    baseline_dims_multi=baseline_dims_multi,
+                    baseline_score_holistic=baseline_score_holistic,
+                    baseline_score_rubrics=baseline_score_rubrics,
+                    baseline_dims_rubrics=baseline_dims_rubrics,
                     console=console,
                 )
                 if mode_scores:
@@ -94,9 +94,9 @@ class DemoTrainings:
         output_base: str,
         params: DemoParams,
         shared: SharedEvolutionObjects,
-        baseline_score_single: float,
-        baseline_score_multi: float,
-        baseline_dims_multi,
+        baseline_score_holistic: float,
+        baseline_score_rubrics: float,
+        baseline_dims_rubrics,
         console,
     ) -> Tuple[List[float], Optional[dict], Path]:
         """Run ``n_runs`` passes of *mode* with *metric*. Returns ``(scores, last_metrics, last_out_dir)``."""
@@ -117,9 +117,9 @@ class DemoTrainings:
                 shared=shared,
                 output_dir=output_dir,
                 ts_state_dir=ts_state_dir,
-                baseline_score_single=baseline_score_single,
-                baseline_score_multi=baseline_score_multi,
-                baseline_dims_multi=baseline_dims_multi,
+                baseline_score_holistic=baseline_score_holistic,
+                baseline_score_rubrics=baseline_score_rubrics,
+                baseline_dims_rubrics=baseline_dims_rubrics,
                 run_index=i,
                 console=console,
             )
@@ -130,7 +130,7 @@ class DemoTrainings:
         elapsed = time.monotonic() - t_start
         label = run_key_label(run_key)
         if len(mode_scores) > 1:
-            print_mode_summary(label, baseline_score_single, mode_scores,
+            print_mode_summary(label, baseline_score_holistic, mode_scores,
                                elapsed_sec=elapsed, console=console)
         else:
             print_mode_timing(label, elapsed, console=console)
@@ -145,9 +145,9 @@ class DemoTrainings:
         shared: SharedEvolutionObjects,
         output_dir: Path,
         ts_state_dir: Path,
-        baseline_score_single: float,
-        baseline_score_multi: float,
-        baseline_dims_multi,
+        baseline_score_holistic: float,
+        baseline_score_rubrics: float,
+        baseline_dims_rubrics,
         run_index: int,
         console,
     ) -> dict:
@@ -165,22 +165,22 @@ class DemoTrainings:
             fitness_metric=metric,
         )
 
-        if mode == "gepa_uniform":
-            return _step_uniform_or_rubric(
+        if mode == "gepa_plain_holistic":
+            return step_03_run_gepa_plain(
                 **common,
                 iterations=self._config.iterations,
-                baseline_score_single=baseline_score_single,
-                scoring_mode="single",
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="holistic",
             ) or {}
 
-        if mode == "gepa_rubric":
-            return _step_uniform_or_rubric(
+        if mode == "gepa_plain_rubric":
+            return step_03_run_gepa_plain(
                 **common,
                 iterations=self._config.iterations,
-                baseline_score_single=baseline_score_single,
-                scoring_mode="multi",
-                baseline_score_multi=baseline_score_multi,
-                baseline_dims_multi=baseline_dims_multi,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="rubric",
+                baseline_score_rubrics=baseline_score_rubrics,
+                baseline_dims_rubrics=baseline_dims_rubrics,
             ) or {}
 
         if mode == "gepa_focused_on_difficulty":
@@ -189,7 +189,7 @@ class DemoTrainings:
                 iterations=self._config.iterations,
                 ts_batch_size=self._config.ts_batch_size,
                 ts_state_dir=ts_state_dir,
-                baseline_score=baseline_score_single,
+                baseline_score_holistic=baseline_score_holistic,
             ) or {}
 
         if mode == "gepa_gated":
@@ -197,7 +197,7 @@ class DemoTrainings:
                 **common,
                 iterations=self._config.iterations,
                 ts_state_dir=ts_state_dir,
-                baseline_score=baseline_score_single,
+                baseline_score_holistic=baseline_score_holistic,
             ) or {}
 
         if mode == "gepa_full":
@@ -207,7 +207,7 @@ class DemoTrainings:
                 ts_batch_size=self._config.ts_batch_size,
                 examples=params.golden_examples,
                 ts_state_dir=ts_state_dir,
-                baseline_score=baseline_score_single,
+                baseline_score_holistic=baseline_score_holistic,
             ) or {}
 
         console.print(f"[yellow]Unknown mode '{mode}' — skipping[/yellow]")

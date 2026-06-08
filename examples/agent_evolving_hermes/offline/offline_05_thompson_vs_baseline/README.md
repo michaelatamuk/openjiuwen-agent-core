@@ -78,7 +78,7 @@ python runner.py
 ```json
 {
   "scenarios":     ["rtos-review"],
-  "run_modes":     ["gepa_uniform", "gepa_rubric"],
+  "run_modes":     ["gepa_plain_holistic", "gepa_plain_rubric"],
   "api_key":       "sk-...",
   "model":         "deepseek/deepseek-chat",
   "api_base":      "https://api.deepseek.com",
@@ -133,12 +133,12 @@ Thompson Sampling (TS) frames each decision as a **multi-armed bandit**: maintai
 
 Running multiple modes side by side on the same skill and scenario lets you isolate the contribution of each TS level:
 
-| Comparison | What it isolates |
-|------------|-----------------|
-| `gepa_uniform` vs `gepa_focused_on_difficulty` | Contribution of focused example selection |
-| `gepa_uniform` vs `gepa_gated` | Contribution of confidence-gated deployment |
-| `gepa_uniform` vs `gepa_full` | Combined TS benefit |
-| `gepa_uniform` vs `gepa_rubric` | Benefit of multi-objective vs single judge |
+| Comparison                                   | What it isolates |
+|----------------------------------------------|-----------------|
+| `gepa_plain_holistic` vs `gepa_focused_on_difficulty` | Contribution of focused example selection |
+| `gepa_plain_holistic` vs `gepa_gated`                 | Contribution of confidence-gated deployment |
+| `gepa_plain_holistic` vs `gepa_full`                  | Combined TS benefit |
+| `gepa_plain_holistic` vs `gepa_plain_rubric` | Benefit of multi-objective vs single judge |
 
 ---
 
@@ -156,8 +156,8 @@ flowchart TD
 
     S1   --> TR[DemoTrainings.run]
 
-    TR   --> M1["gepa_uniform\nGEPA, all examples\nthreshold gate\nsingle scoring"]
-    TR   --> M2["gepa_rubric\nGEPA, all examples\nthreshold gate\nmulti-obj scoring (5 dims)"]
+    TR   --> M1["gepa_plain_holistic\nGEPA, all examples\nthreshold gate\nsingle scoring"]
+    TR   --> M2["gepa_plain_rubric\nGEPA, all examples\nthreshold gate\nmulti-obj scoring (5 dims)"]
     TR   --> M3["gepa_focused_on_difficulty\nGEPA, TS example selector\nthreshold gate\nsingle scoring"]
     TR   --> M4["gepa_gated\nGEPA, all examples\nTS acceptance gate\nsingle scoring"]
     TR   --> M5["gepa_full\nGEPA, TS example selector\nTS acceptance gate\nsingle scoring"]
@@ -196,7 +196,7 @@ flowchart TD
  │      ┌───────────────┼────────────────┬──────────────┐                 │
  │      ▼               ▼                ▼              ▼                 │
  │  ┌───────┐     ┌──────────┐     ┌─────────┐   ┌────────┐             │
- │  │ gepa_uniform │     │  gepa_focused_on_difficulty │     │ gepa_gated │   │ gepa_full  │  ...        │
+ │  │ gepa_plain │     │  gepa_focused_on_difficulty │     │ gepa_gated │   │ gepa_full  │  ...        │
  │  │ GEPA  │     │ GEPA +   │     │ GEPA +  │   │ GEPA + │             │
  │  │ plain │     │ TS-TrainingSelector    │     │ TS-AcceptanceGate   │   │ GEPA-Full  │             │
  │  └───┬───┘     └────┬─────┘     └────┬────┘   └───┬────┘             │
@@ -235,7 +235,7 @@ offline_05_thompson_vs_baseline/
 │   ├── steps/
 │   │   ├── step_00_save_skill_and_dataset.py   Write baseline skill + golden examples
 │   │   ├── step_01_evaluate_baseline.py        Holdout eval before any training
-│   │   ├── step_02_run_gepa_uniform.py      gepa_uniform / gepa_rubric pass
+│   │   ├── step_02_run_gepa_plain.py      gepa_plain_holistic / gepa_plain_rubric pass
 │   │   ├── step_03_run_gepa_focused_on_difficulty.py gepa_focused_on_difficulty pass
 │   │   ├── step_04_run_gepa_gated.py gepa_gated pass
 │   │   ├── step_05_run_gepa_full.py  gepa_full pass
@@ -289,13 +289,13 @@ skill_evolver_stages/
 
 All modes start from the **identical baseline skill** and the **identical pre-computed baseline score** (evaluated once in Step 1).  The only differences are which TS levels are active and which scoring judge is used.
 
-| Mode | TS-TrainingSelector Selector | TS-AcceptanceGate Gate | Scoring | Purpose |
-|------|:--------------:|:----------:|---------|---------|
-| `gepa_uniform` | — | — | single | Pure GEPA baseline — control group |
-| `gepa_rubric` | — | — | multi (5-dim) | Multi-objective GEPA without TS |
+| Mode                         | TS-TrainingSelector Selector | TS-AcceptanceGate Gate | Scoring | Purpose |
+|------------------------------|:--------------:|:----------:|---------|---------|
+| `gepa_plain_holistic`        | — | — | single | Pure GEPA baseline — control group |
+| `gepa_plain_rubric`          | — | — | multi (5-dim) | Multi-objective GEPA without TS |
 | `gepa_focused_on_difficulty` | ✓ | — | single | TS example selection, threshold acceptance |
-| `gepa_gated` | — | ✓ | single | All examples, TS confidence gate |
-| `gepa_full` | ✓ | ✓ | single | Both TS levels combined |
+| `gepa_gated`                 | — | ✓ | single | All examples, TS confidence gate |
+| `gepa_full`                  | ✓ | ✓ | single | Both TS levels combined |
 
 **How to configure which modes run:**
 

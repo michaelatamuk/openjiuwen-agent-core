@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from typing import List
 
 # All valid run-mode identifiers, in canonical order.
-ALL_MODES: List[str] = ["gepa_uniform", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full", "gepa_rubric"]
+ALL_MODES: List[str] = ["gepa_plain_holistic",
+                        "gepa_plain_rubrics",
+                        "gepa_focused_on_difficulty",
+                        "gepa_gated",
+                        "gepa_full",]
 
 
 @dataclass
@@ -24,7 +28,7 @@ class DemoConfig:
         returned by :func:`scenarios.scenario.list_scenarios`.
     run_modes:
         Which GEPA training passes to execute.  Valid values:
-        ``"gepa_uniform"``, ``"gepa_focused_on_difficulty"``, ``"gepa_gated"``, ``"gepa_full"``, ``"gepa_rubric"``.
+        ``" "gepa_plain_holistic""``, ''"gepa_plain_rubrics", ``"gepa_focused_on_difficulty"``, ``"gepa_gated"``, ``"gepa_full"````.
         Pass ``[]`` for a baseline-only evaluation (no GEPA training).
     api_key:
         API key for the LLM provider (DeepSeek by default).
@@ -56,7 +60,7 @@ class DemoConfig:
         Custom: dotted import path (e.g.
         ``"examples.agent_evolving_hermes.offline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"``).
         When multiple values are given each mode runs once per metric, producing
-        independent output directories (e.g. ``output_gepa_uniform__jiuwen``).
+        independent output directories (e.g. ``output_gepa_plain_holistic__jiuwen``).
     """
 
     scenario_names: List[str]

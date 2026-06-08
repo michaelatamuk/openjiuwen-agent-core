@@ -21,10 +21,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 # ── Colours (ANSI escape codes, skipped on terminals that don't support them) ─
 _ANSI = {
     "Pre-train":      "\033[90m",   # dark grey (back-compat)
-    "Base-Holistic":  "\033[90m",   # dark grey  — single baseline
-    "Base-Rubric":    "\033[36m",   # cyan       — multi baseline
-    "GEPA-Uniform":   "\033[94m",   # bright blue
-    "GEPA-Rubric":    "\033[96m",   # bright cyan
+    "Base-Holistic":  "\033[90m",   # dark grey  — holistic baseline
+    "Base-Rubrics":    "\033[36m",   # cyan — rubrics baseline
+    "GEPA-Holistic":   "\033[94m",   # bright blue
+    "GEPA-Rubrics":    "\033[96m",   # bright cyan
     "GEPA-Focused":   "\033[93m",   # bright yellow
     "GEPA-Gated":     "\033[92m",   # bright green
     "GEPA-Full":      "\033[95m",   # bright magenta
@@ -79,15 +79,15 @@ def _bar(value: float, max_value: float, width: int = _BAR_W) -> str:
 # Chart 1: Score bar chart
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_score_bars(baseline_score: float,
+def print_score_bars(baseline_score_holistic: float,
                      mode_data: List[Tuple[str, List[float]]],
                      multi: bool = False,
-                     baseline_score_multi: Optional[float] = None,
+                     baseline_score_rubrics: Optional[float] = None,
                      console=None) -> None:
     """Print a horizontal bar chart of holdout scores to stdout."""
-    pre_items: list[tuple[str, List[float]]] = [("Base-Holistic", [baseline_score])]
-    if baseline_score_multi is not None:
-        pre_items.append(("Base-Rubric", [baseline_score_multi]))
+    pre_items: list[tuple[str, List[float]]] = [("Base-Holistic", [baseline_score_holistic])]
+    if baseline_score_rubrics is not None:
+        pre_items.append(("Base-Rubrics", [baseline_score_rubrics]))
     all_items: list[tuple[str, List[float]]] = pre_items + mode_data
 
     max_score = max(mean(sc) for _, sc in all_items)
@@ -238,8 +238,8 @@ def print_ci_forest(ref_scores: List[float],
 # Combined entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_ascii_charts(baseline_score_single: float,
-                       baseline_score_multi: Optional[float],
+def print_ascii_charts(baseline_score_holistic: float,
+                       baseline_score_rubrics: Optional[float],
                        scores: Dict[str, List[float]],
                        n_runs: int = 1,
                        console=None) -> None:
@@ -248,8 +248,8 @@ def print_ascii_charts(baseline_score_single: float,
     Parameters
     ----------
     scores:
-        Dict keyed by run key (e.g. ``"gepa_uniform"`` or
-        ``"gepa_uniform__jiuwen"``).
+        Dict keyed by run key (e.g. ``"gepa_plain_holistic"`` or
+        ``"gepa_plain_holistic__jiuwen"``).
     """
     mode_data: list[tuple[str, List[float]]] = [
         (run_key_label(k), v) for k, v in scores.items() if v
@@ -260,19 +260,19 @@ def print_ascii_charts(baseline_score_single: float,
     multi = n_runs > 1
 
     # Chart 1 — always
-    print_score_bars(baseline_score_single, mode_data, multi=multi,
-                     baseline_score_multi=baseline_score_multi, console=console)
+    print_score_bars(baseline_score_holistic, mode_data, multi=multi,
+                     baseline_score_rubrics=baseline_score_rubrics, console=console)
 
     # Chart 2 — only when multiple runs
     if multi:
-        sparkline_baseline = baseline_score_multi if baseline_score_multi is not None else baseline_score_single
+        sparkline_baseline = baseline_score_rubrics if baseline_score_rubrics is not None else baseline_score_holistic
         print_run_sparklines(sparkline_baseline, mode_data, n_runs, console)
 
-    # Chart 3 — only when multiple runs AND a gepa_uniform entry exists
+    # Chart 3 — only when multiple runs AND a gepa_plain_holistic entry exists
     if multi:
         uniform_entry = next(
             ((run_key_label(k), v) for k, v in scores.items()
-             if run_key_mode(k) == "gepa_uniform" and v),
+             if run_key_mode(k) == "gepa_plain_holistic" and v),
             None,
         )
         if uniform_entry and len(mode_data) > 1:

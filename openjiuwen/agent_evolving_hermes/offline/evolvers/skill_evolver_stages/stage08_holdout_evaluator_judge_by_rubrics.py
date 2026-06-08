@@ -49,7 +49,7 @@ class MultiRubricFitnessScore:
 class MultiRubricsLLMJudge:
     """LLM-as-judge scorer with 5 independent quality dimensions.
 
-    Used only when ``scoring_mode="multi"``.  The existing ``LLMJudge`` is
+    Used only when ``scoring_mode="rubrics"``.  The existing ``LLMJudge`` is
     untouched; this class is purely additive.
     """
 

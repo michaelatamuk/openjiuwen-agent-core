@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+from offline import HolisticLLMJudge
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
@@ -14,7 +15,7 @@ from ..skill_evolver_stages.stage08_holdout_evaluator_judge_by_rubrics import (
 
 # ── Private helpers ────────────────────────────────────────────────────────────
 
-def _score_module_single(
+def _score_module_holistic(
     module: SkillModule,
     holdout: list,
     judge: HolisticLLMJudge,
@@ -42,7 +43,7 @@ def _score_module_single(
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def _eval_multi_pass(
+def _eval_rubrics_pass(
     module: SkillModule,
     holdout: list,
     multi_judge: MultiRubricsLLMJudge,
@@ -94,14 +95,14 @@ def evaluate_on_holdout(
     config: EvolverConfig,
     console,
     prior_metrics: Optional[dict] = None,
-    prior_baseline_score_single: Optional[float] = None,
-    scoring_mode: str = "single",
-    prior_baseline_score_multi: Optional[float] = None,
+    prior_baseline_score_holistic: Optional[float] = None,
+    scoring_mode: str = "holistic",
+    prior_baseline_score_rubrics: Optional[float] = None,
 ) -> Tuple:
     """Score the evolved module on holdout.
 
     Returns a 5-tuple: (baseline_score, evolved_score, improvement, cross_run_delta, multi_dims).
-    multi_dims is None when scoring_mode="single".
+    multi_dims is None when scoring_mode="holistic".
     Falls back to val split if holdout is empty.
     """
     console.print("\n[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Started ~~~[/blue]")
@@ -110,11 +111,11 @@ def evaluate_on_holdout(
     n_holdout = len(holdout)
 
     # ── SINGLE mode ───────────────────────────────────────────────────────────
-    if scoring_mode != "multi":
+    if scoring_mode != "rubrics":
         judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
-        if prior_baseline_score_single is not None:
-            baseline_score = prior_baseline_score_single
+        if prior_baseline_score_holistic is not None:
+            baseline_score = prior_baseline_score_holistic
             console.print(
                 f"[dim]  Pre-train score (pre-computed): {baseline_score:.4f}"
                 f"  — skipping re-evaluation[/dim]"
@@ -124,7 +125,7 @@ def evaluate_on_holdout(
                 f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
                 f"[dim]({n_holdout} examples, cached)[/dim]"
             )
-            baseline_score = _score_module_single(
+            baseline_score = _score_module_holistic(
                 baseline_module, holdout, judge, n_holdout, console, "pre-train skill"
             )
             console.print(f"  Pre-train holdout score: {baseline_score:.4f}  ({n_holdout} examples)")
@@ -133,7 +134,7 @@ def evaluate_on_holdout(
             f"[bold]Evaluating evolved skill on holdout…[/bold] "
             f"[dim]({n_holdout} examples, ~25s each, no cache)[/dim]"
         )
-        evolved_score = _score_module_single(
+        evolved_score = _score_module_holistic(
             optimized_module, holdout, judge, n_holdout, console, "evolved skill"
         )
         console.print(f"  Evolved holdout score:   {evolved_score:.4f}  ({n_holdout} examples)")
@@ -150,9 +151,9 @@ def evaluate_on_holdout(
     multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     dim_names = MultiRubricFitnessScore.DIM_NAMES
 
-    if prior_baseline_score_multi is not None:
+    if prior_baseline_score_rubrics is not None:
         console.print(
-            f"[dim]  Pre-train score (multi, pre-computed): {prior_baseline_score_multi:.4f}"
+            f"[dim]  Pre-train score (multi, pre-computed): {prior_baseline_score_rubrics:.4f}"
             f"  — skipping re-evaluation[/dim]"
         )
     else:
@@ -160,27 +161,27 @@ def evaluate_on_holdout(
             f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
             f"[dim]({n_holdout} examples, multi-objective)[/dim]"
         )
-        prior_baseline_score_multi, _ = _eval_multi_pass(
+        prior_baseline_score_rubrics, _ = _eval_rubrics_pass(
             baseline_module, holdout, multi_judge, dim_names, "pre-train skill", console
         )
-        console.print(f"  Pre-train holdout score: {prior_baseline_score_multi:.4f}  ({n_holdout} examples)")
+        console.print(f"  Pre-train holdout score: {prior_baseline_score_rubrics:.4f}  ({n_holdout} examples)")
 
     console.print(
         f"[bold]Evaluating evolved skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, ~25s each, multi-objective)[/dim]"
     )
-    evolved_composite, evolved_dims = _eval_multi_pass(
+    evolved_composite, evolved_dims = _eval_rubrics_pass(
         optimized_module, holdout, multi_judge, dim_names, "evolved skill", console
     )
     console.print(f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)")
 
-    improvement = evolved_composite - prior_baseline_score_multi
+    improvement = evolved_composite - prior_baseline_score_rubrics
     cross_run_delta = None
     if prior_metrics and "evolved_score" in prior_metrics:
         cross_run_delta = round(evolved_composite - prior_metrics["evolved_score"], 4)
 
     console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Multi) ~~~[/blue]")
-    return prior_baseline_score_multi, evolved_composite, improvement, cross_run_delta, evolved_dims
+    return prior_baseline_score_rubrics, evolved_composite, improvement, cross_run_delta, evolved_dims
 
 
 def evaluate_baseline_on_holdout(
@@ -188,7 +189,7 @@ def evaluate_baseline_on_holdout(
     dataset: EvalDataset,
     config: EvolverConfig,
     console,
-    needs_multi: bool = False,
+    needs_rubrics: bool = False,
 ) -> Tuple[float, Optional[float], Optional[Dict[str, float]]]:
     """Score only the baseline (pre-GEPA) module on holdout.
 
@@ -198,31 +199,31 @@ def evaluate_baseline_on_holdout(
     the baseline is never re-evaluated during evolution.
 
     Returns:
-        (single_score, multi_score, multi_dims).
+        (holistic_score, multi_score, multi_dims).
         multi_score and multi_dims are None when needs_multi is False.
     """
     holdout = dataset.holdout or dataset.val
     n_holdout = len(holdout)
     judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
-    single_score = round(
-        _score_module_single(baseline_module, holdout, judge, n_holdout, console, "pre-train (single)"), 4
+    holistic_score = round(
+        _score_module_holistic(baseline_module, holdout, judge, n_holdout, console, "pre-train (single)"), 4
     )
-    console.print(f"  Pre-train holdout score (single): {single_score:.4f}  ({n_holdout} examples)")
+    console.print(f"  Pre-train holdout score (holistic): {holistic_score:.4f}  ({n_holdout} examples)")
 
-    if not needs_multi:
-        return single_score, None, None
+    if not needs_rubrics:
+        return holistic_score, None, None
 
-    multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    multi_rubric_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
     console.print(
         f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples, multi-objective, pre-GEPA)[/dim]"
+        f"[dim]({n_holdout} examples, multi-rubric, pre-GEPA)[/dim]"
     )
-    _, dims = _eval_multi_pass(
-        baseline_module, holdout, multi_judge,
+    _, rubrics_dims = _eval_rubrics_pass(
+        baseline_module, holdout, multi_rubric_judge,
         MultiRubricFitnessScore.DIM_NAMES, "pre-train skill", console,
     )
-    b_list = [dims[d] for d in MultiRubricFitnessScore.DIM_NAMES]
-    multi_score = AdaptiveRubricWeights().aggregate(b_list)
-    console.print(f"  Pre-train holdout score (multi): {multi_score:.4f}  ({n_holdout} examples)")
-    return single_score, multi_score, dims
+    b_list = [rubrics_dims[d] for d in MultiRubricFitnessScore.DIM_NAMES]
+    rubrics_score = AdaptiveRubricWeights().aggregate(b_list)
+    console.print(f"  Pre-train holdout score (rubric): {rubrics_score:.4f}  ({n_holdout} examples)")
+    return holistic_score, rubrics_score, rubrics_dims

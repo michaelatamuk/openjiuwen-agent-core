@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-def run_step(baseline_score_single: float,
-             baseline_score_multi: float,
+def run_step(baseline_score_holistic: float,
+             baseline_score_rubrics: float,
              *,
              scores: Dict[str, List[float]],
              output_dir: Path,
@@ -19,8 +19,8 @@ def run_step(baseline_score_single: float,
     Parameters
     ----------
     scores:
-        Dict keyed by run key (e.g. ``"gepa_uniform"`` or
-        ``"gepa_uniform__jiuwen"``).  Passed directly to the plotters.
+        Dict keyed by run key (e.g. ``"gepa_plain_holistic"`` or
+        ``"gepa_plain_holistic__jiuwen"``).  Passed directly to the plotters.
 
     ASCII charts are always shown (no extra dependencies).
     The PNG is skipped silently if matplotlib is not installed.
@@ -36,8 +36,8 @@ def run_step(baseline_score_single: float,
         print_ascii_charts,
     )
     print_ascii_charts(
-        baseline_score_single=baseline_score_single,
-        baseline_score_multi=baseline_score_multi,
+        baseline_score_holistic=baseline_score_holistic,
+        baseline_score_rubrics=baseline_score_rubrics,
         scores=scores,
         n_runs=n_runs,
         console=console,
@@ -49,8 +49,8 @@ def run_step(baseline_score_single: float,
             plot_results,
         )
         path = plot_results(
-            baseline_score_single=baseline_score_single,
-            baseline_score_multi=baseline_score_multi,
+            baseline_score_holistic=baseline_score_holistic,
+            baseline_score_rubrics=baseline_score_rubrics,
             scores=scores,
             output_dir=output_dir,
             scenario_name=scenario_name,

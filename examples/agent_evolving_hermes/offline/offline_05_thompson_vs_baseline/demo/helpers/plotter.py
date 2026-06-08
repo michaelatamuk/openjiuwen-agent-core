@@ -29,8 +29,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 _COLORS = {
     "Pre-train":    "#9E9E9E",
     "Pre-train-M":  "#607D8B",
-    "GEPA-Uniform": "#2196F3",
-    "GEPA-Rubric":  "#00BCD4",
+    "GEPA-Holistic": "#2196F3",
+    "GEPA-Rubrics":  "#00BCD4",
     "GEPA-Focused": "#FF9800",
     "GEPA-Gated":   "#4CAF50",
     "GEPA-Full":    "#E91E63",
@@ -59,8 +59,8 @@ def _color(label: str) -> str:
 
 
 def plot_results(
-    baseline_score_single: float,
-    baseline_score_multi: Optional[float],
+    baseline_score_holistic: float,
+    baseline_score_rubrics: Optional[float],
     scores: Dict[str, List[float]],
     output_dir: Path,
     scenario_name: str = "",
@@ -71,8 +71,8 @@ def plot_results(
     Parameters
     ----------
     scores:
-        Dict keyed by run key (e.g. ``"gepa_uniform"`` or
-        ``"gepa_uniform__jiuwen"``).
+        Dict keyed by run key (e.g. ``"gepa_plain_holistic"`` or
+        ``"gepa_plain_holistic__jiuwen"``).
 
     Returns the path of the saved file.
     """
@@ -92,7 +92,7 @@ def plot_results(
     # Find reference GEPA-Uniform entry for CI panel
     uniform_entry: Optional[tuple[str, List[float]]] = next(
         ((run_key_label(k), v) for k, v in scores.items()
-         if run_key_mode(k) == "gepa_uniform" and v),
+         if run_key_mode(k) == "gepa_plain_holistic" and v),
         None,
     )
     show_ci = multi and uniform_entry is not None and len(mode_data) > 1
@@ -114,7 +114,7 @@ def plot_results(
     ax = axes[panel]; panel += 1
 
     all_labels = ["Pre-train"] + [lbl for lbl, _ in mode_data]
-    all_means  = [baseline_score_single] + [mean(sc) for _, sc in mode_data]
+    all_means  = [baseline_score_holistic] + [mean(sc) for _, sc in mode_data]
     all_stds   = [0.0] + ([std(sc) for _, sc in mode_data] if multi else [0.0] * len(mode_data))
     colors     = [_color(lbl) for lbl in all_labels]
 
@@ -138,10 +138,10 @@ def plot_results(
             lbl, ha="center", va="bottom", fontsize=8.5,
         )
 
-    ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
+    ax.axhline(baseline_score_holistic, color=_color("Pre-train"), linestyle="--",
                linewidth=1.2, alpha=0.6, zorder=2, label="Pre-train (single)")
-    if baseline_score_multi is not None:
-        ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
+    if baseline_score_rubrics is not None:
+        ax.axhline(baseline_score_rubrics, color=_color("Pre-train-M"), linestyle=":",
                    linewidth=1.2, alpha=0.6, zorder=2, label="Pre-train (multi)")
     ax.set_xticks(list(x))
     ax.set_xticklabels(all_labels, fontsize=9, rotation=15 if len(all_labels) > 6 else 0,
@@ -161,10 +161,10 @@ def plot_results(
         ax = axes[panel]; panel += 1
 
         run_xs = list(range(1, n_runs + 1))
-        ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
+        ax.axhline(baseline_score_holistic, color=_color("Pre-train"), linestyle="--",
                    linewidth=1.2, alpha=0.5, label="Pre-train (single)", zorder=2)
-        if baseline_score_multi is not None:
-            ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
+        if baseline_score_rubrics is not None:
+            ax.axhline(baseline_score_rubrics, color=_color("Pre-train-M"), linestyle=":",
                        linewidth=1.2, alpha=0.5, label="Pre-train (multi)", zorder=2)
 
         for lbl, sc in mode_data:

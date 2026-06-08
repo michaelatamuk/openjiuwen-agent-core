@@ -57,8 +57,8 @@ class DemoParams:
         return self.workdir / "output_baseline"
 
     @property
-    def output_gepa_uniform(self) -> Path:
-        return self.workdir / "output_gepa_uniform"
+    def output_gepa_plain_holistic(self) -> Path:
+        return self.workdir / "output_gepa_plain_holistic"
 
     @property
     def output_gepa_focused_on_difficulty(self) -> Path:

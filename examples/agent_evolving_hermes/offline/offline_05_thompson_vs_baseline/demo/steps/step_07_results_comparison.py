@@ -16,24 +16,24 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 # Per-mode acceptance gate type
 _GATE = {
-    "gepa_uniform":               "threshold",
+    "gepa_plain_holistic": "threshold",
+    "gepa_plain_rubrics": "threshold",
     "gepa_full":                  "TS gate",
     "gepa_focused_on_difficulty": "threshold",
     "gepa_gated":                 "TS gate",
-    "gepa_rubric":                "threshold",
 }
 # Per-mode example selector type (placeholder for ts_batch_size, filled at runtime)
 _SEL_TMPL = {
-    "gepa_uniform":               "all train",
+    "gepa_plain_holistic": "all train",
+    "gepa_plain_rubrics": "all train",
     "gepa_full":                  "top {n} (TS)",
     "gepa_focused_on_difficulty": "top {n} (TS)",
     "gepa_gated":                 "all train",
-    "gepa_rubric":                "all train",
 }
 
 
-def run_step(baseline_score_single: float,
-             baseline_score_multi: Optional[float],
+def run_step(baseline_score_holistic: float,
+             baseline_score_rubrics: Optional[float],
              *,
              scores: Dict[str, List[float]],
              metrics: Dict[str, Optional[dict]],
@@ -44,7 +44,7 @@ def run_step(baseline_score_single: float,
     Parameters
     ----------
     scores:
-        Dict keyed by run key (e.g. ``"gepa_uniform"`` or ``"gepa_uniform__jiuwen"``).
+        Dict keyed by run key (e.g. ``"gepa_plain_holistic"`` or ``"gepa_plain_holistic__jiuwen"``).
         Each value is a list of per-run holdout scores.
     metrics:
         Dict keyed by the same run keys; each value is the last-run metrics dict.
@@ -59,14 +59,14 @@ def run_step(baseline_score_single: float,
             mode_data.append((run_key, run_key_label(run_key), sc, metrics.get(run_key)))
 
     ran_labels = [label for _, label, _, _ in mode_data]
-    pre_labels = ["Base-Holistic", "Base-Rubric"] if baseline_score_multi is not None else ["Base-Holistic"]
+    pre_labels = ["Base-Holistic", "Base-Rubrics"] if baseline_score_rubrics is not None else ["Base-Holistic"]
     all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
     _banner("COMPARISON — " + "  ·  ".join(all_labels), console=console)
 
     if not mode_data:
-        console.print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
-        if baseline_score_multi is not None:
-            console.print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
+        console.print(f"\n  Pre-training single holdout score: {baseline_score_holistic:.4f}  (no training modes ran)")
+        if baseline_score_rubrics is not None:
+            console.print(f"  Pre-training multi holdout score:  {baseline_score_rubrics:.4f}  (no training modes ran)")
         console.print(f"[bold cyan]*** Demo Step 07: Compare Results Finished - no data ***[/bold cyan]")
         return
 
@@ -79,10 +79,10 @@ def run_step(baseline_score_single: float,
 
     # Build cols list: (display_label, scores_or_None, metrics_or_None, base_score)
     cols: list[tuple[str, Optional[list[float]], Optional[dict], float]] = [
-        ("Base-Holistic", None, None, baseline_score_single),
+        ("Base-Holistic", None, None, baseline_score_holistic),
     ]
-    if baseline_score_multi is not None:
-        cols.append(("Base-Rubric", None, None, baseline_score_multi))
+    if baseline_score_rubrics is not None:
+        cols.append(("Base-Rubrics", None, None, baseline_score_rubrics))
     cols += [(label, sc, m, 0.0) for _, label, sc, m in mode_data]
 
     # Header / divider
@@ -115,9 +115,9 @@ def run_step(baseline_score_single: float,
             m2.get("baseline_score")
             if m2 and "baseline_score" in m2
             else (
-                (baseline_score_multi if baseline_score_multi is not None else baseline_score_single)
-                if mode_part == "gepa_rubric"
-                else baseline_score_single
+                (baseline_score_rubrics if baseline_score_rubrics is not None else baseline_score_holistic)
+                if mode_part == "gepa_plain_rubric"
+                else baseline_score_holistic
             )
         )
         d = mean(sc2) - mode_baseline
@@ -201,10 +201,10 @@ def run_step(baseline_score_single: float,
     console.print(mean_row)
     console.print(std_row)
 
-    # Bootstrap CI vs first "gepa_uniform" entry (if present and n_runs > 1)
-    uniform_entries = [(rk, sc) for rk, _, sc, _ in mode_data if run_key_mode(rk) == "gepa_uniform"]
-    if uniform_entries and len(mode_data) > 1:
-        ref_key, ref_scores = uniform_entries[0]
+    # Bootstrap CI vs first "gepa_plain_holistic" entry (if present and n_runs > 1)
+    plain_entries = [(rk, sc) for rk, _, sc, _ in mode_data if run_key_mode(rk) == "gepa_plain_holistic"]
+    if plain_entries and len(mode_data) > 1:
+        ref_key, ref_scores = plain_entries[0]
         ref_label = run_key_label(ref_key)
         console.print(f"\n  Bootstrap 95% CI vs {ref_label} ({n_runs} runs, paired):")
         for rk, label, sc, _ in mode_data:

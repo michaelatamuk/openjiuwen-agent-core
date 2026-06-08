@@ -61,9 +61,9 @@ class EvolverConfig:
     create_pr: bool = False                        # Create a git PR with result?
 
     # ── Multi-objective scoring ───────────────────────────────────────────────
-    # "single" — single-scalar composite score (default, unchanged behaviour)
-    # "multi"    — 5-dimension scoring with no-regression rule + dynamic weights
-    scoring_mode: str = "single"
+    # "holistic" — single-scalar composite score (default, unchanged behaviour)
+    # "rubrics"    — 5-dimension scoring with no-regression rule + dynamic weights
+    scoring_mode: str = "holistic"
 
     # ── Fitness metric (fast proxy used inside the GEPA optimizer loop) ───────
     # Built-ins: "jiuwen" (stop-word-filtered F1, general-purpose, default),

@@ -91,16 +91,16 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
                             params.config,
                             params.console,
                             params.prior_metrics,
-                            prior_baseline_score_single=params.prior_baseline_score_single,
-                            scoring_mode=getattr(params.config, "scoring_mode", "single"),
-                            prior_baseline_score_multi=params.prior_baseline_score_multi)
+                            prior_baseline_score_holistic=params.prior_baseline_score_holistic,
+                            scoring_mode=params.config.scoring_mode,
+                            prior_baseline_score_rubrics=params.prior_baseline_score_rubrics)
 
     # ── Step 8b: Multi-rubric processing ──────────────────────────────────
     multi_rubrics_state = None
-    if getattr(params.config, "scoring_mode", "single") == "multi" and evolved_dims_multi is not None:
+    if params.config.scoring_mode == "rubrics" and evolved_dims_multi is not None:
         multi_rubrics_state_path = params.config.output_dir / "multi_rubrics_state.json"
         multi_rubrics_state = AdaptiveRubricWeights.load_or_create(multi_rubrics_state_path)
-        b_list = [params.prior_baseline_dims_multi[d] for d in MultiRubricFitnessScore.DIM_NAMES]
+        b_list = [params.prior_baseline_dims_rubrics[d] for d in MultiRubricFitnessScore.DIM_NAMES]
         e_list = [evolved_dims_multi[d] for d in MultiRubricFitnessScore.DIM_NAMES]
 
         nr_passed, failed_dims = multi_rubrics_state.no_regression_passed(e_list, b_list)
@@ -148,7 +148,7 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
                           len(evolved_text),
                           params.console,
                           constraint_checks=evolved_checks,
-                          prior_baseline_dims_multi=params.prior_baseline_dims_multi,
+                          prior_baseline_dims_multi=params.prior_baseline_dims_rubrics,
                           evolved_dims_multi=evolved_dims_multi,
                           mo_weights=multi_rubrics_state.weights if multi_rubrics_state is not None else None)
 
