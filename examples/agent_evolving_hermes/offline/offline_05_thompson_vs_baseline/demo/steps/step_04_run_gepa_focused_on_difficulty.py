@@ -9,12 +9,11 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _read_latest_evolved
 
 
-
 def run_step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_focused_on_difficulty, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
-         prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
-         prebuilt_trainset=None, prebuilt_valset=None, console=None):
+         *, prebuilt_skill, prebuilt_dataset, prebuilt_baseline_module,
+         prebuilt_trainset, prebuilt_valset, console=None):
     console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,

@@ -100,9 +100,9 @@ class Demo:
                                                                       baseline_score_single=baseline_score_single,
                                                                       baseline_score_multi=baseline_score_multi,
                                                                       baseline_dims_multi=multi_baseline_dims,
-                                                                      shared=shared,
+                                                                      shared_evolution_object=shared,
                                                                       console=console
-        )
+                                                                      )
 
         # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:

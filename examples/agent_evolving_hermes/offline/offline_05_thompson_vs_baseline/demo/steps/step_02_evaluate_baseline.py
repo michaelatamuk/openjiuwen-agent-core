@@ -10,15 +10,6 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
     MultiObjectiveLLMJudge, MultiObjectiveFitnessScore
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, LLMJudge
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
-    find_and_load_skill,
-)
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder import (
-    build_or_load_dataset,
-)
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
-    configure_dspy_and_prepare_sets,
-)
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage08_holdout_evaluator import (
     _eval_multi_pass,
 )
@@ -34,7 +25,7 @@ def run_step(skills_root: Path,
              output_dir: Path,
              verbose: bool = False,
              run_modes: Optional[List[str]] = None,
-             prebuilt_skill: Optional[dict] = None,
+             prebuilt_skill: dict = None,
              prebuilt_dataset = None,
              prebuilt_baseline_module = None,
              console = None
@@ -64,14 +55,11 @@ def run_step(skills_root: Path,
         baseline evaluation is performed.  Pass ``None`` / ``[]`` to
         skip multi evaluation.
     prebuilt_skill:
-        Pre-built skill dict from step_01_build_skill_dataset_and_dspy.  When provided,
-        ``find_and_load_skill`` is skipped.
+        Skill dict built by step_01_build_skill_dataset_and_dspy.
     prebuilt_dataset:
-        Pre-built EvalDataset from step_01_build_skill_dataset_and_dspy.  When provided,
-        ``build_or_load_dataset`` is skipped.
+        EvalDataset built by step_01_build_skill_dataset_and_dspy.
     prebuilt_baseline_module:
-        Pre-built SkillModule from step_01_build_skill_dataset_and_dspy.  When provided,
-        ``configure_dspy_and_prepare_sets`` is skipped.
+        SkillModule built by step_01_build_skill_dataset_and_dspy.
 
     Returns
     -------
@@ -97,32 +85,9 @@ def run_step(skills_root: Path,
         verbose=verbose,
     )
 
-    # ── Load skill + build dataset (shared by both scoring paths) ─────────
-    if prebuilt_skill is not None:
-        skill = prebuilt_skill
-    else:
-        skill, _ = find_and_load_skill(skill_name, evolver_config, console)
-
-    if prebuilt_dataset is not None:
-        dataset = prebuilt_dataset
-    else:
-        dataset, _ = build_or_load_dataset(
-            skill_name=skill_name,
-            skill_raw=skill["raw"],
-            eval_source="golden",
-            external_sources=None,
-            config=evolver_config,
-            output_dir=output_dir,
-            reuse_dataset=False,
-            console=console,
-        )
-
-    if prebuilt_baseline_module is not None:
-        baseline_module = prebuilt_baseline_module
-    else:
-        baseline_module, _, _ = configure_dspy_and_prepare_sets(
-            skill["raw"], dataset, evolver_config, console
-        )
+    # ── Shared objects from step_01_build_skill_dataset_and_dspy ──────────
+    dataset = prebuilt_dataset
+    baseline_module = prebuilt_baseline_module
 
     # ── Single-score evaluation ───────────────────────────────────────────
     judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)

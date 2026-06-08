@@ -31,75 +31,87 @@ class DemoTrainings:
     def run(
             self,
             params: DemoParams,
+            shared_evolution_object: SharedEvolutionObjects,
             baseline_score_single: float = None,
             baseline_score_multi: float = None,
             baseline_dims_multi = None,
-            shared: SharedEvolutionObjects = None,
             console=None
     ) -> DemoTrainingsResults:
         runs: list[tuple[str, object]] = []
 
         # ── gepa_uniform ─────────────────────────────────────────────────────────────
-        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = self._run_gepa_uniform(
-            params, baseline_score_single,
-            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
-            shared=shared, console=console
-        )
+        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = (
+            self._run_gepa_uniform(params=params,
+                                   shared_evolution_object=shared_evolution_object,
+                                   baseline_score=baseline_score_single,
+                                   baseline_score_multi=baseline_score_multi,
+                                   baseline_dims_multi=baseline_dims_multi,
+                                   console=console))
         if scores_gepa_uniform:
             runs.append(("GEPA-Uniform", last_out_gepa_uniform))
 
         # ── gepa_rubric ───────────────────────────────────────────────────────
-        scores_gepa_rubric, metrics_gepa_rubric, last_out_gepa_rubric = self._run_gepa_rubric(
-            params, baseline_score_single, baseline_score_multi=baseline_score_multi,
-            baseline_dims_multi=baseline_dims_multi, shared=shared, console=console
-        )
+        scores_gepa_rubric, metrics_gepa_rubric, last_out_gepa_rubric = (
+            self._run_gepa_rubric(params=params,
+                                  shared_evolution_object=shared_evolution_object,
+                                  baseline_score_single=baseline_score_single,
+                                  baseline_score_multi=baseline_score_multi,
+                                  baseline_dims_multi=baseline_dims_multi,
+                                  console=console))
         if scores_gepa_rubric:
             runs.append(("GEPA-Rubric", last_out_gepa_rubric))
 
         # ── gepa_focused_on_difficulty ───────────────────────────────────────────────────────────
-        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = self._run_gepa_focused_on_difficulty(
-            params, baseline_score_single,
-            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
-            shared=shared, console=console
-        )
+        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = (
+            self._run_gepa_focused_on_difficulty(params=params,
+                                                 shared_evolution_object=shared_evolution_object,
+                                                 baseline_score=baseline_score_single,
+                                                 baseline_score_multi=baseline_score_multi,
+                                                 baseline_dims_multi=baseline_dims_multi,
+                                                 console=console))
         if scores_gepa_focused:
             runs.append(("GEPA-Focused", last_out_gepa_focused))
 
         # ── gepa_gated ───────────────────────────────────────────────────────────
-        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = self._run_gepa_gated(
-            params, baseline_score_single,
-            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
-            shared=shared, console=console
-        )
+        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = (
+            self._run_gepa_gated(params=params,
+                                 shared_evolution_object=shared_evolution_object,
+                                 baseline_score=baseline_score_single,
+                                 baseline_score_multi=baseline_score_multi,
+                                 baseline_dims_multi=baseline_dims_multi,
+                                 console=console))
         if scores_gepa_gated:
             runs.append(("GEPA-Gated", last_out_gepa_gated))
 
         # ── gepa_full ─────────────────────────────────────────────────────────────
-        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = self._run_gepa_full(
-            params, baseline_score_single,
-            baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
-            shared=shared, console=console
-        )
+        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = (
+            self._run_gepa_full(params=params,
+                                shared_evolution_object=shared_evolution_object,
+                                baseline_score=baseline_score_single,
+                                baseline_score_multi=baseline_score_multi,
+                                baseline_dims_multi=baseline_dims_multi,
+                                console=console))
         if scores_gepa_full:
             runs.append(("GEPA-Full", last_out_gepa_full))
 
-        return DemoTrainingsResults(
-            runs=runs,
-            scores_gepa_uniform=scores_gepa_uniform,
-            scores_gepa_full=scores_gepa_full,
-            scores_gepa_focused=scores_gepa_focused,
-            scores_gepa_gated=scores_gepa_gated,
-            scores_gepa_rubric=scores_gepa_rubric,
-            metrics_gepa_uniform=metrics_gepa_uniform,
-            metrics_gepa_full=metrics_gepa_full,
-            metrics_gepa_focused=metrics_gepa_focused,
-            metrics_gepa_gated=metrics_gepa_gated,
-            metrics_gepa_rubric=metrics_gepa_rubric,
-        )
+        return DemoTrainingsResults(runs=runs,
+                                    scores_gepa_uniform=scores_gepa_uniform,
+                                    scores_gepa_full=scores_gepa_full,
+                                    scores_gepa_focused=scores_gepa_focused,
+                                    scores_gepa_gated=scores_gepa_gated,
+                                    scores_gepa_rubric=scores_gepa_rubric,
+                                    metrics_gepa_uniform=metrics_gepa_uniform,
+                                    metrics_gepa_full=metrics_gepa_full,
+                                    metrics_gepa_focused=metrics_gepa_focused,
+                                    metrics_gepa_gated=metrics_gepa_gated,
+                                    metrics_gepa_rubric=metrics_gepa_rubric)
 
-    def _run_gepa_uniform(self, params: DemoParams, baseline_score: float = None,
+    def _run_gepa_uniform(self,
+                          params: DemoParams,
+                          shared_evolution_object: SharedEvolutionObjects,
+                          baseline_score: float = None,
                           baseline_score_multi: float = None, baseline_dims_multi=None,
-                          shared: SharedEvolutionObjects = None, console=None):
+                          console=None):
         scores_gepa_uniform: list[float] = []
         metrics_gepa_uniform = None
         last_out_gepa_uniform = params.output_gepa_uniform
@@ -113,11 +125,11 @@ class DemoTrainings:
                     self._config.iterations, out, verbose=self._config.verbose,
                     baseline_score_single=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared.skill if shared else None,
-                    prebuilt_dataset=shared.dataset if shared else None,
-                    prebuilt_baseline_module=shared.baseline_module if shared else None,
-                    prebuilt_trainset=shared.trainset if shared else None,
-                    prebuilt_valset=shared.valset if shared else None,
+                    prebuilt_skill=shared_evolution_object.skill,
+                    prebuilt_dataset=shared_evolution_object.dataset,
+                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                    prebuilt_trainset=shared_evolution_object.trainset,
+                    prebuilt_valset=shared_evolution_object.valset,
                     console=console
                 )
                 scores_gepa_uniform.append(m.get("evolved_score", 0.0))
@@ -131,9 +143,13 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Uniform", elapsed, console=console)
         return scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform
 
-    def _run_gepa_rubric(self, params: DemoParams, baseline_score_single: float = None,
-                         baseline_score_multi: float = None, baseline_dims_multi=None,
-                         shared: SharedEvolutionObjects = None, console=None):
+    def _run_gepa_rubric(self,
+                         params: DemoParams,
+                         shared_evolution_object: SharedEvolutionObjects,
+                         baseline_score_single: float = None,
+                         baseline_score_multi: float = None,
+                         baseline_dims_multi=None,
+                         console=None):
         scores: list[float] = []
         metrics = None
         last_out = params.workdir / "output_gepa_rubric"
@@ -150,11 +166,11 @@ class DemoTrainings:
                     scoring_mode="multi",
                     baseline_score_multi=baseline_score_multi,
                     baseline_dims_multi=baseline_dims_multi,
-                    prebuilt_skill=shared.skill if shared else None,
-                    prebuilt_dataset=shared.dataset if shared else None,
-                    prebuilt_baseline_module=shared.baseline_module if shared else None,
-                    prebuilt_trainset=shared.trainset if shared else None,
-                    prebuilt_valset=shared.valset if shared else None,
+                    prebuilt_skill=shared_evolution_object.skill,
+                    prebuilt_dataset=shared_evolution_object.dataset,
+                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                    prebuilt_trainset=shared_evolution_object.trainset,
+                    prebuilt_valset=shared_evolution_object.valset,
                     console=console
                 )
                 scores.append(m.get("evolved_score", 0.0))
@@ -168,9 +184,13 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Rubric", elapsed, console=console)
         return scores, metrics, last_out
 
-    def _run_gepa_full(self, params: DemoParams, baseline_score: float = None,
-                      baseline_score_multi: float = None, baseline_dims_multi=None,
-                      shared: SharedEvolutionObjects = None, console=None):
+    def _run_gepa_full(self,
+                       params: DemoParams,
+                       shared_evolution_object: SharedEvolutionObjects,
+                       baseline_score: float = None,
+                       baseline_score_multi: float = None,
+                       baseline_dims_multi=None,
+                       console=None):
         scores_gepa_full: list[float] = []
         metrics_gepa_full = None
         last_out_gepa_full = params.output_gepa_full
@@ -186,11 +206,11 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared.skill if shared else None,
-                    prebuilt_dataset=shared.dataset if shared else None,
-                    prebuilt_baseline_module=shared.baseline_module if shared else None,
-                    prebuilt_trainset=shared.trainset if shared else None,
-                    prebuilt_valset=shared.valset if shared else None,
+                    prebuilt_skill=shared_evolution_object.skill,
+                    prebuilt_dataset=shared_evolution_object.dataset,
+                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                    prebuilt_trainset=shared_evolution_object.trainset,
+                    prebuilt_valset=shared_evolution_object.valset,
                     console=console
                 )
                 scores_gepa_full.append(m.get("evolved_score", 0.0))
@@ -204,9 +224,13 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Full", elapsed, console=console)
         return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
 
-    def _run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None,
-                                        baseline_score_multi: float = None, baseline_dims_multi=None,
-                                        shared: SharedEvolutionObjects = None, console=None):
+    def _run_gepa_focused_on_difficulty(self,
+                                        params: DemoParams,
+                                        shared_evolution_object: SharedEvolutionObjects,
+                                        baseline_score: float = None,
+                                        baseline_score_multi: float = None,
+                                        baseline_dims_multi=None,
+                                        console=None):
         scores_gepa_focused: list[float] = []
         metrics_gepa_focused = None
         last_out_gepa_focused = params.output_gepa_focused_on_difficulty
@@ -222,11 +246,11 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared.skill if shared else None,
-                    prebuilt_dataset=shared.dataset if shared else None,
-                    prebuilt_baseline_module=shared.baseline_module if shared else None,
-                    prebuilt_trainset=shared.trainset if shared else None,
-                    prebuilt_valset=shared.valset if shared else None,
+                    prebuilt_skill=shared_evolution_object.skill,
+                    prebuilt_dataset=shared_evolution_object.dataset,
+                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                    prebuilt_trainset=shared_evolution_object.trainset,
+                    prebuilt_valset=shared_evolution_object.valset,
                     console=console
                 )
                 scores_gepa_focused.append(m.get("evolved_score", 0.0))
@@ -240,9 +264,13 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Focused", elapsed, console=console)
         return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
 
-    def _run_gepa_gated(self, params: DemoParams, baseline_score: float = None,
-                       baseline_score_multi: float = None, baseline_dims_multi=None,
-                       shared: SharedEvolutionObjects = None, console=None):
+    def _run_gepa_gated(self,
+                        params: DemoParams,
+                        shared_evolution_object: SharedEvolutionObjects,
+                        baseline_score: float = None,
+                        baseline_score_multi: float = None,
+                        baseline_dims_multi=None,
+                        console=None):
         scores_gepa_gated: list[float] = []
         metrics_gepa_gated = None
         last_out_gepa_gated = params.output_gepa_gated
@@ -257,11 +285,11 @@ class DemoTrainings:
                     self._config.iterations, out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
-                    prebuilt_skill=shared.skill if shared else None,
-                    prebuilt_dataset=shared.dataset if shared else None,
-                    prebuilt_baseline_module=shared.baseline_module if shared else None,
-                    prebuilt_trainset=shared.trainset if shared else None,
-                    prebuilt_valset=shared.valset if shared else None,
+                    prebuilt_skill=shared_evolution_object.skill,
+                    prebuilt_dataset=shared_evolution_object.dataset,
+                    prebuilt_baseline_module=shared_evolution_object.baseline_module,
+                    prebuilt_trainset=shared_evolution_object.trainset,
+                    prebuilt_valset=shared_evolution_object.valset,
                     console=console
                 )
                 scores_gepa_gated.append(m.get("evolved_score", 0.0))
