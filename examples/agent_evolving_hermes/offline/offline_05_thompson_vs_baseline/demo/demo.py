@@ -78,22 +78,24 @@ class Demo:
                                                       verbose=self._config.verbose,
                                                       console=console)
 
-        # ── Step 1: Evaluate baseline on holdout (NO training) ───────────────
+        # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
         # multi-objective baseline when "gepa_rubric" is in run_modes so that
         # GEPA runs never need to re-evaluate the baseline themselves.
         # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
-        baseline_score_single, baseline_score_multi, multi_baseline_dims = step_02_evaluate_baseline(
-            params.skills_root, params.skill_name, self._config.model,
-            params.output_baseline, self._config.verbose,
-            run_modes=self._config.run_modes,
-            prebuilt_skill=shared.skill,
-            prebuilt_dataset=shared.dataset,
-            prebuilt_baseline_module=shared.baseline_module,
-            console=console
-        )
+        baseline_score_single, baseline_score_multi, multi_baseline_dims = (
+            step_02_evaluate_baseline(params.skills_root,
+                                      params.skill_name,
+                                      self._config.model,
+                                      params.output_baseline,
+                                      self._config.verbose,
+                                      run_modes=self._config.run_modes,
+                                      prebuilt_skill=shared.skill,
+                                      prebuilt_dataset=shared.dataset,
+                                      prebuilt_baseline_module=shared.baseline_module,
+                                      console=console))
 
-        # ── Training passes ───────────────────────────────────────────────────
+        # ── Training passes (Steps 03, 04, 05, 06) ───────────────────────────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(params,
                                                                       baseline_score_single=baseline_score_single,
                                                                       baseline_score_multi=baseline_score_multi,
@@ -102,7 +104,7 @@ class Demo:
                                                                       console=console
         )
 
-        # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
+        # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ────────────────
         if len(trainings_results.runs) >= 2:
             step_07_results_comparison(baseline_score_single,
                                        baseline_score_multi,
@@ -123,7 +125,7 @@ class Demo:
         if self._config.print_skill_diff and trainings_results.runs:
             self._print_skill_diff(params, trainings_results, console)
 
-        # ── Step 8: Plots ─────────────────────────────────────────────────────
+        # ── Step 08: Plots ─────────────────────────────────────────────────────
         step_08_plot_results(baseline_score_single,
                              baseline_score_multi,
                              scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
@@ -136,7 +138,7 @@ class Demo:
                              n_runs=self._config.n_runs,
                              console=console)
 
-        # ── Step 7: Where to look ─────────────────────────────────────────────
+        # ── Step 09: Where to look ─────────────────────────────────────────────
         step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir, console)
 
     @staticmethod
