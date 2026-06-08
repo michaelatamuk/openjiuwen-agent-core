@@ -1,6 +1,6 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Multi-objective scoring state — dynamic weight tracker.
+"""Adaptive rubric weights — dynamic weight tracker for rubric scoring dimensions.
 
 Persists per-output-dir across GEPA runs in ``mo_state.json``.
 
@@ -34,8 +34,8 @@ _NO_REGRESSION_THRESHOLD = 0.02
 
 
 @dataclass
-class MultiObjectiveState:
-    """Dynamic weight state for multi-objective GEPA scoring."""
+class AdaptiveRubricWeights:
+    """Dynamic weight state for rubric-dimension GEPA scoring."""
 
     weights: List[float] = field(default_factory=lambda: [1.0] * _N_DIMS)
     stagnation: List[int] = field(default_factory=lambda: [0] * _N_DIMS)
@@ -105,7 +105,7 @@ class MultiObjectiveState:
     # ── Persistence ───────────────────────────────────────────────────────────
 
     @classmethod
-    def load_or_create(cls, path: Path) -> "MultiObjectiveState":
+    def load_or_create(cls, path: Path) -> "AdaptiveRubricWeights":
         """Load state from *path* or return a fresh default state."""
         if path.exists():
             try:

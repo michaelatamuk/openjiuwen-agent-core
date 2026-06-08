@@ -275,7 +275,7 @@ skill_evolver_config.py             EvolverConfig dataclass
 selection/
     example_selector.py             Level-2 TS (ThompsonExampleSelector)
     acceptance_gate.py              Level-3 TS (ThompsonAcceptanceGate)
-multi_objective_state.py            MultiObjectiveState — dynamic weights
+adaptive_rubric_weights.py          AdaptiveRubricWeights — dynamic weights
 skill_evolver_stages/
     stage05_gepa_optimizer.py       GEPA / MIPROv2 optimizer + fitness metric
     stage08_holdout_evaluator.py    Holdout scoring orchestrator

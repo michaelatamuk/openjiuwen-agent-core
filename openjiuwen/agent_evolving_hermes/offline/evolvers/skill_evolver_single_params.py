@@ -8,7 +8,6 @@ class SkillEvolverParams:
                  skill_name: str,
                  eval_source: str = "synthetic",
                  external_sources: Optional[list] = None,
-                 iterations: Optional[int] = None,
                  reuse_dataset: bool = False,
                  min_improvement: float = 0.0,
                  prior_baseline_score_single: Optional[float] = None,
@@ -27,7 +26,6 @@ class SkillEvolverParams:
         self.skill_name: str = skill_name
         self.eval_source: str = eval_source
         self.external_sources: Optional[list] = external_sources
-        self.iterations: Optional[int] = iterations
         self.config: EvolverConfig = config
         self.reuse_dataset: bool = reuse_dataset
         self.min_improvement: float = min_improvement

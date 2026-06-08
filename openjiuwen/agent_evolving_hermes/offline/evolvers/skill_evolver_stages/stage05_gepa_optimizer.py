@@ -33,12 +33,11 @@ def run_gepa_optimization(baseline_module: SkillModule,
     examples_selector = make_example_selector(trainset, skill_name, config)
     selected_trainset_examples = examples_selector.select()
 
+    console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)…", end="")
+
     ts_active = getattr(config, "ts_example_selector", False)
     if ts_active and len(selected_trainset_examples) < len(trainset):
-        console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)… "
-                      f"[dim][TS: {len(selected_trainset_examples)}/{len(trainset)} examples][/dim]")
-    else:
-        console.print(f"\n[bold]Running GEPA[/bold] ({config.iterations} iterations)…")
+        console.print(f" [dim][TS: {len(selected_trainset_examples)}/{len(trainset)} examples][/dim]")
 
     console.print(f"[dim]  ↳ ~{config.iterations + 2} candidate skills will be scored below;"
                   f" each 'Average Metric: X / N (Y%)' line = keyword-match score (not LLM-judge)[/dim]")
@@ -136,9 +135,9 @@ def skill_fitness_metric(
     if not agent_output.strip():
         return 0.0
 
-    tech_keywords = _extract_technical_keywords(expected)
     output_lower = agent_output.lower()
 
+    tech_keywords = _extract_technical_keywords(expected)
     if tech_keywords:
         # Primary score: fraction of technical keywords present in output
         hits = sum(1 for kw in tech_keywords if kw in output_lower)
