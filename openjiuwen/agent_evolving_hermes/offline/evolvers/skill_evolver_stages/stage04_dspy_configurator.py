@@ -21,9 +21,10 @@ _DSPY_LOGGERS = (
 
 
 def configure_dspy_and_prepare_sets(
-    skill_raw: str,
-    dataset: EvalDataset,
-    config: EvolverConfig,
+        skill_raw: str,
+        dataset: EvalDataset,
+        config: EvolverConfig,
+        console
 ) -> Tuple[SkillModule, List, List]:
     """Configure the DSPy LM, build the baseline module, and convert splits.
 
@@ -33,6 +34,7 @@ def configure_dspy_and_prepare_sets(
     (step banners, bootstrap traces, proposed instruction dumps) is suppressed.
     Set config.verbose=True to restore full DSPy logging.
     """
+    console.print("Stage 04 - DSPY Configure and Sets Prepare Started")
     log_level = logging.INFO if config.verbose else logging.ERROR
     for name in _DSPY_LOGGERS:
         logging.getLogger(name).setLevel(log_level)
@@ -41,4 +43,6 @@ def configure_dspy_and_prepare_sets(
     trainset = dataset.to_dspy_examples("train")
     valset = dataset.to_dspy_examples("val")
     baseline_module = SkillModule(skill_raw)
+
+    console.print("Stage 04 - DSPY Configure and Sets Prepare Finished")
     return baseline_module, trainset, valset

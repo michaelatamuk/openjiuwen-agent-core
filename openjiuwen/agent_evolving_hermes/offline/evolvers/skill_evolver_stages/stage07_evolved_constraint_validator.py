@@ -20,10 +20,14 @@ def validate_evolved_constraints(
     On success: prints confirmation.
     Always returns (checks, passed) — never raises.
     """
+    console.print("Stage 07 - Evolved Constraints Validation Started")
+
     validator = ConstraintValidator(config)
     checks = validator.validate_all(
         evolved_text, artifact_type="skill", baseline_text=skill_raw
     )
+    result: bool
+
     failures = [c for c in checks if not c.passed]
     if failures:
         failed_path = output_dir / "evolved_FAILED.md"
@@ -33,6 +37,10 @@ def validate_evolved_constraints(
                 f"[red]✗ EVOLVED CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]"
             )
         console.print(f"[dim]Saved failed variant to {failed_path}[/dim]")
-        return checks, False
-    console.print(f"[green]✓ Evolved — {len(checks)}/{len(checks)} constraints passed[/green]")
-    return checks, True
+        result = False
+    else:
+        console.print(f"[green]✓ Evolved — {len(checks)}/{len(checks)} constraints passed[/green]")
+        result = True
+
+    console.print("Stage 07 - Evolved Constraints Validation Finished")
+    return checks, result

@@ -6,8 +6,9 @@ from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule, reassem
 
 
 def extract_evolved_skill(
-    optimized_module: SkillModule,
-    skill: Dict,
+        optimized_module: SkillModule,
+        skill: Dict,
+        console
 ) -> str:
     """Extract the evolved skill body from the optimised module and reassemble.
 
@@ -17,6 +18,11 @@ def extract_evolved_skill(
     # Pull the GEPA-optimised instruction (stored in the DSPy signature) back
     # into _skill_text_value so that both this function and stage08 see the
     # evolved text rather than the stale baseline copy.
+    console.print("Stage 06 - Evolved Skill Extraction Started")
+
     optimized_module.sync_from_optimized()
     evolved_body = optimized_module._skill_text_value
-    return reassemble_skill(skill["frontmatter_text"], evolved_body)
+    evolved_skill = reassemble_skill(skill["frontmatter_text"], evolved_body)
+
+    console.print("Stage 06 - Evolved Skill Extraction Finished")
+    return evolved_skill

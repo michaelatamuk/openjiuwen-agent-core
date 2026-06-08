@@ -101,7 +101,7 @@ def step(
     )
 
     baseline_module, _, _ = configure_dspy_and_prepare_sets(
-        skill["raw"], dataset, evolver_config
+        skill["raw"], dataset, evolver_config, console
     )
 
     # ── Single-score evaluation ───────────────────────────────────────────

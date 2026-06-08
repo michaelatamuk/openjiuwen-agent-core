@@ -32,6 +32,7 @@ def build_or_load_dataset(
     dataset was reused.
     Raises ValueError if the resulting training split is empty.
     """
+    console.print("Stage 03 - Dataset Build/Load Started")
     dataset_dir = output_dir / "dataset"
     cached_path = (
         _find_cached_dataset(skill_name, config.output_dir) if reuse_dataset else None
@@ -101,6 +102,7 @@ def build_or_load_dataset(
     if not dataset.train:
         raise ValueError("Empty training set — cannot evolve.")
 
+    console.print("Stage 03 - Dataset Build/Load Finished")
     return dataset, cached_path
 
 

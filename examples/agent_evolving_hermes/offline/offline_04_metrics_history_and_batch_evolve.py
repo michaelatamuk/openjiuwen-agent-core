@@ -47,7 +47,7 @@ def _write_skill(root: Path, name: str, desc: str = "", body: str = "") -> Path:
             name=name,
             desc=desc or f"{name} skill",
             body=body or f"Do {name} work.",
-        )
+        ), encoding="utf-8",
     )
     return skill_dir
 

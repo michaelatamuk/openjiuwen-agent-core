@@ -25,6 +25,8 @@ def apply_acceptance_gate(
 
     Returns True (accepted) or False (rejected).
     """
+    console.print("Stage 09 - Acceptance Gate Applying Started")
+
     accepted = improvement >= min_improvement
     if not accepted:
         regression_path = output_dir / "evolved_REGRESSION.md"
@@ -45,4 +47,6 @@ def apply_acceptance_gate(
                 f"[yellow]⚠ Improvement {improvement:+.4f} is negative "
                 f"(accepted because threshold is {min_improvement:+.4f})[/yellow]"
             )
+
+    console.print("Stage 09 - Acceptance Gate Applying Finished")
     return accepted

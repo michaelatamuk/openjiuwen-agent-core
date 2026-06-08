@@ -37,6 +37,7 @@ def save_outputs(
       - baseline_skill.md         — always
       - metrics_history.jsonl     — appended at skill level (cross-run log)
     """
+    console.print("Stage 11 - Output Save Started")
     metrics = {
         "skill_name": skill_name,
         "timestamp": ts,
@@ -74,6 +75,8 @@ def save_outputs(
             f"[dim]History appended to "
             f"{config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]"
         )
+
+    console.print("Stage 11 - Output Save Finished")
     return metrics
 
 

@@ -74,12 +74,13 @@ def evolve_single_skill(
         Metrics dict including baseline_score, evolved_score, improvement,
         accepted (bool), and cross_run_delta (vs prior best if available).
     """
+    console = _make_console()
+    console.print("Single Skill Evolver - Evolve Started")
+
     if config is None:
         config = EvolverConfig()
     if iterations is not None:
         config.iterations = iterations
-
-    console = _make_console()
 
     # ── Step 1: Find and load skill ──────────────────────────────────────────
     skill, prior_metrics = find_and_load_skill(skill_name, config, console)
@@ -98,14 +99,14 @@ def evolve_single_skill(
     )
 
     # ── Step 4: Configure DSPy + prepare train/val sets ──────────────────────
-    baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config)
+    baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config, console)
 
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
     optimized_module, optimizer_name, elapsed = run_gepa_optimization(baseline_module, trainset, valset, config,
                                                                       console, skill_name=skill_name)
 
     # ── Step 6: Extract evolved skill text ───────────────────────────────────
-    evolved_text = extract_evolved_skill(optimized_module, skill)
+    evolved_text = extract_evolved_skill(optimized_module, skill, console)
 
     # ── Step 7: Validate evolved constraints ─────────────────────────────────
     evolved_checks, constraints_passed = validate_evolved_constraints(
@@ -189,7 +190,7 @@ def evolve_single_skill(
     )
 
     # ── Step 11: Save outputs ─────────────────────────────────────────────────
-    return save_outputs(
+    output_result = save_outputs(
         skill_name, ts,
         baseline_score, evolved_score, improvement,
         accepted, min_improvement, cross_run_delta, prior_metrics,
@@ -198,3 +199,6 @@ def evolve_single_skill(
         elapsed, output_dir, console,
         ts_confidence=ts_conf,
     )
+
+    console.print("Single Skill Evolver - Evolve Finished")
+    return output_result
