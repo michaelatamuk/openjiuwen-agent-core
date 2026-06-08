@@ -23,5 +23,7 @@
     "n_runs": 1,
     "verbose": false,
     "print_skill_diff": true,
-    "fitness_metrics": ["jiuwen"]
+    "fitness_metrics": ["hermes"],
+    "_fitness_metrics": ["hermes", "jiuwen", "examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"]
+
 }
