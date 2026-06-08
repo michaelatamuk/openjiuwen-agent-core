@@ -1,12 +1,12 @@
 
 from __future__ import annotations
 
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_single_params import SkillEvolverParams
+from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill import _print_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
     _read_latest_evolved
-from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
-from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
 def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbose: bool = False,

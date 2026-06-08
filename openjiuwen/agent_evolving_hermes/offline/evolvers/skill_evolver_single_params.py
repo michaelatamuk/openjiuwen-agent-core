@@ -1,6 +1,6 @@
 from typing import Optional
 
-from offline import EvolverConfig
+from .skill_evolver_config import EvolverConfig
 
 
 class SkillEvolverParams:

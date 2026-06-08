@@ -30,7 +30,7 @@ Usage:
 """
 from pathlib import Path
 
-from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
