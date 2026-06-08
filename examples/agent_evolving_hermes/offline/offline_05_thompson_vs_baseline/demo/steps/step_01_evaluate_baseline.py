@@ -37,6 +37,9 @@ def step(
     output_dir: Path,
     verbose: bool = False,
     run_modes: Optional[List[str]] = None,
+    prebuilt_skill: Optional[dict] = None,
+    prebuilt_dataset = None,
+    prebuilt_baseline_module = None,
 ) -> Tuple[float, Optional[Dict[str, float]]]:
     """Score the baseline skill on holdout for every scoring system that will be used.
 
@@ -62,6 +65,15 @@ def step(
         List of mode names from config.  Drives whether multi-objective
         baseline evaluation is performed.  Pass ``None`` / ``[]`` to
         skip multi evaluation.
+    prebuilt_skill:
+        Pre-built skill dict from step_01b.  When provided,
+        ``find_and_load_skill`` is skipped.
+    prebuilt_dataset:
+        Pre-built EvalDataset from step_01b.  When provided,
+        ``build_or_load_dataset`` is skipped.
+    prebuilt_baseline_module:
+        Pre-built SkillModule from step_01b.  When provided,
+        ``configure_dspy_and_prepare_sets`` is skipped.
 
     Returns
     -------
@@ -87,22 +99,31 @@ def step(
     )
 
     # ── Load skill + build dataset (shared by both scoring paths) ─────────
-    skill, _ = find_and_load_skill(skill_name, evolver_config, console)
+    if prebuilt_skill is not None:
+        skill = prebuilt_skill
+    else:
+        skill, _ = find_and_load_skill(skill_name, evolver_config, console)
 
-    dataset, _ = build_or_load_dataset(
-        skill_name=skill_name,
-        skill_raw=skill["raw"],
-        eval_source="golden",
-        external_sources=None,
-        config=evolver_config,
-        output_dir=output_dir,
-        reuse_dataset=False,
-        console=console,
-    )
+    if prebuilt_dataset is not None:
+        dataset = prebuilt_dataset
+    else:
+        dataset, _ = build_or_load_dataset(
+            skill_name=skill_name,
+            skill_raw=skill["raw"],
+            eval_source="golden",
+            external_sources=None,
+            config=evolver_config,
+            output_dir=output_dir,
+            reuse_dataset=False,
+            console=console,
+        )
 
-    baseline_module, _, _ = configure_dspy_and_prepare_sets(
-        skill["raw"], dataset, evolver_config, console
-    )
+    if prebuilt_baseline_module is not None:
+        baseline_module = prebuilt_baseline_module
+    else:
+        baseline_module, _, _ = configure_dspy_and_prepare_sets(
+            skill["raw"], dataset, evolver_config, console
+        )
 
     # ── Single-score evaluation ───────────────────────────────────────────
     judge = LLMJudge(model=model, max_skill_size=evolver_config.max_skill_size)

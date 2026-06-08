@@ -10,7 +10,9 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 def step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbose: bool = False,
          baseline_score_single=None, run_index: int = 1, n_runs: int = 1,
-         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None):
+         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
+         prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
+         prebuilt_trainset=None, prebuilt_valset=None):
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index, n_runs=n_runs)
     print("  Example selector : all training examples, equal weight")
     print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
@@ -35,6 +37,11 @@ def step(skills_root, skill_name, model, iterations, output_gepa_uniform, verbos
         prior_baseline_score_single=baseline_score_single,
         prior_baseline_score_multi=baseline_score_multi,
         prior_baseline_dims_multi=baseline_dims_multi,
+        prebuilt_skill=prebuilt_skill,
+        prebuilt_dataset=prebuilt_dataset,
+        prebuilt_baseline_module=prebuilt_baseline_module,
+        prebuilt_trainset=prebuilt_trainset,
+        prebuilt_valset=prebuilt_valset,
     )
 
     if verbose:

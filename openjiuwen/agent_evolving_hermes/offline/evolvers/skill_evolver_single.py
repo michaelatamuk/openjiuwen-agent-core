@@ -49,7 +49,16 @@ def evolve_single_skill(
     min_improvement: float = 0.0,
     prior_baseline_score_single: Optional[float] = None,
     prior_baseline_score_multi: Optional[float] = None,
-    prior_baseline_dims_multi = None
+    prior_baseline_dims_multi = None,
+    # ── Pre-built shared objects (from step_01b) ──────────────────────────────
+    # When provided, stages 1 / 3 / 4 are skipped so that multiple GEPA passes
+    # running in sequence do not redundantly rebuild identical objects.
+    # Stage 2 (constraint validation) always runs — it is fast and important.
+    prebuilt_skill: Optional[dict] = None,
+    prebuilt_dataset = None,
+    prebuilt_baseline_module = None,
+    prebuilt_trainset: Optional[list] = None,
+    prebuilt_valset: Optional[list] = None,
 ) -> dict:
     """Run one GEPA evolution pass on a skill.
 
@@ -69,6 +78,16 @@ def evolve_single_skill(
             When provided, stage08 skips re-evaluating the baseline module.
         prior_baseline_score_multi: Pre-computed multi-score baseline from step_01.
             When provided, stage08 skips re-evaluating the baseline module.
+        prebuilt_skill: Pre-built skill dict from step_01b.  When provided,
+            stage01 (find_and_load_skill) is skipped.  ``prior_metrics`` for
+            cross-run delta is not available in this path (treated as None).
+        prebuilt_dataset: Pre-built EvalDataset from step_01b.  When provided,
+            stage03 (build_or_load_dataset) is skipped.
+        prebuilt_baseline_module: Pre-built SkillModule from step_01b.  When
+            provided together with prebuilt_trainset / prebuilt_valset,
+            stage04 (configure_dspy_and_prepare_sets) is skipped.
+        prebuilt_trainset: Pre-split DSPy training examples from step_01b.
+        prebuilt_valset: Pre-split DSPy validation examples from step_01b.
 
     Returns:
         Metrics dict including baseline_score, evolved_score, improvement,
@@ -83,23 +102,45 @@ def evolve_single_skill(
         config.iterations = iterations
 
     # ── Step 1: Find and load skill ──────────────────────────────────────────
-    skill, prior_metrics = find_and_load_skill(skill_name, config, console)
+    if prebuilt_skill is not None:
+        # Reuse pre-built skill; prior_metrics requires the output_dir which is
+        # mode-specific and unavailable here — cross-run delta is skipped.
+        skill = prebuilt_skill
+        prior_metrics = None
+    else:
+        skill, prior_metrics = find_and_load_skill(skill_name, config, console)
 
     # ── Step 2: Validate baseline constraints ────────────────────────────────
-    validate_baseline_constraints(skill["raw"], config, console)
+    # Skip when prebuilt_skill was provided — step_01b already ran this in
+    # proper sequence (after stage 01, before stage 03).
+    if prebuilt_skill is None:
+        validate_baseline_constraints(skill["raw"], config, console)
 
     # ── Step 3: Build / reuse eval dataset ───────────────────────────────────
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = config.output_dir / skill_name / ts
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset, cached_path = build_or_load_dataset(
-        skill_name, skill["raw"], eval_source, external_sources,
-        config, output_dir, reuse_dataset, console,
-    )
+    if prebuilt_dataset is not None:
+        # Reuse pre-built dataset; cached_path is not needed downstream when
+        # the dataset was already loaded by step_01b.
+        dataset = prebuilt_dataset
+        cached_path = None
+    else:
+        dataset, cached_path = build_or_load_dataset(
+            skill_name, skill["raw"], eval_source, external_sources,
+            config, output_dir, reuse_dataset, console,
+        )
 
     # ── Step 4: Configure DSPy + prepare train/val sets ──────────────────────
-    baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config, console)
+    if prebuilt_baseline_module is not None and prebuilt_trainset is not None and prebuilt_valset is not None:
+        # Reuse pre-built module and splits; DSPy was already configured by
+        # step_01b with the same model so no re-configuration is required.
+        baseline_module = prebuilt_baseline_module
+        trainset = prebuilt_trainset
+        valset = prebuilt_valset
+    else:
+        baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config, console)
 
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
     optimized_module, optimizer_name, elapsed = run_gepa_optimization(baseline_module, trainset, valset, config,

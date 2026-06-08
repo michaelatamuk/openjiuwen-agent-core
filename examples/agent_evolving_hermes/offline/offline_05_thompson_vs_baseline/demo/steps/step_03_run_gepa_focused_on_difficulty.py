@@ -10,7 +10,9 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_singl
 
 def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_focused_on_difficulty, ts_state_dir,
          verbose: bool = False, baseline_score=None, run_index: int = 1, n_runs: int = 1,
-         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None):
+         scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
+         prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
+         prebuilt_trainset=None, prebuilt_valset=None):
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
     print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
@@ -41,6 +43,11 @@ def step(skills_root, skill_name, model, iterations, ts_batch_size, output_gepa_
         prior_baseline_score_single=baseline_score,
         prior_baseline_score_multi=baseline_score_multi,
         prior_baseline_dims_multi=baseline_dims_multi,
+        prebuilt_skill=prebuilt_skill,
+        prebuilt_dataset=prebuilt_dataset,
+        prebuilt_baseline_module=prebuilt_baseline_module,
+        prebuilt_trainset=prebuilt_trainset,
+        prebuilt_valset=prebuilt_valset,
     )
 
     if verbose:

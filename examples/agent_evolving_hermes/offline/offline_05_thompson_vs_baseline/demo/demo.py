@@ -9,6 +9,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     step as step_00_save_skill_and_dataset
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_evaluate_baseline import \
     step as step_01_evaluate_baseline
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01b_prepare_shared_objects import \
+    step as step_01b_prepare_shared_objects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_06_results_comparison import \
     step as step_06_results_comparison
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_07_plot_results import \
@@ -56,20 +58,34 @@ class Demo:
         step_00_save_skill_and_dataset(params.skills_root, params.skill_name, params.skill_body,
                                        params.skill_frontmatter, params.golden_examples, verbose=self._config.verbose)
 
+        # ── Step 01b: Build shared objects ONCE (stages 1–4) ────────────────
+        # Runs find_and_load_skill / validate_baseline_constraints /
+        # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
+        # The resulting objects are passed to both step_01 and all GEPA
+        # training passes so these stages never execute more than once per run.
+        shared = step_01b_prepare_shared_objects(
+            params.skills_root, params.skill_name, self._config.model,
+            params.output_baseline, verbose=self._config.verbose,
+        )
+
         # ── Step 1: Evaluate baseline on holdout (NO training) ───────────────
         # Evaluates the single-score baseline unconditionally; also evaluates the
         # multi-objective baseline when "gepa_rubric" is in run_modes so that
         # GEPA runs never need to re-evaluate the baseline themselves.
+        # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
         baseline_score_single, baseline_score_multi, multi_baseline_dims = step_01_evaluate_baseline(
             params.skills_root, params.skill_name, self._config.model,
             params.output_baseline, self._config.verbose,
             run_modes=self._config.run_modes,
+            prebuilt_skill=shared.skill,
+            prebuilt_dataset=shared.dataset,
+            prebuilt_baseline_module=shared.baseline_module,
         )
 
         # ── Training passes ───────────────────────────────────────────────────
         trainings_results: DemoTrainingsResults = self._trainings.run(
             params, baseline_score_single=baseline_score_single, baseline_score_multi=baseline_score_multi,
-            baseline_dims_multi=multi_baseline_dims
+            baseline_dims_multi=multi_baseline_dims, shared=shared,
         )
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────

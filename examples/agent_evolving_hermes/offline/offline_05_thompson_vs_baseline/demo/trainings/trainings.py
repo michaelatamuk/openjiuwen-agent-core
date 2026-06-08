@@ -12,6 +12,8 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     print_mode_summary, print_mode_timing
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import \
     _write_skill
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01b_prepare_shared_objects import \
+    SharedEvolutionObjects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_02_run_gepa_uniform import \
     step as step_02_run_gepa_uniform
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_focused_on_difficulty import \
@@ -32,6 +34,7 @@ class DemoTrainings:
             baseline_score_single: float = None,
             baseline_score_multi: float = None,
             baseline_dims_multi = None,
+            shared: SharedEvolutionObjects = None,
     ) -> DemoTrainingsResults:
         runs: list[tuple[str, object]] = []
 
@@ -39,13 +42,15 @@ class DemoTrainings:
         scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = self._run_gepa_uniform(
             params, baseline_score_single,
             baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+            shared=shared,
         )
         if scores_gepa_uniform:
             runs.append(("GEPA-Uniform", last_out_gepa_uniform))
 
         # ── gepa_rubric ───────────────────────────────────────────────────────
         scores_gepa_rubric, metrics_gepa_rubric, last_out_gepa_rubric = self._run_gepa_rubric(
-            params, baseline_score_single, baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+            params, baseline_score_single, baseline_score_multi=baseline_score_multi,
+            baseline_dims_multi=baseline_dims_multi, shared=shared,
         )
         if scores_gepa_rubric:
             runs.append(("GEPA-Rubric", last_out_gepa_rubric))
@@ -54,6 +59,7 @@ class DemoTrainings:
         scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = self._run_gepa_focused_on_difficulty(
             params, baseline_score_single,
             baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+            shared=shared,
         )
         if scores_gepa_focused:
             runs.append(("GEPA-Focused", last_out_gepa_focused))
@@ -62,6 +68,7 @@ class DemoTrainings:
         scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = self._run_gepa_gated(
             params, baseline_score_single,
             baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+            shared=shared,
         )
         if scores_gepa_gated:
             runs.append(("GEPA-Gated", last_out_gepa_gated))
@@ -70,6 +77,7 @@ class DemoTrainings:
         scores_gepa_full, metrics_gepa_full, last_out_gepa_full = self._run_gepa_full(
             params, baseline_score_single,
             baseline_score_multi=baseline_score_multi, baseline_dims_multi=baseline_dims_multi,
+            shared=shared,
         )
         if scores_gepa_full:
             runs.append(("GEPA-Full", last_out_gepa_full))
@@ -89,7 +97,8 @@ class DemoTrainings:
         )
 
     def _run_gepa_uniform(self, params: DemoParams, baseline_score: float = None,
-                          baseline_score_multi: float = None, baseline_dims_multi=None):
+                          baseline_score_multi: float = None, baseline_dims_multi=None,
+                          shared: SharedEvolutionObjects = None):
         scores_gepa_uniform: list[float] = []
         metrics_gepa_uniform = None
         last_out_gepa_uniform = params.output_gepa_uniform
@@ -103,6 +112,11 @@ class DemoTrainings:
                     self._config.iterations, out, verbose=self._config.verbose,
                     baseline_score_single=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    prebuilt_skill=shared.skill if shared else None,
+                    prebuilt_dataset=shared.dataset if shared else None,
+                    prebuilt_baseline_module=shared.baseline_module if shared else None,
+                    prebuilt_trainset=shared.trainset if shared else None,
+                    prebuilt_valset=shared.valset if shared else None,
                 )
                 scores_gepa_uniform.append(m.get("evolved_score", 0.0))
                 metrics_gepa_uniform = m
@@ -114,7 +128,9 @@ class DemoTrainings:
                 print_mode_timing("GEPA-Uniform", elapsed)
         return scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform
 
-    def _run_gepa_rubric(self, params: DemoParams, baseline_score_single: float = None, baseline_score_multi: float = None, baseline_dims_multi = None):
+    def _run_gepa_rubric(self, params: DemoParams, baseline_score_single: float = None,
+                         baseline_score_multi: float = None, baseline_dims_multi=None,
+                         shared: SharedEvolutionObjects = None):
         scores: list[float] = []
         metrics = None
         last_out = params.workdir / "output_gepa_rubric"
@@ -131,6 +147,11 @@ class DemoTrainings:
                     scoring_mode="multi",
                     baseline_score_multi=baseline_score_multi,
                     baseline_dims_multi=baseline_dims_multi,
+                    prebuilt_skill=shared.skill if shared else None,
+                    prebuilt_dataset=shared.dataset if shared else None,
+                    prebuilt_baseline_module=shared.baseline_module if shared else None,
+                    prebuilt_trainset=shared.trainset if shared else None,
+                    prebuilt_valset=shared.valset if shared else None,
                 )
                 scores.append(m.get("evolved_score", 0.0))
                 metrics = m
@@ -143,7 +164,8 @@ class DemoTrainings:
         return scores, metrics, last_out
 
     def _run_gepa_full(self, params: DemoParams, baseline_score: float = None,
-                      baseline_score_multi: float = None, baseline_dims_multi=None):
+                      baseline_score_multi: float = None, baseline_dims_multi=None,
+                      shared: SharedEvolutionObjects = None):
         scores_gepa_full: list[float] = []
         metrics_gepa_full = None
         last_out_gepa_full = params.output_gepa_full
@@ -159,6 +181,11 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    prebuilt_skill=shared.skill if shared else None,
+                    prebuilt_dataset=shared.dataset if shared else None,
+                    prebuilt_baseline_module=shared.baseline_module if shared else None,
+                    prebuilt_trainset=shared.trainset if shared else None,
+                    prebuilt_valset=shared.valset if shared else None,
                 )
                 scores_gepa_full.append(m.get("evolved_score", 0.0))
                 metrics_gepa_full = m
@@ -171,7 +198,8 @@ class DemoTrainings:
         return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
 
     def _run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None,
-                                        baseline_score_multi: float = None, baseline_dims_multi=None):
+                                        baseline_score_multi: float = None, baseline_dims_multi=None,
+                                        shared: SharedEvolutionObjects = None):
         scores_gepa_focused: list[float] = []
         metrics_gepa_focused = None
         last_out_gepa_focused = params.output_gepa_focused_on_difficulty
@@ -187,6 +215,11 @@ class DemoTrainings:
                     out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    prebuilt_skill=shared.skill if shared else None,
+                    prebuilt_dataset=shared.dataset if shared else None,
+                    prebuilt_baseline_module=shared.baseline_module if shared else None,
+                    prebuilt_trainset=shared.trainset if shared else None,
+                    prebuilt_valset=shared.valset if shared else None,
                 )
                 scores_gepa_focused.append(m.get("evolved_score", 0.0))
                 metrics_gepa_focused = m
@@ -199,7 +232,8 @@ class DemoTrainings:
         return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
 
     def _run_gepa_gated(self, params: DemoParams, baseline_score: float = None,
-                       baseline_score_multi: float = None, baseline_dims_multi=None):
+                       baseline_score_multi: float = None, baseline_dims_multi=None,
+                       shared: SharedEvolutionObjects = None):
         scores_gepa_gated: list[float] = []
         metrics_gepa_gated = None
         last_out_gepa_gated = params.output_gepa_gated
@@ -214,6 +248,11 @@ class DemoTrainings:
                     self._config.iterations, out, ts, verbose=self._config.verbose,
                     baseline_score=baseline_score,
                     run_index=i, n_runs=self._config.n_runs,
+                    prebuilt_skill=shared.skill if shared else None,
+                    prebuilt_dataset=shared.dataset if shared else None,
+                    prebuilt_baseline_module=shared.baseline_module if shared else None,
+                    prebuilt_trainset=shared.trainset if shared else None,
+                    prebuilt_valset=shared.valset if shared else None,
                 )
                 scores_gepa_gated.append(m.get("evolved_score", 0.0))
                 metrics_gepa_gated = m
