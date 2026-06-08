@@ -25,6 +25,7 @@ from typing import List, Optional
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from .skill_evolver_single import evolve_single_skill
 from .selection import make_skill_scheduler
+from .skill_evolver_single_params import SkillEvolverParams
 
 
 def evolve_skills_batch(
@@ -63,15 +64,14 @@ def evolve_skills_batch(
     results = []
     for name in ordered_names:
         try:
-            m = evolve_single_skill(
-                skill_name=name,
-                eval_source=eval_source,
-                external_sources=external_sources,
-                iterations=iterations,
-                config=config,
-                reuse_dataset=reuse_dataset,
-                min_improvement=min_improvement,
-            )
+            params: SkillEvolverParams = SkillEvolverParams(skill_name=name,
+                                                            eval_source=eval_source,
+                                                            external_sources=external_sources,
+                                                            iterations=iterations,
+                                                            config=config,
+                                                            reuse_dataset=reuse_dataset,
+                                                            min_improvement=min_improvement,)
+            m = evolve_single_skill(params)
         except Exception as exc:
             m = {"skill_name": name, "error": str(exc)}
 

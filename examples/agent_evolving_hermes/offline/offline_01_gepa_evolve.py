@@ -30,6 +30,7 @@ Usage:
 """
 from pathlib import Path
 
+from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
@@ -89,12 +90,12 @@ def run_example_evolution():
     print(f"  Models    : optimizer={config.optimizer_model}  eval={config.eval_model}")
     print()
 
+    params: SkillEvolverParams = SkillEvolverParams(skill_name="git-review",
+                                                    eval_source="synthetic", # generate dataset from skill using LLM
+                                                    config=config,)
+
     try:
-        metrics = evolve_single_skill(
-            skill_name="git-review",
-            eval_source="synthetic",      # generate dataset from skill text using LLM
-            config=config,
-        )
+        metrics = evolve_single_skill(params)
     except FileNotFoundError as exc:
         print(f"Skill not found: {exc}")
         print("\nCreate a minimal skill first — see docstring above.")

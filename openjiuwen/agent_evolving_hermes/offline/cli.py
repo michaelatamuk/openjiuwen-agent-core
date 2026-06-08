@@ -21,6 +21,7 @@ from typing import Optional
 
 import click
 
+from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import evolve_single_skill, evolve_skills_batch
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
@@ -343,15 +344,15 @@ def main(
 
     # ── Single skill ─────────────────────────────────────────────────────────
     if not evolve_all:
-        metrics = evolve_single_skill(
-            skill_name=skill_names[0],
-            eval_source=eval_source,
-            external_sources=list(external_sources) if external_sources else None,
-            iterations=iterations,
-            config=config,
-            reuse_dataset=reuse_dataset,
-            min_improvement=min_improvement,
-        )
+        params: SkillEvolverParams = SkillEvolverParams(skill_name=skill_names[0],
+                                                        eval_source=eval_source,
+                                                        external_sources=list(external_sources)
+                                                        if external_sources else None,
+                                                        iterations=iterations,
+                                                        config=config,
+                                                        reuse_dataset=reuse_dataset,
+                                                        min_improvement=min_improvement,)
+        metrics = evolve_single_skill(params)
         _print_summary([metrics])
         return
 

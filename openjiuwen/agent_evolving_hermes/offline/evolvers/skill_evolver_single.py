@@ -37,57 +37,39 @@ from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
 from .skill_evolver_config import EvolverConfig
+from .skill_evolver_single_params import SkillEvolverParams
 
 
-def evolve_single_skill(
-    skill_name: str,
-    eval_source: str = "synthetic",
-    external_sources: Optional[list] = None,
-    iterations: Optional[int] = None,
-    config: Optional[EvolverConfig] = None,
-    reuse_dataset: bool = False,
-    min_improvement: float = 0.0,
-    prior_baseline_score_single: Optional[float] = None,
-    prior_baseline_score_multi: Optional[float] = None,
-    prior_baseline_dims_multi = None,
-    # ── Pre-built shared objects (from step_01_build_skill_dataset_and_dspy) ──────────────────────────────
-    # When provided, stages 1 / 3 / 4 are skipped so that multiple GEPA passes
-    # running in sequence do not redundantly rebuild identical objects.
-    # Stage 2 (constraint validation) always runs — it is fast and important.
-    prebuilt_skill: Optional[dict] = None,
-    prebuilt_dataset = None,
-    prebuilt_baseline_module = None,
-    prebuilt_trainset: Optional[list] = None,
-    prebuilt_valset: Optional[list] = None,
-) -> dict:
+def evolve_single_skill(params: SkillEvolverParams) -> dict:
     """Run one GEPA evolution pass on a skill.
 
     Args:
-        skill_name: Name of the skill to evolve.
-        eval_source: "synthetic" | "external" | "golden"
-        external_sources: List of external log sources for eval_source="external".
-        iterations: Override config.iterations if provided.
-        config: EvolverConfig instance; defaults constructed if None.
-        reuse_dataset: Reuse the most recently cached dataset (saves LLM cost).
-        min_improvement: Minimum fitness improvement required before the evolved
-            skill is accepted.  If improvement < min_improvement, the result is
-            saved as evolved_REGRESSION.md but NOT deployed to evolved_skill.md.
-            Use 0.0 (default) to accept any positive improvement.
-            Use a negative value (e.g. -0.05) to accept minor regressions.
-        prior_baseline_score_single: Pre-computed single-score baseline from step_01.
-            When provided, stage08 skips re-evaluating the baseline module.
-        prior_baseline_score_multi: Pre-computed multi-score baseline from step_01.
-            When provided, stage08 skips re-evaluating the baseline module.
-        prebuilt_skill: Pre-built skill dict from step_01_build_skill_dataset_and_dspy.  When provided,
-            stage01 (find_and_load_skill) is skipped.  ``prior_metrics`` for
-            cross-run delta is not available in this path (treated as None).
-        prebuilt_dataset: Pre-built EvalDataset from step_01_build_skill_dataset_and_dspy.  When provided,
-            stage03 (build_or_load_dataset) is skipped.
-        prebuilt_baseline_module: Pre-built SkillModule from step_01_build_skill_dataset_and_dspy.  When
-            provided together with prebuilt_trainset / prebuilt_valset,
-            stage04 (configure_dspy_and_prepare_sets) is skipped.
-        prebuilt_trainset: Pre-split DSPy training examples from step_01_build_skill_dataset_and_dspy.
-        prebuilt_valset: Pre-split DSPy validation examples from step_01_build_skill_dataset_and_dspy.
+        params: Skill Evolver Params with next values:
+            skill_name: Name of the skill to evolve.
+            eval_source: "synthetic" | "external" | "golden"
+            external_sources: List of external log sources for eval_source="external".
+            iterations: Override config.iterations if provided.
+            config: EvolverConfig instance; defaults constructed if None.
+            reuse_dataset: Reuse the most recently cached dataset (saves LLM cost).
+            min_improvement: Minimum fitness improvement required before the evolved
+                skill is accepted.  If improvement < min_improvement, the result is
+                saved as evolved_REGRESSION.md but NOT deployed to evolved_skill.md.
+                Use 0.0 (default) to accept any positive improvement.
+                Use a negative value (e.g. -0.05) to accept minor regressions.
+            prior_baseline_score_single: Pre-computed single-score baseline from step_01.
+                When provided, stage08 skips re-evaluating the baseline module.
+            prior_baseline_score_multi: Pre-computed multi-score baseline from step_01.
+                When provided, stage08 skips re-evaluating the baseline module.
+            prebuilt_skill: Pre-built skill dict from step_01_build_skill_dataset_and_dspy.  When provided,
+                stage01 (find_and_load_skill) is skipped.  ``prior_metrics`` for
+                cross-run delta is not available in this path (treated as None).
+            prebuilt_dataset: Pre-built EvalDataset from step_01_build_skill_dataset_and_dspy.  When provided,
+                stage03 (build_or_load_dataset) is skipped.
+            prebuilt_baseline_module: Pre-built SkillModule from step_01_build_skill_dataset_and_dspy.  When
+                provided together with prebuilt_trainset / prebuilt_valset,
+                stage04 (configure_dspy_and_prepare_sets) is skipped.
+            prebuilt_trainset: Pre-split DSPy training examples from step_01_build_skill_dataset_and_dspy.
+            prebuilt_valset: Pre-split DSPy validation examples from step_01_build_skill_dataset_and_dspy.
 
     Returns:
         Metrics dict including baseline_score, evolved_score, improvement,
@@ -96,55 +78,56 @@ def evolve_single_skill(
     console = _make_console()
     console.print("Single Skill Evolver - Evolve Started")
 
-    if config is None:
+    if params.config is None:
         config = EvolverConfig()
-    if iterations is not None:
-        config.iterations = iterations
+    if params.iterations is not None:
+        config.iterations = params.iterations
 
     # ── Step 1: Find and load skill ──────────────────────────────────────────
-    if prebuilt_skill is not None:
+    if params.prebuilt_skill is not None:
         # Reuse pre-built skill; prior_metrics requires the output_dir which is
         # mode-specific and unavailable here — cross-run delta is skipped.
-        skill = prebuilt_skill
+        skill = params.prebuilt_skill
         prior_metrics = None
     else:
-        skill, prior_metrics = find_and_load_skill(skill_name, config, console)
+        skill, prior_metrics = find_and_load_skill(params.skill_name, config, console)
 
     # ── Step 2: Validate baseline constraints ────────────────────────────────
     # Skip when prebuilt_skill was provided — step_01_build_skill_dataset_and_dspy already ran this in
     # proper sequence (after stage 01, before stage 03).
-    if prebuilt_skill is None:
+    if params.prebuilt_skill is None:
         validate_baseline_constraints(skill["raw"], config, console)
 
     # ── Step 3: Build / reuse eval dataset ───────────────────────────────────
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = config.output_dir / skill_name / ts
+    output_dir = config.output_dir / params.skill_name / ts
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if prebuilt_dataset is not None:
+    if params.prebuilt_dataset is not None:
         # Reuse pre-built dataset; cached_path is not needed downstream when
         # the dataset was already loaded by step_01_build_skill_dataset_and_dspy.
-        dataset = prebuilt_dataset
+        dataset = params.prebuilt_dataset
         cached_path = None
     else:
         dataset, cached_path = build_or_load_dataset(
-            skill_name, skill["raw"], eval_source, external_sources,
-            config, output_dir, reuse_dataset, console,
+            params.skill_name, skill["raw"], params.eval_source, params.external_sources,
+            config, output_dir, params.reuse_dataset, console,
         )
 
     # ── Step 4: Configure DSPy + prepare train/val sets ──────────────────────
-    if prebuilt_baseline_module is not None and prebuilt_trainset is not None and prebuilt_valset is not None:
+    if (params.prebuilt_baseline_module is not None and params.prebuilt_trainset is not None
+            and params.prebuilt_valset is not None):
         # Reuse pre-built module and splits; DSPy was already configured by
         # step_01_build_skill_dataset_and_dspy with the same model so no re-configuration is required.
-        baseline_module = prebuilt_baseline_module
-        trainset = prebuilt_trainset
-        valset = prebuilt_valset
+        baseline_module = params.prebuilt_baseline_module
+        trainset = params.prebuilt_trainset
+        valset = params.prebuilt_valset
     else:
         baseline_module, trainset, valset = configure_dspy_and_prepare_sets(skill["raw"], dataset, config, console)
 
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
     optimized_module, optimizer_name, elapsed = run_gepa_optimization(baseline_module, trainset, valset, config,
-                                                                      console, skill_name=skill_name)
+                                                                      console, skill_name=params.skill_name)
 
     # ── Step 6: Extract evolved skill text ───────────────────────────────────
     evolved_text = extract_evolved_skill(optimized_module, skill, console)
@@ -158,9 +141,9 @@ def evolve_single_skill(
     baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_multi = \
         evaluate_on_holdout(
             baseline_module, optimized_module, dataset, config, console, prior_metrics,
-            prior_baseline_score_single=prior_baseline_score_single,
+            prior_baseline_score_single=params.prior_baseline_score_single,
             scoring_mode=getattr(config, "scoring_mode", "single"),
-            prior_baseline_score_multi=prior_baseline_score_multi,
+            prior_baseline_score_multi=params.prior_baseline_score_multi,
         )
 
     # ── Step 8b: Multi-objective processing ──────────────────────────────────
@@ -170,7 +153,7 @@ def evolve_single_skill(
         # so dynamic weights persist and accumulate across multiple GEPA runs.
         mo_state_path = config.output_dir / "mo_state.json"
         mo_state = MultiObjectiveState.load_or_create(mo_state_path)
-        b_list = [prior_baseline_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+        b_list = [params.prior_baseline_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
         e_list = [evolved_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
 
         # No-regression check — reject if any dimension drops > 0.02
@@ -212,30 +195,30 @@ def evolve_single_skill(
         # Skip the TS gate and mark as not accepted so steps 10-11 still run.
         accepted, ts_conf = False, None
     else:
-        gate = make_acceptance_gate(config, min_improvement)
+        gate = make_acceptance_gate(config, params.min_improvement)
         accepted, ts_conf = gate.decide(
-            improvement, evolved_score, skill_name,
+            improvement, evolved_score, params.skill_name,
             evolved_text, cross_run_delta, output_dir, console,
         )
 
     # ── Step 10: Display results table ───────────────────────────────────────
     display_results_table(
-        skill_name, optimizer_name, config.iterations,
+        params.skill_name, optimizer_name, config.iterations,
         baseline_score, evolved_score, improvement,
         cross_run_delta, accepted, elapsed,
         len(skill["raw"]), len(evolved_text), console,
         constraint_checks=evolved_checks,
-        prior_baseline_dims_multi=prior_baseline_dims_multi,
+        prior_baseline_dims_multi=params.prior_baseline_dims_multi,
         evolved_dims_multi=evolved_dims_multi,
         mo_weights=mo_state.weights if mo_state is not None else None,
     )
 
     # ── Step 11: Save outputs ─────────────────────────────────────────────────
     output_result = save_outputs(
-        skill_name, ts,
+        params.skill_name, ts,
         baseline_score, evolved_score, improvement,
-        accepted, min_improvement, cross_run_delta, prior_metrics,
-        config, optimizer_name, eval_source, cached_path,
+        accepted, params.min_improvement, cross_run_delta, prior_metrics,
+        config, optimizer_name, params.eval_source, cached_path,
         skill["raw"], evolved_text, evolved_checks,
         elapsed, output_dir, console,
         ts_confidence=ts_conf,

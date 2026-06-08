@@ -7,6 +7,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     _print_ts_insights
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
     _read_latest_evolved
+from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
@@ -43,17 +44,19 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
         ts_state_dir = ts_state_dir,
         scoring_mode=scoring_mode,
     )
-    metrics_ts = evolve_single_skill(
-        skill_name, "golden", config=evolver_config, min_improvement=0.0,
-        prior_baseline_score_single=baseline_score,
-        prior_baseline_score_multi=baseline_score_multi,
-        prior_baseline_dims_multi=baseline_dims_multi,
-        prebuilt_skill=prebuilt_skill,
-        prebuilt_dataset=prebuilt_dataset,
-        prebuilt_baseline_module=prebuilt_baseline_module,
-        prebuilt_trainset=prebuilt_trainset,
-        prebuilt_valset=prebuilt_valset,
-    )
+    params: SkillEvolverParams = SkillEvolverParams(skill_name,
+                                                    "golden",
+                                                    config=evolver_config,
+                                                    min_improvement=0.0,
+                                                    prior_baseline_score_single=baseline_score,
+                                                    prior_baseline_score_multi=baseline_score_multi,
+                                                    prior_baseline_dims_multi=baseline_dims_multi,
+                                                    prebuilt_skill=prebuilt_skill,
+                                                    prebuilt_dataset=prebuilt_dataset,
+                                                    prebuilt_baseline_module=prebuilt_baseline_module,
+                                                    prebuilt_trainset=prebuilt_trainset,
+                                                    prebuilt_valset=prebuilt_valset,)
+    metrics_ts = evolve_single_skill(params)
     _print_ts_insights(ts_state_dir, skill_name)
 
     if verbose:

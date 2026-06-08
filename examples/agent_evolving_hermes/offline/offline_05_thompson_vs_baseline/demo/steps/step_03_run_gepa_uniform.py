@@ -5,6 +5,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_skill import _print_skill
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.reader_latest_evolved import \
     _read_latest_evolved
+from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
 
 
@@ -32,17 +33,20 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
         ts_acceptance_gate=False,
         scoring_mode=scoring_mode,
     )
-    metrics_gepa_uniform = evolve_single_skill(
-        skill_name, "golden", config=evolver_config, min_improvement=0.0,
-        prior_baseline_score_single=baseline_score_single,
-        prior_baseline_score_multi=baseline_score_multi,
-        prior_baseline_dims_multi=baseline_dims_multi,
-        prebuilt_skill=prebuilt_skill,
-        prebuilt_dataset=prebuilt_dataset,
-        prebuilt_baseline_module=prebuilt_baseline_module,
-        prebuilt_trainset=prebuilt_trainset,
-        prebuilt_valset=prebuilt_valset,
-    )
+
+    params: SkillEvolverParams = SkillEvolverParams(skill_name,
+                                                    "golden",
+                                                    config=evolver_config,
+                                                    min_improvement=0.0,
+                                                    prior_baseline_score_single=baseline_score_single,
+                                                    prior_baseline_score_multi=baseline_score_multi,
+                                                    prior_baseline_dims_multi=baseline_dims_multi,
+                                                    prebuilt_skill=prebuilt_skill,
+                                                    prebuilt_dataset=prebuilt_dataset,
+                                                    prebuilt_baseline_module=prebuilt_baseline_module,
+                                                    prebuilt_trainset=prebuilt_trainset,
+                                                    prebuilt_valset=prebuilt_valset,)
+    metrics_gepa_uniform = evolve_single_skill(params)
 
     if verbose:
         evolved_gepa_uniform = _read_latest_evolved(output_gepa_uniform, skill_name)
