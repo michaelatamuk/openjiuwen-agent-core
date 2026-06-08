@@ -29,7 +29,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None):
+             baseline_dims_multi=None,
+             fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 06: Run GEPA Full Started ***[/bold cyan]")
 
     _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index,
@@ -58,7 +59,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    ts_acceptance_confidence = 0.75,
                                    ts_acceptance_n_samples = 100,
                                    ts_state_dir = ts_state_dir,
-                                   scoring_mode=scoring_mode)
+                                   scoring_mode=scoring_mode,
+                                   fitness_metric=fitness_metric)
 
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",

@@ -26,7 +26,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              n_runs: int = 1,
              scoring_mode: str = "single",
              baseline_score_multi=None,
-             baseline_dims_multi=None):
+             baseline_dims_multi=None,
+             fitness_metric: str = "jiuwen"):
     console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
     _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,
@@ -52,7 +53,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    ts_example_batch_size = ts_batch_size,
                                    ts_acceptance_gate = False,
                                    ts_state_dir = ts_state_dir,
-                                   scoring_mode=scoring_mode)
+                                   scoring_mode=scoring_mode,
+                                   fitness_metric=fitness_metric)
 
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",

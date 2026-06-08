@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.stats import (
@@ -9,50 +9,56 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     mean,
     std,
 )
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import (
+    run_key_label,
+    run_key_mode,
+)
+
+# Per-mode acceptance gate type
+_GATE = {
+    "gepa_uniform":               "threshold",
+    "gepa_full":                  "TS gate",
+    "gepa_focused_on_difficulty": "threshold",
+    "gepa_gated":                 "TS gate",
+    "gepa_rubric":                "threshold",
+}
+# Per-mode example selector type (placeholder for ts_batch_size, filled at runtime)
+_SEL_TMPL = {
+    "gepa_uniform":               "all train",
+    "gepa_full":                  "top {n} (TS)",
+    "gepa_focused_on_difficulty": "top {n} (TS)",
+    "gepa_gated":                 "all train",
+    "gepa_rubric":                "all train",
+}
 
 
 def run_step(baseline_score_single: float,
              baseline_score_multi: Optional[float],
              *,
-             scores_gepa_uniform:        Optional[List[float]] = None,
-             scores_gepa_full:        Optional[List[float]] = None,
-             scores_gepa_focused:           Optional[List[float]] = None,
-             scores_gepa_gated:           Optional[List[float]] = None,
-             scores_gepa_rubric:  Optional[List[float]] = None,
-             metrics_gepa_uniform:        Optional[dict] = None,
-             metrics_gepa_full:        Optional[dict] = None,
-             metrics_gepa_focused:           Optional[dict] = None,
-             metrics_gepa_gated:           Optional[dict] = None,
-             metrics_gepa_rubric:  Optional[dict] = None,
-             ts_batch_size:        int = 4,
+             scores: Dict[str, List[float]],
+             metrics: Dict[str, Optional[dict]],
+             ts_batch_size: int = 4,
              console=None) -> None:
-    """Print comparison for whichever training modes ran.
+    """Print comparison table for all (mode, fitness_metric) combinations that ran.
 
-    When ``n_runs == 1`` the table shows single values (original
-    behaviour).  When ``n_runs > 1`` it shows mean ± std, a per-run
-    detail table (learning-curve proxy), and bootstrap 95% CIs.
+    Parameters
+    ----------
+    scores:
+        Dict keyed by run key (e.g. ``"gepa_uniform"`` or ``"gepa_uniform__jiuwen"``).
+        Each value is a list of per-run holdout scores.
+    metrics:
+        Dict keyed by the same run keys; each value is the last-run metrics dict.
     """
-
     console.print(f"\n[bold cyan]*** Demo Step 07: Compare Results Started ***[/bold cyan]")
 
-    # ── Collect present modes ──────────────────────────────────────────────
-    mode_data: list[tuple[str, list[float], Optional[dict]]] = []
-    if scores_gepa_uniform:
-        mode_data.append(("GEPA-Uniform", scores_gepa_uniform, metrics_gepa_uniform))
+    # ── Collect present modes in insertion order ───────────────────────────
+    mode_data: list[tuple[str, str, list[float], Optional[dict]]] = []
+    # (run_key, display_label, scores_list, metrics_dict)
+    for run_key, sc in scores.items():
+        if sc:
+            mode_data.append((run_key, run_key_label(run_key), sc, metrics.get(run_key)))
 
-    if scores_gepa_rubric:
-        mode_data.append(("GEPA-Rubric", scores_gepa_rubric, metrics_gepa_rubric))
-
-    if scores_gepa_focused:
-        mode_data.append(("GEPA-Focused", scores_gepa_focused, metrics_gepa_focused))
-
-    if scores_gepa_gated:
-        mode_data.append(("GEPA-Gated", scores_gepa_gated, metrics_gepa_gated))
-
-    if scores_gepa_full:
-        mode_data.append(("GEPA-Full", scores_gepa_full, metrics_gepa_full))
-
-    ran_labels = [label for label, _, _ in mode_data]
+    ran_labels = [label for _, label, _, _ in mode_data]
     pre_labels = ["Base-Holistic", "Base-Rubric"] if baseline_score_multi is not None else ["Base-Holistic"]
     all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
     _banner("COMPARISON — " + "  ·  ".join(all_labels), console=console)
@@ -61,24 +67,23 @@ def run_step(baseline_score_single: float,
         console.print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
         if baseline_score_multi is not None:
             console.print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
-
         console.print(f"[bold cyan]*** Demo Step 07: Compare Results Finished - no data ***[/bold cyan]")
         return
 
-    n_runs = len(mode_data[0][1])  # all modes ran the same number of times
+    n_runs = len(mode_data[0][2])
     multi = n_runs > 1
 
     # ── Column widths ──────────────────────────────────────────────────────
-    W = 13 if multi else 11
+    max_label_len = max(len(lbl) for lbl in ran_labels + pre_labels) if ran_labels else 14
+    W = max(max_label_len + 2, 13 if multi else 11)
 
-    # Build cols: pre-train baseline columns + one column per training mode.
-    # Base-Rubric is only included when a multi-objective baseline was evaluated.
+    # Build cols list: (display_label, scores_or_None, metrics_or_None, base_score)
     cols: list[tuple[str, Optional[list[float]], Optional[dict], float]] = [
         ("Base-Holistic", None, None, baseline_score_single),
     ]
     if baseline_score_multi is not None:
         cols.append(("Base-Rubric", None, None, baseline_score_multi))
-    cols += [(l, s, m, 0.0) for l, s, m in mode_data]
+    cols += [(label, sc, m, 0.0) for _, label, sc, m in mode_data]
 
     # Header / divider
     header  = f"  {'':32s}"
@@ -91,74 +96,62 @@ def run_step(baseline_score_single: float,
 
     # Holdout score row
     score_row = f"  {'Holdout score':32s}"
-    for label, scores, m, base in cols:
-        if scores is None:
-            score_row += f"  {base:>{W}.4f}"  # Dynamically use the pre-train baseline
+    for label, sc, m, base in cols:
+        if sc is None:
+            score_row += f"  {base:>{W}.4f}"
         elif multi:
-            m_val = mean(scores)
-            s_val = std(scores)
+            m_val = mean(sc)
+            s_val = std(sc)
             score_row += f"  {f'{m_val:.4f} ±{s_val:.4f}':>{W}}"
         else:
-            score_row += f"  {scores[0]:>{W}.4f}"
+            score_row += f"  {sc[0]:>{W}.4f}"
     console.print(score_row)
 
-    delta_row = f"  {'Δ over baseline':32s}"
-    for label, scores, m, base in cols:
-        if scores is None:
-            delta_row += f"  {'—':>{W}}"
-        else:
-            # Use metrics-embedded baseline when available; otherwise
-            # use multi baseline for multi-scored modes, single for the rest.
-            mode_baseline = m.get("baseline_score") if m and "baseline_score" in m else (
+    # Δ over baseline row
+    delta_row = f"  {'Δ over baseline':32s}" + f"  {'—':>{W}}" * len(pre_labels)
+    for rk, _, sc2, m2 in mode_data:
+        mode_part = run_key_mode(rk)
+        mode_baseline = (
+            m2.get("baseline_score")
+            if m2 and "baseline_score" in m2
+            else (
                 (baseline_score_multi if baseline_score_multi is not None else baseline_score_single)
-                if label == "GEPA-Rubric" else baseline_score_single
+                if mode_part == "gepa_rubric"
+                else baseline_score_single
             )
-            d = mean(scores) - mode_baseline
-            delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
+        )
+        d = mean(sc2) - mode_baseline
+        delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
     console.print(delta_row)
 
-    # ── Accepted (last run) ───────────────────────────────────────────────
+    # Accepted row
     acc_row = f"  {'Accepted (last run)' if multi else 'Accepted':32s}"
-    for _, scores, m, _ in cols:
-        if scores is None:
+    for _, sc, m, _ in cols:
+        if sc is None:
             acc_row += f"  {'—':>{W}}"
         else:
             acc_row += f"  {'✓ yes' if m and m.get('accepted') else '✗ no':>{W}}"
     console.print(acc_row)
 
-    # ── Config rows ───────────────────────────────────────────────────────
-    _GATE = {
-        "GEPA-Uniform":       "threshold",
-        "GEPA-Full":       "TS gate",
-        "GEPA-Focused":     "threshold",
-        "GEPA-Gated":     "TS gate",
-        "GEPA-Rubric": "threshold",
-    }
-    _SEL = {
-        "GEPA-Uniform":       "all train",
-        "GEPA-Full":       f"top {ts_batch_size} (TS)",
-        "GEPA-Focused":     f"top {ts_batch_size} (TS)",
-        "GEPA-Gated":     "all train",
-        "GEPA-Rubric": "all train",
-    }
-
+    # Config rows
     gate_row = f"  {'Acceptance gate':32s}"
-    sel_row = f"  {'Example selector':32s}"
-    for label, scores, _, _ in cols:
-        if scores is None:
-            gate_row += f"  {'—':>{W}}"
-            sel_row += f"  {'—':>{W}}"
-        else:
-            gate_row += f"  {_GATE.get(label, '?'):>{W}}"
-            sel_row += f"  {_SEL.get(label, '?'):>{W}}"
-    console.print(gate_row)
-    console.print(sel_row)
+    sel_row  = f"  {'Example selector':32s}"
+    for (run_key, label, _, _2), (_, sc, _, _3) in zip(
+        [(rk, lbl, s, m) for rk, lbl, s, m in mode_data],
+        cols[len(pre_labels):],
+    ):
+        mode_part = run_key_mode(run_key)
+        gate_row += f"  {_GATE.get(mode_part, '?'):>{W}}"
+        sel_tmpl = _SEL_TMPL.get(mode_part, "?")
+        sel_row  += f"  {sel_tmpl.format(n=ts_batch_size):>{W}}"
+    gate_prefix = f"  {'Acceptance gate':32s}" + f"  {'—':>{W}}" * len(pre_labels)
+    sel_prefix  = f"  {'Example selector':32s}" + f"  {'—':>{W}}" * len(pre_labels)
+    console.print(gate_prefix + gate_row[2 + 32:])
+    console.print(sel_prefix  + sel_row[2 + 32:])
 
-    # ── Winner ────────────────────────────────────────────────────────────
-    # Prefer accepted modes; fall back to best score with a "(not accepted)" note.
-    accepted_modes = [(label, mean(scores)) for label, scores, m in mode_data
-                      if m and m.get("accepted")]
-    all_modes_scored = [(label, mean(scores)) for label, scores, _ in mode_data]
+    # Winner
+    accepted_modes = [(label, mean(sc)) for _, label, sc, m in mode_data if m and m.get("accepted")]
+    all_modes_scored = [(label, mean(sc)) for _, label, sc, _ in mode_data]
 
     if accepted_modes:
         best_score = max(s for _, s in accepted_modes)
@@ -179,51 +172,53 @@ def run_step(baseline_score_single: float,
     # MULTI-RUN SECTION
     # ══════════════════════════════════════════════════════════════════════
 
-    # ── Per-run table (learning-curve proxy) ──────────────────────────────
     console.print(f"\n  Run-by-run results ({n_runs} independent runs):")
-    header2, divider2 = f"  {'':22s}", f"  {'─' * 22}"
-    for label, _, _, _ in cols:
-        header2 += f"  {label:>{W}}"
+    header2  = f"  {'':22s}"
+    divider2 = f"  {'─' * 22}"
+    for label, *_ in cols:
+        header2  += f"  {label:>{W}}"
         divider2 += f"  {'─' * W}"
     console.print(header2)
     console.print(divider2)
 
     for i in range(n_runs):
         row = f"  {f'Run {i + 1}':22s}"
-        for _, scores, _, base in cols:
-            # Use base if it's a pre-train column, otherwise the specific run score
-            val = base if scores is None else scores[i]
+        for _, sc, _, base in cols:
+            val = base if sc is None else sc[i]
             row += f"  {val:>{W}.4f}"
         console.print(row)
 
     console.print(f"  {'─' * 22}" + f"  {'─' * W}" * len(cols))
-    mean_row, std_row = f"  {'Mean':22s}", f"  {'Std dev':22s}"
-    for _, scores, _, base in cols:
-        if scores is None:
+    mean_row = f"  {'Mean':22s}"
+    std_row  = f"  {'Std dev':22s}"
+    for _, sc, _, base in cols:
+        if sc is None:
             mean_row += f"  {base:>{W}.4f}"
-            std_row += f"  {'—':>{W}}"
+            std_row  += f"  {'—':>{W}}"
         else:
-            mean_row += f"  {mean(scores):>{W}.4f}"
-            std_row += f"  {std(scores):>{W}.4f}"
+            mean_row += f"  {mean(sc):>{W}.4f}"
+            std_row  += f"  {std(sc):>{W}.4f}"
     console.print(mean_row)
     console.print(std_row)
 
-    # ── Bootstrap CI vs GEPA-Uniform ─────────────────────────────────────────────
-    if scores_gepa_uniform and len(mode_data) > 1:
-        console.print(f"\n  Bootstrap 95% CI vs GEPA-Uniform ({n_runs} runs, paired):")
-        for label, scores, _ in mode_data:
-            if label == "GEPA-Uniform":
+    # Bootstrap CI vs first "gepa_uniform" entry (if present and n_runs > 1)
+    uniform_entries = [(rk, sc) for rk, _, sc, _ in mode_data if run_key_mode(rk) == "gepa_uniform"]
+    if uniform_entries and len(mode_data) > 1:
+        ref_key, ref_scores = uniform_entries[0]
+        ref_label = run_key_label(ref_key)
+        console.print(f"\n  Bootstrap 95% CI vs {ref_label} ({n_runs} runs, paired):")
+        for rk, label, sc, _ in mode_data:
+            if rk == ref_key:
                 continue
-            d_mean, lo, hi = bootstrap_ci_diff(scores_gepa_uniform, scores)
+            d_mean, lo, hi = bootstrap_ci_diff(ref_scores, sc)
             sign = "+" if d_mean >= 0 else ""
             ci_str = f"[{'+' if lo >= 0 else ''}{lo:.4f}, {'+' if hi >= 0 else ''}{hi:.4f}]"
-            # Significant if CI entirely above 0 (better) or below 0 (worse)
             if lo > 0:
                 verdict = "★ reliably better"
             elif hi < 0:
                 verdict = "✗ reliably worse"
             else:
                 verdict = "~ inconclusive"
-            console.print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
+            console.print(f"    {label:<14}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
 
     console.print(f"[bold cyan]*** Demo Step 07: Compare Results Finished ***[/bold cyan]")

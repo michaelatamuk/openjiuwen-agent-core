@@ -29,7 +29,7 @@ from .skill_evolver_stages.stage05_gepa_optimizer import run_gepa_optimization
 from .skill_evolver_stages.stage06_evolved_skill_extractor import extract_evolved_skill
 from .skill_evolver_stages.stage02_skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
-from .skill_evolver_stages.stage08_holdout_evaluator_judge_multi import MultiObjectiveFitnessScore
+from .skill_evolver_stages.stage08_holdout_evaluator_judge_by_rubrics import MultiRubricFitnessScore
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
 from .skill_evolver_single_params import SkillEvolverParams
@@ -100,8 +100,8 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
     if getattr(params.config, "scoring_mode", "single") == "multi" and evolved_dims_multi is not None:
         multi_rubrics_state_path = params.config.output_dir / "multi_rubrics_state.json"
         multi_rubrics_state = AdaptiveRubricWeights.load_or_create(multi_rubrics_state_path)
-        b_list = [params.prior_baseline_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
-        e_list = [evolved_dims_multi[d] for d in MultiObjectiveFitnessScore.DIM_NAMES]
+        b_list = [params.prior_baseline_dims_multi[d] for d in MultiRubricFitnessScore.DIM_NAMES]
+        e_list = [evolved_dims_multi[d] for d in MultiRubricFitnessScore.DIM_NAMES]
 
         nr_passed, failed_dims = multi_rubrics_state.no_regression_passed(e_list, b_list)
         if not nr_passed:

@@ -7,53 +7,72 @@ the script works in headless / server environments.
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 # Use Agg before any other matplotlib import to avoid display errors
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.lines as mlines
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.stats import (
     bootstrap_ci_diff,
     mean,
     std,
 )
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import (
+    run_key_label,
+    run_key_mode,
+)
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 _COLORS = {
-    "Pre-train":   "#9E9E9E",
-    "Pre-train-M": "#607D8B",
-    "GEPA-Uniform":       "#2196F3",
-    "GEPA-Rubric": "#00BCD4",
-    "GEPA-Focused":     "#FF9800",
-    "GEPA-Gated":     "#4CAF50",
-    "GEPA-Full":       "#E91E63",
+    "Pre-train":    "#9E9E9E",
+    "Pre-train-M":  "#607D8B",
+    "GEPA-Uniform": "#2196F3",
+    "GEPA-Rubric":  "#00BCD4",
+    "GEPA-Focused": "#FF9800",
+    "GEPA-Gated":   "#4CAF50",
+    "GEPA-Full":    "#E91E63",
 }
+_CYCLE_COLORS = ["#9C27B0", "#FF5722", "#795548", "#3F51B5", "#009688"]
 _DEFAULT_COLOR = "#607D8B"
+_color_cache: Dict[str, str] = {}
 
 
 def _color(label: str) -> str:
-    return _COLORS.get(label, _DEFAULT_COLOR)
+    """Return a hex colour for *label*.
+
+    Falls back to base-mode label (part before " (metric)" suffix), then
+    cycles through a fixed palette for truly unknown labels.
+    """
+    c = _COLORS.get(label)
+    if not c:
+        base = label.split(" (")[0]
+        c = _COLORS.get(base)
+    if not c:
+        if label not in _color_cache:
+            idx = len(_color_cache) % len(_CYCLE_COLORS)
+            _color_cache[label] = _CYCLE_COLORS[idx]
+        c = _color_cache[label]
+    return c or _DEFAULT_COLOR
 
 
 def plot_results(
     baseline_score_single: float,
     baseline_score_multi: Optional[float],
-    scores_gepa_uniform:       Optional[List[float]],
-    scores_gepa_rubric: Optional[List[float]],
-    scores_gepa_full:       Optional[List[float]],
-    scores_gepa_focused:          Optional[List[float]],
-    scores_gepa_gated:          Optional[List[float]],
+    scores: Dict[str, List[float]],
     output_dir: Path,
     scenario_name: str = "",
     n_runs: int = 1,
 ) -> Path:
     """Render comparison plots and save to *output_dir/comparison.png*.
+
+    Parameters
+    ----------
+    scores:
+        Dict keyed by run key (e.g. ``"gepa_uniform"`` or
+        ``"gepa_uniform__jiuwen"``).
 
     Returns the path of the saved file.
     """
@@ -61,22 +80,24 @@ def plot_results(
     output_dir.mkdir(parents=True, exist_ok=True)
     save_path = output_dir / "comparison.png"
 
-    # ── Assemble mode data in display order ───────────────────────────────
-    mode_data: list[tuple[str, List[float]]] = []
-    if scores_gepa_uniform:        mode_data.append(("GEPA-Uniform",       scores_gepa_uniform))
-    if scores_gepa_rubric:  mode_data.append(("GEPA-Rubric", scores_gepa_rubric))
-    if scores_gepa_focused:           mode_data.append(("GEPA-Focused",     scores_gepa_focused))
-    if scores_gepa_gated:           mode_data.append(("GEPA-Gated",     scores_gepa_gated))
-    if scores_gepa_full:        mode_data.append(("GEPA-Full",       scores_gepa_full))
-
+    # ── Assemble mode data in insertion order ─────────────────────────────
+    mode_data: list[tuple[str, List[float]]] = [
+        (run_key_label(k), v) for k, v in scores.items() if v
+    ]
     if not mode_data:
-        return save_path  # nothing to plot
+        return save_path
 
-    multi       = n_runs > 1
-    has_gepa_uniform   = scores_gepa_uniform is not None and len(scores_gepa_uniform) > 0
-    show_ci     = multi and has_gepa_uniform and len(mode_data) > 1
-    n_panels    = 1 + (1 if multi else 0) + (1 if show_ci else 0)
+    multi = n_runs > 1
 
+    # Find reference GEPA-Uniform entry for CI panel
+    uniform_entry: Optional[tuple[str, List[float]]] = next(
+        ((run_key_label(k), v) for k, v in scores.items()
+         if run_key_mode(k) == "gepa_uniform" and v),
+        None,
+    )
+    show_ci = multi and uniform_entry is not None and len(mode_data) > 1
+
+    n_panels = 1 + (1 if multi else 0) + (1 if show_ci else 0)
     fig_h = 4 + 3.5 * (n_panels - 1)
     fig, axes = plt.subplots(n_panels, 1, figsize=(9, fig_h))
     if n_panels == 1:
@@ -107,15 +128,14 @@ def plot_results(
             linewidth=1.5, zorder=4,
         )
 
-    # Value labels on bars
     for bar, val, s in zip(bars, all_means, all_stds):
-        label = f"{val:.3f}"
+        lbl = f"{val:.3f}"
         if multi and s > 0:
-            label += f"\n±{s:.3f}"
+            lbl += f"\n±{s:.3f}"
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + (s if multi else 0) + 0.012,
-            label, ha="center", va="bottom", fontsize=8.5,
+            lbl, ha="center", va="bottom", fontsize=8.5,
         )
 
     ax.axhline(baseline_score_single, color=_color("Pre-train"), linestyle="--",
@@ -124,7 +144,8 @@ def plot_results(
         ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
                    linewidth=1.2, alpha=0.6, zorder=2, label="Pre-train (multi)")
     ax.set_xticks(list(x))
-    ax.set_xticklabels(all_labels, fontsize=10)
+    ax.set_xticklabels(all_labels, fontsize=9, rotation=15 if len(all_labels) > 6 else 0,
+                       ha="right" if len(all_labels) > 6 else "center")
     ax.set_ylabel("Holdout score", fontsize=10)
     ax.set_ylim(0, min(1.05, max(all_means) + (max(all_stds) if multi else 0) + 0.15))
     title = f"Holdout score by mode  (n={n_runs} runs per mode)" if multi else "Holdout score by mode"
@@ -146,13 +167,12 @@ def plot_results(
             ax.axhline(baseline_score_multi, color=_color("Pre-train-M"), linestyle=":",
                        linewidth=1.2, alpha=0.5, label="Pre-train (multi)", zorder=2)
 
-        for lbl, scores in mode_data:
-            ax.plot(run_xs, scores, marker="o", linewidth=1.8,
+        for lbl, sc in mode_data:
+            ax.plot(run_xs, sc, marker="o", linewidth=1.8,
                     markersize=6, color=_color(lbl), label=lbl, zorder=3)
-            # Shade ± std region
-            m = mean(scores)
-            s = std(scores)
-            ax.axhspan(m - s, m + s, color=_color(lbl), alpha=0.07, zorder=1)
+            m_val = mean(sc)
+            s_val = std(sc)
+            ax.axhspan(m_val - s_val, m_val + s_val, color=_color(lbl), alpha=0.07, zorder=1)
 
         ax.set_xlabel("Run", fontsize=10)
         ax.set_ylabel("Holdout score", fontsize=10)
@@ -164,16 +184,17 @@ def plot_results(
         ax.spines["right"].set_visible(False)
 
     # ════════════════════════════════════════════════════════════════════════
-    # Panel 3: Bootstrap CI forest plot vs GEPA-Uniform  (multi-run + GEPA-Uniform present)
+    # Panel 3: Bootstrap CI forest plot vs GEPA-Uniform
     # ════════════════════════════════════════════════════════════════════════
     if show_ci:
         ax = axes[panel]; panel += 1
+        ref_label, ref_scores = uniform_entry
 
-        ci_rows: list[tuple[str, float, float, float]] = []  # (label, mean_diff, lo, hi)
-        for lbl, scores in mode_data:
-            if lbl == "GEPA-Uniform":
+        ci_rows: list[tuple[str, float, float, float]] = []
+        for lbl, sc in mode_data:
+            if lbl == ref_label:
                 continue
-            d_mean, lo, hi = bootstrap_ci_diff(scores_gepa_uniform, scores)
+            d_mean, lo, hi = bootstrap_ci_diff(ref_scores, sc)
             ci_rows.append((lbl, d_mean, lo, hi))
 
         y_pos = list(range(len(ci_rows)))
@@ -181,29 +202,27 @@ def plot_results(
 
         for i, (lbl, d_mean, lo, hi) in enumerate(ci_rows):
             if lo > 0:
-                c = "#2E7D32"   # green — reliably better
+                c = "#2E7D32"
                 verdict = "★ reliable improvement"
             elif hi < 0:
-                c = "#C62828"   # red — reliably worse
+                c = "#C62828"
                 verdict = "✗ reliable regression"
             else:
-                c = "#616161"   # gray — inconclusive
+                c = "#616161"
                 verdict = "~ inconclusive"
 
-            # CI bar
             ax.plot([lo, hi], [i, i], color=c, linewidth=3.5, solid_capstyle="round", zorder=3)
-            # Mean point
             ax.scatter([d_mean], [i], color=c, s=60, zorder=4, linewidths=0)
-            # Verdict label to the right
             ax.text(hi + 0.005, i, f"  {verdict}", va="center", fontsize=8.5, color=c)
 
         ax.set_yticks(y_pos)
         ax.set_yticklabels([lbl for lbl, *_ in ci_rows], fontsize=10)
-        ax.set_xlabel("Δ holdout score vs GEPA-Uniform", fontsize=10)
-        ax.set_title(f"Bootstrap 95% CI  (Δ vs GEPA-Uniform,  n={n_runs} runs)", fontsize=11)
-        x_min = min(lo for _, _, lo, _ in ci_rows) - 0.06
-        x_max = max(hi for _, _, _, hi in ci_rows) + 0.18   # room for verdict text
-        ax.set_xlim(x_min, x_max)
+        ax.set_xlabel(f"Δ holdout score vs {ref_label}", fontsize=10)
+        ax.set_title(f"Bootstrap 95% CI  (Δ vs {ref_label},  n={n_runs} runs)", fontsize=11)
+        if ci_rows:
+            x_min = min(lo for _, _, lo, _ in ci_rows) - 0.06
+            x_max = max(hi for _, _, _, hi in ci_rows) + 0.18
+            ax.set_xlim(x_min, x_max)
         ax.grid(axis="x", alpha=0.35, zorder=1)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)

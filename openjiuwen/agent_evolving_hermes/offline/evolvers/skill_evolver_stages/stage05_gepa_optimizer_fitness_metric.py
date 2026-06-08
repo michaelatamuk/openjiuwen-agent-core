@@ -1,86 +1,157 @@
 from __future__ import annotations
 
-import re
-from typing import Set
+import importlib
+import inspect
+from typing import Any, Callable, Dict, Set
 
 import dspy
 
+# Common English stop words — filtered out during jiuwen F1 scoring
+_STOP_WORDS: Set[str] = {
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
+    "been", "being", "have", "has", "had", "do", "does", "did", "will",
+    "would", "could", "should", "may", "might", "shall", "can", "not",
+    "no", "nor", "so", "yet", "both", "either", "neither", "each",
+    "than", "that", "this", "these", "those", "it", "its", "also",
+    "if", "then", "when", "where", "which", "who", "what", "how",
+    "all", "any", "some", "such", "more", "most", "other", "same",
+    "just", "about", "up", "out", "into", "through", "during",
+}
 
-def _extract_technical_keywords(text: str) -> Set[str]:
-    """Extract high-signal technical terms from an expected_behavior string.
 
-    Three categories, in descending specificity:
-      1. Backtick-wrapped terms  → ``threading.Lock``, ``select_related('product')``
-      2. ALL-CAPS acronyms       → TOCTOU, SQL, N+1, O(N)
-      3. snake_case / dotted identifiers with ≥2 parts → os.path.exists, page_num
+def hermes_fitness_metric(example: dspy.Example,
+                          prediction: dspy.Prediction,
+                          trace=None,
+                          pred_name=None,
+                          pred_trace=None) -> float:
+    """Exact Hermes-style word-bag metric with 0.3 floor.
 
-    These terms only appear in reviews that correctly identified the specific
-    issue, making the metric much more discriminating than bag-of-words overlap.
+    score = 0.3 + 0.7 × (expected_words ∩ output_words) / |expected_words|
+
+    The 0.3 floor ensures any non-empty output scores above zero even with
+    no keyword overlap — matching the original Hermes behaviour.
     """
-    keywords: Set[str] = set()
-
-    # 1. Backtick-wrapped (keep full token, e.g. "threading.lock", "items=none")
-    for m in re.finditer(r"`([^`]+)`", text):
-        kw = m.group(1).lower().strip()
-        if kw:
-            keywords.add(kw)
-
-    # 2. ALL-CAPS acronyms and patterns like N+1, O(N)
-    for m in re.finditer(r"\b([A-Z]{2,}(?:[+\-*/()\d]*)?)\b", text):
-        keywords.add(m.group(1).lower())
-
-    # 3. snake_case or dotted names with ≥2 parts (e.g. page_num, os.path)
-    for m in re.finditer(r"\b([a-z][a-z0-9]*(?:[._][a-z][a-z0-9]*)+)\b", text):
-        keywords.add(m.group(1).lower())
-
-    return keywords
-
-
-def skill_fitness_metric(example: dspy.Example,
-                         prediction: dspy.Prediction,
-                         trace=None,
-                         pred_name=None,
-                         pred_trace=None) -> float:
-    """Fast technical-keyword metric for GEPA's inner optimization loop.
-
-    Uses high-signal terms (backtick-wrapped tokens, ALL-CAPS acronyms,
-    snake_case/dotted identifiers) extracted from expected_behavior rather
-    than full bag-of-words overlap.
-
-    Why this matters for Thompson Sampling:
-    - Easy examples have common keywords (e.g. ``__main__``) that even the
-      baseline skill mentions → low variance across evolved candidates → TS
-      quickly deprioritises them.
-    - Hard examples have rare, specific keywords (e.g. ``TOCTOU``,
-      ``threading.Lock``, ``select_related``) that only a truly evolved skill
-      mentions → high variance → TS focuses budget here.
-    This creates the discriminating signal TS needs to outperform plain GEPA.
-    """
-    if not prediction.output.strip():
+    if not getattr(prediction, "output", "").strip():
         return 0.0
 
     expected_words = set(example.expected_behavior.lower().split())
     output_words = set(prediction.output.lower().split())
 
-    tech_keywords = _extract_technical_keywords(example.expected_behavior)
-    if tech_keywords:
-        # Primary score: fraction of technical keywords present in output
-        hits = sum(1 for kw in tech_keywords if kw in prediction.output.lower())
-        tech_score = hits / len(tech_keywords)
+    if not expected_words:
+        return 0.5
 
-        # Blend: 80% technical keyword coverage + 20% general word presence
-        general_score = len(expected_words & output_words) / len(expected_words) if expected_words else 0.0
-        score = 0.8 * tech_score + 0.2 * general_score
-    else:
-        # Fallback for examples with no extractable technical keywords.
-        # No artificial floor: zero overlap must score zero so that TS arms
-        # correctly accumulate β for examples where the agent produces nothing
-        # useful.  The old 0.3 floor caused every no-keyword example to score
-        # ≥ 0.3 regardless of output quality, inflating α and making TS
-        # effectively random for those examples.
+    overlap = len(expected_words & output_words) / len(expected_words)
+    return min(1.0, 0.3 + 0.7 * overlap)
 
-        score = 0.0
-        if expected_words:
-            score = len(expected_words & output_words) / len(expected_words)
 
-    return min(1.0, max(0.0, score))
+def jiuwen_fitness_metric(example: dspy.Example,
+                          prediction: dspy.Prediction,
+                          trace=None,
+                          pred_name=None,
+                          pred_trace=None) -> float:
+    """Stop-word-filtered weighted F1 metric for general-purpose skills.
+
+    Removes common English stop words before computing overlap, then scores as:
+        score = 0.7 × recall + 0.3 × precision  (on content words only)
+
+    - Recall-heavy (0.7 weight): the agent must cover what the rubric expects.
+    - Precision component (0.3 weight): rewards specificity, penalises irrelevant
+      verbosity that happens to match by coincidence.
+    - No artificial floor: zero overlap scores zero, giving GEPA and Thompson
+      Sampling a clean signal for examples where the agent produces nothing useful.
+
+    Works for any skill domain — not specific to code or technical content.
+    """
+    if not getattr(prediction, "output", "").strip():
+        return 0.0
+
+    def _content_words(text: str) -> Set[str]:
+        return {w for w in text.lower().split() if w not in _STOP_WORDS and len(w) > 1}
+
+    expected = _content_words(example.expected_behavior)
+    output = _content_words(prediction.output)
+
+    if not expected:
+        return 0.5 if output else 0.0
+
+    intersection = expected & output
+    recall = len(intersection) / len(expected)
+    precision = len(intersection) / len(output) if output else 0.0
+
+    return min(1.0, max(0.0, 0.7 * recall + 0.3 * precision))
+
+
+def _ensure_gepa_signature(fn: Callable) -> Callable:
+    """Wrap *fn* so it always accepts exactly 5 positional arguments.
+
+    GEPA inspects the metric signature and requires ``(gold, pred, trace,
+    pred_name, pred_trace)``.  Built-in metrics already carry that signature;
+    this wrapper ensures custom / imported metrics are compatible too.
+    """
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+        positional_params = [
+            p for p in params
+            if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if len(positional_params) >= 5:
+            return fn  # already compatible
+    except (ValueError, TypeError):
+        pass
+
+    def _wrapped(gold, pred, trace=None, pred_name=None, pred_trace=None):
+        return fn(gold, pred, trace)
+
+    _wrapped.__name__ = getattr(fn, "__name__", "custom_fitness_metric")
+    return _wrapped
+
+
+def resolve_fitness_metric(name: str,
+                           custom_metrics: Dict[str, Any] = None) -> Callable:
+    """Resolve a fitness metric name to a callable.
+
+    Built-in names
+    --------------
+    ``"jiuwen"``  — stop-word-filtered weighted F1 (0.7 recall + 0.3 precision).
+                    General-purpose; works for any skill domain. Default.
+    ``"hermes"``  — word-bag overlap with 0.3 floor, matching original Hermes.
+
+    Custom names
+    ------------
+    Looked up in *custom_metrics* dict first, then imported as a dotted module
+    path (e.g. ``"mypackage.metrics.my_metric_fn"``).
+
+    Raises ValueError if name cannot be resolved.
+    """
+    custom_metrics = custom_metrics or {}
+
+    if name == "jiuwen":
+        return jiuwen_fitness_metric
+    if name == "hermes":
+        return hermes_fitness_metric
+
+    # Check custom_metrics dict
+    if name in custom_metrics:
+        fn = custom_metrics[name]
+        if callable(fn):
+            return _ensure_gepa_signature(fn)
+        raise ValueError(f"custom_metrics['{name}'] is not callable: {type(fn)}")
+
+    # Try dotted import path: "package.module.function"
+    if "." in name:
+        module_path, _, fn_name = name.rpartition(".")
+        try:
+            module = importlib.import_module(module_path)
+            fn = getattr(module, fn_name)
+            if callable(fn):
+                return _ensure_gepa_signature(fn)
+            raise ValueError(f"'{name}' resolved but is not callable")
+        except (ImportError, AttributeError) as e:
+            raise ValueError(f"Cannot import fitness metric '{name}': {e}") from e
+
+    raise ValueError(
+        f"Unknown fitness metric '{name}'. "
+        f"Built-ins: 'jiuwen', 'hermes'. "
+        f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config."
+    )

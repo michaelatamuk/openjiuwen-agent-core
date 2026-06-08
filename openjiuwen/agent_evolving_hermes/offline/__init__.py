@@ -24,6 +24,7 @@ from openjiuwen.agent_evolving_hermes.offline.dataset_builder import (
     GoldenDatasetLoader,
     SyntheticDatasetBuilder,
 )
+from skill_evolver_stages.stage08_holdout_evaluator_judge_holistic import FitnessScore, HolisticLLMJudge
 from .evolvers import evolve_skills_batch, evolve_single_skill
 from .external_importers import (
     ClaudeCodeImporter,
@@ -31,8 +32,7 @@ from .external_importers import (
     SECRET_PATTERNS,
     build_dataset_from_external,
 )
-from .evolvers.skill_evolver_stages.stage05_gepa_optimizer import (skill_fitness_metric)
-from .evolvers.skill_evolver_stages.stage08_holdout_evaluator_judge import LLMJudge, FitnessScore
+
 from openjiuwen.agent_evolving_hermes.offline.skills import (
     SkillModule,
     find_skill,
@@ -50,8 +50,7 @@ __all__ = [
     "load_skill",
     "reassemble_skill",
     "FitnessScore",
-    "LLMJudge",
-    "skill_fitness_metric",
+    "HolisticLLMJudge",
     "ConstraintResult",
     "ConstraintValidator",
     "EvalExample",

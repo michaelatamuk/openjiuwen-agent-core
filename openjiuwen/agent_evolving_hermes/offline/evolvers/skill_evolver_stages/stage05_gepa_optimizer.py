@@ -9,7 +9,7 @@ import dspy
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection import make_example_selector
-from .stage05_gepa_optimizer_fitness_metric import skill_fitness_metric
+from .stage05_gepa_optimizer_fitness_metric import resolve_fitness_metric
 
 
 def run_gepa_optimization(baseline_module: SkillModule,
@@ -30,6 +30,12 @@ def run_gepa_optimization(baseline_module: SkillModule,
     """
     console.print("\n[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Started ~~~[/blue]")
 
+    # ── Resolve fitness metric callable ───────────────────────────────────────
+    fitness_metric_fn = resolve_fitness_metric(
+        getattr(config, "fitness_metric", "jiuwen"),
+        getattr(config, "custom_fitness_metrics", {}),
+    )
+
     # ── Level 2: select training examples via factory ─────────────────────────
     examples_selector = make_example_selector(trainset, skill_name, config)
     selected_trainset_examples = examples_selector.select()
@@ -40,20 +46,21 @@ def run_gepa_optimization(baseline_module: SkillModule,
     if ts_active and len(selected_trainset_examples) < len(trainset):
         console.print(f" [dim][TS: {len(selected_trainset_examples)}/{len(trainset)} examples][/dim]")
 
-    console.print(f"[dim]  ↳ ~{config.iterations + 2} candidate skills will be scored below;"
-                  f" each 'Average Metric: X / N (Y%)' line = keyword-match score (not LLM-judge)[/dim]")
+    metric_name = getattr(config, "fitness_metric", "jiuwen")
+    console.print(f"\n[dim]  ↳ ~{config.iterations + 2} candidate skills will be scored below;"
+                  f" each 'Average Metric: X / N (Y%)' line = {metric_name} score (not LLM-judge)[/dim]")
 
     t0 = time.time()
     optimizer_name = "GEPA"
 
     try:
-        optimizer = dspy.GEPA(metric=skill_fitness_metric,
+        optimizer = dspy.GEPA(metric=fitness_metric_fn,
                               max_full_evals=config.iterations,
                               reflection_lm=dspy.settings.lm)
     except Exception as gepa_err:
         console.print(f"[yellow]GEPA not available ({gepa_err}), falling back to MIPROv2[/yellow]")
         optimizer_name = "MIPROv2"
-        optimizer = dspy.MIPROv2(metric=skill_fitness_metric, auto="light")
+        optimizer = dspy.MIPROv2(metric=fitness_metric_fn, auto="light")
 
     optimized_module = optimizer.compile(baseline_module,
                                          trainset=selected_trainset_examples,
@@ -68,7 +75,7 @@ def run_gepa_optimization(baseline_module: SkillModule,
         for ex in selected_trainset_examples:
             try:
                 pred = optimized_module(task_input=ex.task_input)
-                f = skill_fitness_metric(ex, pred)
+                f = fitness_metric_fn(ex, pred)
             except Exception:
                 f = 0.0
             fitnesses.append(f)

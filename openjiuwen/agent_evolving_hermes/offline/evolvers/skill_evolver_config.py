@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -64,6 +64,13 @@ class EvolverConfig:
     # "single" — single-scalar composite score (default, unchanged behaviour)
     # "multi"    — 5-dimension scoring with no-regression rule + dynamic weights
     scoring_mode: str = "single"
+
+    # ── Fitness metric (fast proxy used inside the GEPA optimizer loop) ───────
+    # Built-ins: "jiuwen" (stop-word-filtered F1, general-purpose, default),
+    #            "hermes" (word-bag with 0.3 floor, matches original Hermes).
+    # Custom: dotted import path ("pkg.module.fn") or a key in custom_fitness_metrics.
+    fitness_metric: str = "jiuwen"
+    custom_fitness_metrics: Dict[str, Any] = field(default_factory=dict)
 
     # ── Verbosity ─────────────────────────────────────────────────────────────
     verbose: bool = False                          # True = show DSPy INFO training logs

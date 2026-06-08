@@ -6,8 +6,10 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers._console_maker import _ma
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_config import DemoConfig
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_params import DemoParams
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.trainings import DemoTrainings
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import \
-    DemoTrainingsResults
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import (
+    DemoTrainingsResults,
+    run_key_label,
+)
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_00_write_demo_scenario_files import \
     run_step as step_00_write_demo_scenario_files
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_01_build_skill_dataset_and_dspy import \
@@ -38,7 +40,7 @@ class Demo:
         ----
         1. Save baseline skill + golden dataset to disk.
         2. Evaluate the baseline skill on holdout (no training).
-        3. For each mode in ``self.config.run_modes`` (in order):
+        3. For each (mode, fitness_metric) combination in order:
            a. Restore the baseline skill.
            b. Run the corresponding GEPA pass.
            c. Record the evolved metrics.
@@ -47,14 +49,21 @@ class Demo:
 
         Controlling which passes run
         ----------------------------
-        Set ``run_modes`` in ``config.json``.  Valid values:
+        Set ``run_modes`` and ``fitness_metrics`` in ``config.json``.
 
-        * ``"gepa_uniform"``   — plain GEPA, all training examples, threshold gate
+        Valid ``run_modes``:
+        * ``"gepa_uniform"``              — plain GEPA, all training examples, threshold gate
         * ``"gepa_focused_on_difficulty"`` — TS Example Selector; focuses on discriminating examples
-        * ``"gepa_gated"`` — TS Acceptance Gate; requires P(better) ≥ 0.75
-        * ``"gepa_full"``   — both TS levels active simultaneously
+        * ``"gepa_gated"``                — TS Acceptance Gate; requires P(better) ≥ 0.75
+        * ``"gepa_full"``                 — both TS levels active simultaneously
+        * ``"gepa_rubric"``               — 5-dimension multi-objective scoring
 
-        Use ``[]`` to run only the baseline holdout evaluation (no GEPA training).
+        Valid ``fitness_metrics`` (used inside the GEPA optimizer loop):
+        * ``"jiuwen"``  — stop-word-filtered weighted F1 (general-purpose, default)
+        * ``"hermes"``  — word-bag with 0.3 floor (matches original Hermes)
+        * Custom: dotted import path to any ``(example, prediction) -> float`` callable
+
+        Use ``run_modes: []`` to run only the baseline holdout evaluation (no GEPA training).
         """
 
         console = _make_console()
@@ -69,10 +78,6 @@ class Demo:
                                           console=console)
 
         # ── Step 01: Build skill / dataset / DSPy ONCE (stages 1–4) ────────────
-        # Runs find_and_load_skill / validate_baseline_constraints /
-        # build_or_load_dataset / configure_dspy_and_prepare_sets exactly once.
-        # The resulting objects are passed to both step_01 and all GEPA
-        # training passes so these stages never execute more than once per run.
         shared_evolution_object: SharedEvolutionObjects = (
             step_01_build_skill_dataset_and_dspy(params.skills_root,
                                                  params.skill_name,
@@ -82,10 +87,6 @@ class Demo:
                                                  verbose=self._config.verbose))
 
         # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
-        # Evaluates the single-score baseline unconditionally; also evaluates the
-        # multi-objective baseline when "gepa_rubric" is in run_modes so that
-        # GEPA runs never need to re-evaluate the baseline themselves.
-        # Prebuilt objects are passed so stages 1 / 3 / 4 are skipped here.
         baseline_score_single, baseline_score_multi, multi_baseline_dims = (
             step_02_evaluate_baseline(shared_evolution_object=shared_evolution_object,
                                       skills_root=params.skills_root,
@@ -95,47 +96,41 @@ class Demo:
                                       console=console,
                                       verbose=self._config.verbose))
 
-        # ── Training passes (Steps 03, 04, 05, 06) ───────────────────────────────────────────────────
-        trainings_results: DemoTrainingsResults = self._trainings.run(params,
-                                                                      baseline_score_single=baseline_score_single,
-                                                                      baseline_score_multi=baseline_score_multi,
-                                                                      baseline_dims_multi=multi_baseline_dims,
-                                                                      shared_evolution_object=shared_evolution_object,
-                                                                      console=console)
+        # ── Training passes (Steps 03, 04, 05, 06) ──────────────────────────────
+        trainings_results: DemoTrainingsResults = self._trainings.run(
+            params,
+            baseline_score_single=baseline_score_single,
+            baseline_score_multi=baseline_score_multi,
+            baseline_dims_multi=multi_baseline_dims,
+            shared_evolution_object=shared_evolution_object,
+            console=console,
+        )
 
-        # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ────────────────
+        # ── Step 07: Comparison table (skip when ≤ 1 mode ran) ──────────────────
         if len(trainings_results.runs) >= 2:
-            step_07_results_comparison(baseline_score_single,
-                                       baseline_score_multi,
-                                       scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
-                                       scores_gepa_full=trainings_results.scores_gepa_full or None,
-                                       scores_gepa_focused=trainings_results.scores_gepa_focused or None,
-                                       scores_gepa_gated=trainings_results.scores_gepa_gated or None,
-                                       scores_gepa_rubric=trainings_results.scores_gepa_rubric or None,
-                                       metrics_gepa_uniform=trainings_results.metrics_gepa_uniform,
-                                       metrics_gepa_full=trainings_results.metrics_gepa_full,
-                                       metrics_gepa_focused=trainings_results.metrics_gepa_focused,
-                                       metrics_gepa_gated=trainings_results.metrics_gepa_gated,
-                                       metrics_gepa_rubric=trainings_results.metrics_gepa_rubric,
-                                       ts_batch_size=self._config.ts_batch_size,
-                                       console=console)
+            step_07_results_comparison(
+                baseline_score_single,
+                baseline_score_multi,
+                scores=trainings_results.scores,
+                metrics=trainings_results.metrics,
+                ts_batch_size=self._config.ts_batch_size,
+                console=console,
+            )
 
         # ── Optional: Skill diff (baseline vs winner) ─────────────────────────
         if self._config.print_skill_diff and trainings_results.runs:
             self._print_skill_diff(params, trainings_results, console)
 
         # ── Step 08: Plots ─────────────────────────────────────────────────────
-        step_08_plot_results(baseline_score_single,
-                             baseline_score_multi,
-                             scores_gepa_uniform=trainings_results.scores_gepa_uniform or None,
-                             scores_gepa_rubric=trainings_results.scores_gepa_rubric or None,
-                             scores_gepa_full=trainings_results.scores_gepa_full or None,
-                             scores_gepa_focused=trainings_results.scores_gepa_focused or None,
-                             scores_gepa_gated=trainings_results.scores_gepa_gated or None,
-                             output_dir=params.workdir / "plots",
-                             scenario_name=params.skill_name,
-                             n_runs=self._config.n_runs,
-                             console=console)
+        step_08_plot_results(
+            baseline_score_single,
+            baseline_score_multi,
+            scores=trainings_results.scores,
+            output_dir=params.workdir / "plots",
+            scenario_name=params.skill_name,
+            n_runs=self._config.n_runs,
+            console=console,
+        )
 
         # ── Step 09: Where to look ─────────────────────────────────────────────
         step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir, console)
@@ -147,13 +142,11 @@ class Demo:
 
         label_to_dir = dict(results.runs)
         mode_entries = [
-            ("GEPA-Uniform",  results.scores_gepa_uniform,  results.metrics_gepa_uniform),
-            ("GEPA-Rubric",   results.scores_gepa_rubric,   results.metrics_gepa_rubric),
-            ("GEPA-Focused",  results.scores_gepa_focused,  results.metrics_gepa_focused),
-            ("GEPA-Gated",    results.scores_gepa_gated,    results.metrics_gepa_gated),
-            ("GEPA-Full",     results.scores_gepa_full,     results.metrics_gepa_full),
+            (run_key_label(k), results.scores[k], results.metrics.get(k))
+            for k in results.scores
+            if results.scores[k]
         ]
-        present = [(l, s, m) for l, s, m in mode_entries if s and l in label_to_dir]
+        present = [(l, s, m) for l, s, m in mode_entries if l in label_to_dir]
         if not present:
             return
 

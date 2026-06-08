@@ -3,33 +3,31 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 def run_step(baseline_score_single: float,
              baseline_score_multi: float,
              *,
-             scores_gepa_uniform:  Optional[List[float]] = None,
-             scores_gepa_rubric: Optional[List[float]] = None,
-             scores_gepa_full:  Optional[List[float]] = None,
-             scores_gepa_focused:     Optional[List[float]] = None,
-             scores_gepa_gated:     Optional[List[float]] = None,
+             scores: Dict[str, List[float]],
              output_dir: Path,
              scenario_name: str = "",
              n_runs: int = 1,
              console=None) -> None:
     """Print ASCII charts to the terminal, then save a matplotlib PNG.
 
+    Parameters
+    ----------
+    scores:
+        Dict keyed by run key (e.g. ``"gepa_uniform"`` or
+        ``"gepa_uniform__jiuwen"``).  Passed directly to the plotters.
+
     ASCII charts are always shown (no extra dependencies).
     The PNG is skipped silently if matplotlib is not installed.
     """
-
     console.print(f"\n[bold cyan]*** Demo Step 08: Plot Results Started ***[/bold cyan]")
 
-    any_mode_ran = any(
-        s for s in [scores_gepa_uniform, scores_gepa_rubric, scores_gepa_full, scores_gepa_focused, scores_gepa_gated] if s
-    )
-    if not any_mode_ran:
+    if not scores:
         console.print(f"*** Demo Step 08: Plot Results Finished (nothing has run) ***")
         return
 
@@ -40,13 +38,9 @@ def run_step(baseline_score_single: float,
     print_ascii_charts(
         baseline_score_single=baseline_score_single,
         baseline_score_multi=baseline_score_multi,
-        scores_gepa_uniform=scores_gepa_uniform,
-        scores_gepa_rubric=scores_gepa_rubric,
-        scores_gepa_full=scores_gepa_full,
-        scores_gepa_focused=scores_gepa_focused,
-        scores_gepa_gated=scores_gepa_gated,
+        scores=scores,
         n_runs=n_runs,
-        console=console
+        console=console,
     )
 
     # ── Matplotlib PNG (file) ─────────────────────────────────────────────
@@ -57,11 +51,7 @@ def run_step(baseline_score_single: float,
         path = plot_results(
             baseline_score_single=baseline_score_single,
             baseline_score_multi=baseline_score_multi,
-            scores_gepa_uniform=scores_gepa_uniform,
-            scores_gepa_rubric=scores_gepa_rubric,
-            scores_gepa_full=scores_gepa_full,
-            scores_gepa_focused=scores_gepa_focused,
-            scores_gepa_gated=scores_gepa_gated,
+            scores=scores,
             output_dir=output_dir,
             scenario_name=scenario_name,
             n_runs=n_runs,

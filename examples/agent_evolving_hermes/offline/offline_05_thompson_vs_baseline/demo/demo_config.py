@@ -2,7 +2,7 @@
 """DemoConfig — shared run configuration loaded from config.json."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 # All valid run-mode identifiers, in canonical order.
@@ -49,6 +49,14 @@ class DemoConfig:
     print_skill_diff:
         ``True`` → after the comparison table, print the baseline skill and
         the winner skill side by side so changes are easy to read.
+    fitness_metrics:
+        One or more fast proxy metrics used inside the GEPA optimizer loop.
+        Built-ins: ``"jiuwen"`` (stop-word-filtered F1, default),
+        ``"hermes"`` (word-bag with 0.3 floor).
+        Custom: dotted import path (e.g.
+        ``"examples.agent_evolving_hermes.offline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"``).
+        When multiple values are given each mode runs once per metric, producing
+        independent output directories (e.g. ``output_gepa_uniform__jiuwen``).
     """
 
     scenario_names: List[str]
@@ -61,3 +69,4 @@ class DemoConfig:
     n_runs: int = 1
     verbose: bool = False
     print_skill_diff: bool = False
+    fitness_metrics: List[str] = field(default_factory=lambda: ["jiuwen"])

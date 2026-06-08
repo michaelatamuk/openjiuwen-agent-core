@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_config import DemoConfig
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.demo_params import DemoParams
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import \
-    DemoTrainingsResults
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.trainings.results import (
+    DemoTrainingsResults,
+    run_key_label,
+)
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_mode_summary import \
     print_mode_summary, print_mode_timing
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.writer_skill import \
@@ -15,13 +18,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
     SharedEvolutionObjects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_uniform_or_rubric import \
-    run_step as step_03_run_gepa_uniform_or_rubric
+    run_step as _step_uniform_or_rubric
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_focused_on_difficulty import \
-    run_step as step_03_run_gepa_focused_on_difficulty
+    run_step as _step_focused
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_gated import \
-    run_step as step_04_run_gepa_gated
+    run_step as _step_gated
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_06_run_gepa_full import \
-    run_step as step_05_run_gepa_full
+    run_step as _step_full
 
 
 class DemoTrainings:
@@ -34,283 +37,194 @@ class DemoTrainings:
             shared_evolution_object: SharedEvolutionObjects,
             baseline_score_single: float = None,
             baseline_score_multi: float = None,
-            baseline_dims_multi = None,
-            console=None
+            baseline_dims_multi=None,
+            console=None,
     ) -> DemoTrainingsResults:
-        runs: list[tuple[str, object]] = []
+        """Run every (mode, fitness_metric) combination and return aggregated results.
 
-        # ── gepa_uniform ─────────────────────────────────────────────────────────────
-        scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform = (
-            self._run_gepa_uniform(params=params,
-                                   shared_evolution_object=shared_evolution_object,
-                                   baseline_score=baseline_score_single,
-                                   baseline_score_multi=baseline_score_multi,
-                                   baseline_dims_multi=baseline_dims_multi,
-                                   console=console))
-        if scores_gepa_uniform:
-            runs.append(("GEPA-Uniform", last_out_gepa_uniform))
+        For each mode in ``config.run_modes`` and each metric in
+        ``config.fitness_metrics``:
 
-        # ── gepa_rubric ───────────────────────────────────────────────────────
-        scores_gepa_rubric, metrics_gepa_rubric, last_out_gepa_rubric = (
-            self._run_gepa_rubric(params=params,
-                                  shared_evolution_object=shared_evolution_object,
-                                  baseline_score_single=baseline_score_single,
-                                  baseline_score_multi=baseline_score_multi,
-                                  baseline_dims_multi=baseline_dims_multi,
-                                  console=console))
-        if scores_gepa_rubric:
-            runs.append(("GEPA-Rubric", last_out_gepa_rubric))
+        * When ``len(fitness_metrics) == 1``, the run key equals the mode
+          name (``"gepa_uniform"``), keeping output dirs identical to
+          the single-metric behaviour.
+        * When ``len(fitness_metrics) > 1``, the run key is
+          ``"<mode>__<metric>"`` (e.g. ``"gepa_uniform__jiuwen"``) and the
+          output dir gets a matching suffix so every combination is stored
+          independently.
+        """
+        fitness_metrics: List[str] = getattr(self._config, "fitness_metrics", ["jiuwen"]) or ["jiuwen"]
+        multi_metric = len(fitness_metrics) > 1
 
-        # ── gepa_focused_on_difficulty ───────────────────────────────────────────────────────────
-        scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused = (
-            self._run_gepa_focused_on_difficulty(params=params,
-                                                 shared_evolution_object=shared_evolution_object,
-                                                 baseline_score=baseline_score_single,
-                                                 baseline_score_multi=baseline_score_multi,
-                                                 baseline_dims_multi=baseline_dims_multi,
-                                                 console=console))
-        if scores_gepa_focused:
-            runs.append(("GEPA-Focused", last_out_gepa_focused))
+        runs: List[Tuple[str, Path]] = []
+        scores: Dict[str, List[float]] = {}
+        metrics: Dict[str, Optional[dict]] = {}
 
-        # ── gepa_gated ───────────────────────────────────────────────────────────
-        scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated = (
-            self._run_gepa_gated(params=params,
-                                 shared_evolution_object=shared_evolution_object,
-                                 baseline_score=baseline_score_single,
-                                 baseline_score_multi=baseline_score_multi,
-                                 baseline_dims_multi=baseline_dims_multi,
-                                 console=console))
-        if scores_gepa_gated:
-            runs.append(("GEPA-Gated", last_out_gepa_gated))
+        for mode in self._config.run_modes:
+            for metric in fitness_metrics:
+                run_key = f"{mode}__{metric}" if multi_metric else mode
+                output_base = f"output_{run_key}"
 
-        # ── gepa_full ─────────────────────────────────────────────────────────────
-        scores_gepa_full, metrics_gepa_full, last_out_gepa_full = (
-            self._run_gepa_full(params=params,
-                                shared_evolution_object=shared_evolution_object,
-                                baseline_score=baseline_score_single,
-                                baseline_score_multi=baseline_score_multi,
-                                baseline_dims_multi=baseline_dims_multi,
-                                console=console))
-        if scores_gepa_full:
-            runs.append(("GEPA-Full", last_out_gepa_full))
+                mode_scores, mode_metrics, last_out = self._run_mode_passes(
+                    mode=mode,
+                    metric=metric,
+                    run_key=run_key,
+                    output_base=output_base,
+                    params=params,
+                    shared=shared_evolution_object,
+                    baseline_score_single=baseline_score_single,
+                    baseline_score_multi=baseline_score_multi,
+                    baseline_dims_multi=baseline_dims_multi,
+                    console=console,
+                )
+                if mode_scores:
+                    scores[run_key] = mode_scores
+                    metrics[run_key] = mode_metrics
+                    runs.append((run_key, last_out))
 
-        return DemoTrainingsResults(runs=runs,
-                                    scores_gepa_uniform=scores_gepa_uniform,
-                                    scores_gepa_full=scores_gepa_full,
-                                    scores_gepa_focused=scores_gepa_focused,
-                                    scores_gepa_gated=scores_gepa_gated,
-                                    scores_gepa_rubric=scores_gepa_rubric,
-                                    metrics_gepa_uniform=metrics_gepa_uniform,
-                                    metrics_gepa_full=metrics_gepa_full,
-                                    metrics_gepa_focused=metrics_gepa_focused,
-                                    metrics_gepa_gated=metrics_gepa_gated,
-                                    metrics_gepa_rubric=metrics_gepa_rubric)
+        return DemoTrainingsResults(runs=runs, scores=scores, metrics=metrics)
 
-    def _run_gepa_uniform(self,
-                          params: DemoParams,
-                          shared_evolution_object: SharedEvolutionObjects,
-                          baseline_score: float = None,
-                          baseline_score_multi: float = None, baseline_dims_multi=None,
-                          console=None):
-        scores_gepa_uniform: list[float] = []
-        metrics_gepa_uniform = None
-        last_out_gepa_uniform = params.output_gepa_uniform
-        if "gepa_uniform" in self._config.run_modes:
-            t_start = time.monotonic()
-            for i in range(1, self._config.n_runs + 1):
-                output_dir = self._out(params, "output_gepa_uniform", i)
-                self._step_restore_baseline_skill(params)
-                m = step_03_run_gepa_uniform_or_rubric(shared_evolution_object=shared_evolution_object,
-                                                       skills_root=params.skills_root,
-                                                       skill_name=params.skill_name,
-                                                       model=self._config.model,
-                                                       iterations=self._config.iterations,
-                                                       output_dir=output_dir,
-                                                       console=console,
-                                                       verbose=self._config.verbose,
-                                                       baseline_score_single=baseline_score,
-                                                       run_index=i,
-                                                       n_runs=self._config.n_runs)
-                scores_gepa_uniform.append(m.get("evolved_score", 0.0))
-                metrics_gepa_uniform = m
-                last_out_gepa_uniform = output_dir
-            elapsed = time.monotonic() - t_start
-            if len(scores_gepa_uniform) > 1:
-                print_mode_summary("GEPA-Uniform", baseline_score, scores_gepa_uniform,
-                                   elapsed_sec=elapsed, console=console)
-            else:
-                print_mode_timing("GEPA-Uniform", elapsed, console=console)
-        return scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform
+    # ── Core dispatcher ───────────────────────────────────────────────────
 
-    def _run_gepa_rubric(self,
-                         params: DemoParams,
-                         shared_evolution_object: SharedEvolutionObjects,
-                         baseline_score_single: float = None,
-                         baseline_score_multi: float = None,
-                         baseline_dims_multi=None,
-                         console=None):
-        scores: list[float] = []
-        metrics = None
-        last_out = params.workdir / "output_gepa_rubric"
-        if "gepa_rubric" in self._config.run_modes:
-            t_start = time.monotonic()
-            for i in range(1, self._config.n_runs + 1):
-                output_dir = self._out(params, "output_gepa_rubric", i)
-                self._step_restore_baseline_skill(params)
-                m = step_03_run_gepa_uniform_or_rubric(shared_evolution_object=shared_evolution_object,
-                                                       skills_root=params.skills_root,
-                                                       skill_name=params.skill_name,
-                                                       model=self._config.model,
-                                                       iterations=self._config.iterations,
-                                                       output_dir=output_dir,
-                                                       console=console,
-                                                       verbose=self._config.verbose,
-                                                       baseline_score_single=baseline_score_single,
-                                                       run_index=i,
-                                                       n_runs=self._config.n_runs,
-                                                       scoring_mode="multi",
-                                                       baseline_score_multi=baseline_score_multi,
-                                                       baseline_dims_multi=baseline_dims_multi)
-                scores.append(m.get("evolved_score", 0.0))
-                metrics = m
-                last_out = output_dir
-            elapsed = time.monotonic() - t_start
-            if len(scores) > 1:
-                print_mode_summary("GEPA-Rubric", baseline_score_single, scores,
-                                   elapsed_sec=elapsed, console=console)
-            else:
-                print_mode_timing("GEPA-Rubric", elapsed, console=console)
-        return scores, metrics, last_out
+    def _run_mode_passes(
+        self,
+        mode: str,
+        metric: str,
+        run_key: str,
+        output_base: str,
+        params: DemoParams,
+        shared: SharedEvolutionObjects,
+        baseline_score_single: float,
+        baseline_score_multi: float,
+        baseline_dims_multi,
+        console,
+    ) -> Tuple[List[float], Optional[dict], Path]:
+        """Run ``n_runs`` passes of *mode* with *metric*. Returns ``(scores, last_metrics, last_out_dir)``."""
+        mode_scores: List[float] = []
+        last_metrics: Optional[dict] = None
+        last_out: Path = params.workdir / output_base
 
-    def _run_gepa_full(self,
-                       params: DemoParams,
-                       shared_evolution_object: SharedEvolutionObjects,
-                       baseline_score: float = None,
-                       baseline_score_multi: float = None,
-                       baseline_dims_multi=None,
-                       console=None):
-        scores_gepa_full: list[float] = []
-        metrics_gepa_full = None
-        last_out_gepa_full = params.output_gepa_full
-        if "gepa_full" in self._config.run_modes:
-            t_start = time.monotonic()
-            for i in range(1, self._config.n_runs + 1):
-                output_dir = self._out(params, "output_gepa_full", i)
-                ts_state_dir  = self._ts(params, i)
-                self._step_restore_baseline_skill(params)
-                m = step_05_run_gepa_full(shared_evolution_object=shared_evolution_object,
-                                          skills_root=params.skills_root,
-                                          skill_name=params.skill_name,
-                                          model=self._config.model,
-                                          itrations=self._config.iterations,
-                                          ts_batch_size=self._config.ts_batch_size,
-                                          examples=params.golden_examples,
-                                          output_dir=output_dir,
-                                          ts_state_dir=ts_state_dir,
-                                          console=console,
-                                          verbose=self._config.verbose,
-                                          baseline_score=baseline_score,
-                                          run_index=i,
-                                          n_runs=self._config.n_runs)
-                scores_gepa_full.append(m.get("evolved_score", 0.0))
-                metrics_gepa_full = m
-                last_out_gepa_full = output_dir
-            elapsed = time.monotonic() - t_start
-            if len(scores_gepa_full) > 1:
-                print_mode_summary("GEPA-Full", baseline_score, scores_gepa_full,
-                                   elapsed_sec=elapsed, console=console)
-            else:
-                print_mode_timing("GEPA-Full", elapsed, console=console)
-        return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
+        t_start = time.monotonic()
+        for i in range(1, self._config.n_runs + 1):
+            output_dir = self._out(params, output_base, i)
+            ts_state_dir = self._ts(params, output_base, i)
+            self._step_restore_baseline_skill(params)
 
-    def _run_gepa_focused_on_difficulty(self,
-                                        params: DemoParams,
-                                        shared_evolution_object: SharedEvolutionObjects,
-                                        baseline_score: float = None,
-                                        baseline_score_multi: float = None,
-                                        baseline_dims_multi=None,
-                                        console=None):
-        scores_gepa_focused: list[float] = []
-        metrics_gepa_focused = None
-        last_out_gepa_focused = params.output_gepa_focused_on_difficulty
-        if "gepa_focused_on_difficulty" in self._config.run_modes:
-            t_start = time.monotonic()
-            for i in range(1, self._config.n_runs + 1):
-                output_dir = self._out(params, "output_gepa_focused_on_difficulty", i)
-                ts_state_dir  = self._ts(params, i)
-                self._step_restore_baseline_skill(params)
-                m = step_03_run_gepa_focused_on_difficulty(shared_evolution_object=shared_evolution_object,
-                                                           skills_root=params.skills_root,
-                                                           skill_name=params.skill_name,
-                                                           model=self._config.model,
-                                                           iterations=self._config.iterations,
-                                                           ts_batch_size=self._config.ts_batch_size,
-                                                           output_dir=output_dir,
-                                                           ts_state_dir=ts_state_dir,
-                                                           console=console,
-                                                           verbose=self._config.verbose,
-                                                           baseline_score=baseline_score,
-                                                           run_index=i,
-                                                           n_runs=self._config.n_runs)
-                scores_gepa_focused.append(m.get("evolved_score", 0.0))
-                metrics_gepa_focused = m
-                last_out_gepa_focused = output_dir
-            elapsed = time.monotonic() - t_start
-            if len(scores_gepa_focused) > 1:
-                print_mode_summary("GEPA-Focused", baseline_score, scores_gepa_focused,
-                                   elapsed_sec=elapsed, console=console)
-            else:
-                print_mode_timing("GEPA-Focused", elapsed, console=console)
-        return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
+            m = self._dispatch(
+                mode=mode,
+                metric=metric,
+                params=params,
+                shared=shared,
+                output_dir=output_dir,
+                ts_state_dir=ts_state_dir,
+                baseline_score_single=baseline_score_single,
+                baseline_score_multi=baseline_score_multi,
+                baseline_dims_multi=baseline_dims_multi,
+                run_index=i,
+                console=console,
+            )
+            mode_scores.append(m.get("evolved_score", 0.0))
+            last_metrics = m
+            last_out = output_dir
 
-    def _run_gepa_gated(self,
-                        params: DemoParams,
-                        shared_evolution_object: SharedEvolutionObjects,
-                        baseline_score: float = None,
-                        baseline_score_multi: float = None,
-                        baseline_dims_multi=None,
-                        console=None):
-        scores_gepa_gated: list[float] = []
-        metrics_gepa_gated = None
-        last_out_gepa_gated = params.output_gepa_gated
-        if "gepa_gated" in self._config.run_modes:
-            t_start = time.monotonic()
-            for i in range(1, self._config.n_runs + 1):
-                output_dir = self._out(params, "output_gepa_gated", i)
-                ts_state_dir  = self._ts(params, i)
-                self._step_restore_baseline_skill(params)
-                m = step_04_run_gepa_gated(shared_evolution_object=shared_evolution_object,
-                                           skills_root=params.skills_root,
-                                           skill_name=params.skill_name,
-                                           model=self._config.model,
-                                           iterations=self._config.iterations,
-                                           output_dir=output_dir,
-                                           ts_state_dir=ts_state_dir,
-                                           console=console,
-                                           verbose=self._config.verbose,
-                                           baseline_score=baseline_score,
-                                           run_index=i,
-                                           n_runs=self._config.n_runs)
-                scores_gepa_gated.append(m.get("evolved_score", 0.0))
-                metrics_gepa_gated = m
-                last_out_gepa_gated = output_dir
-            elapsed = time.monotonic() - t_start
-            if len(scores_gepa_gated) > 1:
-                print_mode_summary("GEPA-Gated", baseline_score, scores_gepa_gated,
-                                   elapsed_sec=elapsed, console=console)
-            else:
-                print_mode_timing("GEPA-Gated", elapsed, console=console)
-        return scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated
+        elapsed = time.monotonic() - t_start
+        label = run_key_label(run_key)
+        if len(mode_scores) > 1:
+            print_mode_summary(label, baseline_score_single, mode_scores,
+                               elapsed_sec=elapsed, console=console)
+        else:
+            print_mode_timing(label, elapsed, console=console)
+
+        return mode_scores, last_metrics, last_out
+
+    def _dispatch(
+        self,
+        mode: str,
+        metric: str,
+        params: DemoParams,
+        shared: SharedEvolutionObjects,
+        output_dir: Path,
+        ts_state_dir: Path,
+        baseline_score_single: float,
+        baseline_score_multi: float,
+        baseline_dims_multi,
+        run_index: int,
+        console,
+    ) -> dict:
+        """Call the appropriate step function for *mode*."""
+        common = dict(
+            shared_evolution_object=shared,
+            skills_root=params.skills_root,
+            skill_name=params.skill_name,
+            model=self._config.model,
+            output_dir=output_dir,
+            console=console,
+            verbose=self._config.verbose,
+            run_index=run_index,
+            n_runs=self._config.n_runs,
+            fitness_metric=metric,
+        )
+
+        if mode == "gepa_uniform":
+            return _step_uniform_or_rubric(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_single=baseline_score_single,
+                scoring_mode="single",
+            ) or {}
+
+        if mode == "gepa_rubric":
+            return _step_uniform_or_rubric(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_single=baseline_score_single,
+                scoring_mode="multi",
+                baseline_score_multi=baseline_score_multi,
+                baseline_dims_multi=baseline_dims_multi,
+            ) or {}
+
+        if mode == "gepa_focused_on_difficulty":
+            return _step_focused(
+                **common,
+                iterations=self._config.iterations,
+                ts_batch_size=self._config.ts_batch_size,
+                ts_state_dir=ts_state_dir,
+                baseline_score=baseline_score_single,
+            ) or {}
+
+        if mode == "gepa_gated":
+            return _step_gated(
+                **common,
+                iterations=self._config.iterations,
+                ts_state_dir=ts_state_dir,
+                baseline_score=baseline_score_single,
+            ) or {}
+
+        if mode == "gepa_full":
+            return _step_full(
+                **common,
+                itrations=self._config.iterations,
+                ts_batch_size=self._config.ts_batch_size,
+                examples=params.golden_examples,
+                ts_state_dir=ts_state_dir,
+                baseline_score=baseline_score_single,
+            ) or {}
+
+        console.print(f"[yellow]Unknown mode '{mode}' — skipping[/yellow]")
+        return {}
+
+    # ── Helpers ───────────────────────────────────────────────────────────
 
     @staticmethod
     def _step_restore_baseline_skill(params: DemoParams) -> None:
         _write_skill(params.skills_root, params.skill_name, params.skill_frontmatter, params.skill_body)
 
-    # Helper: return run-specific output and TS-state dirs.
-    # When n==1 use the canonical path so existing single-run output
-    # structure is unchanged; for n>1 suffix with _r{i}.
     def _out(self, params: DemoParams, base: str, i: int) -> Path:
+        """Return run-specific output dir; use canonical path for n_runs==1."""
         return params.workdir / base if self._config.n_runs == 1 else params.workdir / f"{base}_r{i}"
 
-    def _ts(self, params: DemoParams, i: int) -> Path:
-        return params.ts_state_dir if self._config.n_runs == 1 else params.workdir / f"ts_state_r{i}"
+    def _ts(self, params: DemoParams, base: str, i: int) -> Path:
+        """Return run-specific TS-state dir; suffixed by run_key to keep TS arms separate per combination."""
+        if self._config.n_runs == 1:
+            return params.workdir / f"ts_state_{base}"
+        return params.workdir / f"ts_state_{base}_r{i}"
