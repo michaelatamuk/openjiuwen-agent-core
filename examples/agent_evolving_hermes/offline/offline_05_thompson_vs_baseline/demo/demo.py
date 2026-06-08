@@ -94,9 +94,12 @@ class Demo:
         )
 
         # ── Training passes ───────────────────────────────────────────────────
-        trainings_results: DemoTrainingsResults = self._trainings.run(
-            params, baseline_score_single=baseline_score_single, baseline_score_multi=baseline_score_multi,
-            baseline_dims_multi=multi_baseline_dims, shared=shared,
+        trainings_results: DemoTrainingsResults = self._trainings.run(params,
+                                                                      baseline_score_single=baseline_score_single,
+                                                                      baseline_score_multi=baseline_score_multi,
+                                                                      baseline_dims_multi=multi_baseline_dims,
+                                                                      shared=shared,
+                                                                      console=console
         )
 
         # ── Step 6: Comparison table (skip when ≤ 1 mode ran) ────────────────
