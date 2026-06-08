@@ -18,11 +18,11 @@ def extract_evolved_skill(
     # Pull the GEPA-optimised instruction (stored in the DSPy signature) back
     # into _skill_text_value so that both this function and stage08 see the
     # evolved text rather than the stale baseline copy.
-    console.print("Stage 06 - Evolved Skill Extraction Started")
+    console.print("\n[blue]~~~ Evolving Stage 06 - Evolved Skill Extraction Started ~~~[/blue]")
 
     optimized_module.sync_from_optimized()
     evolved_body = optimized_module._skill_text_value
     evolved_skill = reassemble_skill(skill["frontmatter_text"], evolved_body)
 
-    console.print("Stage 06 - Evolved Skill Extraction Finished")
+    console.print("[blue]~~~ Evolving Stage 06 - Evolved Skill Extraction Finished ~~~[/blue]")
     return evolved_skill

@@ -23,10 +23,14 @@ def run_step(baseline_score_single: float,
     ASCII charts are always shown (no extra dependencies).
     The PNG is skipped silently if matplotlib is not installed.
     """
+
+    console.print(f"\n*** Demo Step 08: Plot Results Started ***")
+
     any_mode_ran = any(
         s for s in [scores_gepa_uniform, scores_gepa_rubric, scores_gepa_full, scores_gepa_focused, scores_gepa_gated] if s
     )
     if not any_mode_ran:
+        console.print(f"*** Demo Step 08: Plot Results Finished (nothing has run) ***")
         return
 
     # ── ASCII charts (terminal) ───────────────────────────────────────────
@@ -67,3 +71,5 @@ def run_step(baseline_score_single: float,
         pass   # matplotlib not installed — ASCII-only is fine
     except Exception as exc:
         console.print(f"  [plots] PNG rendering failed: {exc}")
+
+    console.print(f"*** Demo Step 08: Plot Results Finished ***")

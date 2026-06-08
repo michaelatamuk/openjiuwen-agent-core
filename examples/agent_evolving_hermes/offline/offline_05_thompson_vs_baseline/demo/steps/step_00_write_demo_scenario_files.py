@@ -10,6 +10,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 def run_step(skills_root, skill_name, skill_body, skill_frontmatter, examples, verbose: bool = False, console = None):
 
     # ── Step 1: Write baseline skill + golden dataset ─────────────────────────
+    console.print(f"\n*** Demo Step 00: Write Demo Scenarios Started ***")
     skill_path = _write_skill(skills_root, skill_name, skill_frontmatter, skill_body)
     golden_dir = _write_golden_dataset(skills_root, skill_name, examples)
     console.print(f"\nPre-training skill: {skill_path}")
@@ -18,3 +19,5 @@ def run_step(skills_root, skill_name, skill_body, skill_frontmatter, examples, v
     if verbose:
         baseline_text = skill_path.read_text()
         _print_skill("① BASELINE SKILL — before any evolution", baseline_text, console)
+
+    console.print(f"*** Demo Step 00: Write Demo Scenarios Finished ***")

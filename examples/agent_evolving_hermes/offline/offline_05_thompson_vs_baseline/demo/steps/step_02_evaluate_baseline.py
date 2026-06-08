@@ -83,6 +83,9 @@ def run_step(skills_root: Path,
         ``multi_dims``    — ``{dim: mean_score}`` from the multi-objective
                             judge, or ``None`` when no multi mode was requested.
     """
+
+    console.print(f"\n*** Demo Step 02: Evaluate Baseline Started ***")
+
     needs_multi = bool(run_modes and _MULTI_MODES.intersection(run_modes))
     modes_label = "single + multi" if needs_multi else "single"
     _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})", console=console)
@@ -154,12 +157,13 @@ def run_step(skills_root: Path,
     multi_score = None
     if needs_multi:
         console.print()
-        multi_score, multi_dims = score_multi_baseline(baseline_module, dataset, evolver_config, console)
+        multi_score, multi_dims = _score_multi_baseline(baseline_module, dataset, evolver_config, console)
 
+    console.print(f"*** Demo Step 02: Evaluate Baseline Finished ***")
     return single_score, multi_score, multi_dims
 
 
-def score_multi_baseline(
+def _score_multi_baseline(
     baseline_module: SkillModule,
     dataset: EvalDataset,
     config: EvolverConfig,

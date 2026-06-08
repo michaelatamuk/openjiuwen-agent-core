@@ -19,7 +19,7 @@ def find_and_load_skill(
     Prints a one-line confirmation and, when available, the prior-run scores.
     Returns (skill_dict, prior_metrics) where prior_metrics is None on the first run.
     """
-    console.print("Stage 01 - Skill Find and Load Started")
+    console.print("\n[blue]~~~ Evolving Stage 01 - Skill Find and Load Started ~~~[/blue]")
     skill_path = find_skill(skill_name, config.skills_root)
     if skill_path is None:
         raise FileNotFoundError(
@@ -38,7 +38,7 @@ def find_and_load_skill(
             f"({prior_metrics['timestamp']})[/dim]"
         )
 
-    console.print("Stage 01 - Skill Find and Load Finished")
+    console.print("[blue]~~~ Evolving Stage 01 - Skill Find and Load Finished ~~~[/blue]")
     return skill, prior_metrics
 
 

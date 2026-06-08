@@ -20,7 +20,7 @@ def validate_evolved_constraints(
     On success: prints confirmation.
     Always returns (checks, passed) — never raises.
     """
-    console.print("Stage 07 - Evolved Constraints Validation Started")
+    console.print("\n[blue]~~~ Evolving Stage 07 - Evolved Constraints Validation Started ~~~[/blue]")
 
     validator = ConstraintValidator(config)
     checks = validator.validate_all(
@@ -42,5 +42,5 @@ def validate_evolved_constraints(
         console.print(f"[green]✓ Evolved — {len(checks)}/{len(checks)} constraints passed[/green]")
         result = True
 
-    console.print("Stage 07 - Evolved Constraints Validation Finished")
+    console.print("[blue]~~~ Evolving Stage 07 - Evolved Constraints Validation Finished ~~~[/blue]")
     return checks, result

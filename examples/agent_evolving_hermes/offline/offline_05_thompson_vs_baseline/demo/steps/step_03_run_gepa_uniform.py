@@ -14,6 +14,8 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
+    console.print(f"\n*** Demo Step 03: Run GEPA Uniform Started ***")
+
     _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index,
             n_runs=n_runs, console=console)
     console.print("  Example selector : all training examples, equal weight")
@@ -54,4 +56,5 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
         evolved_gepa_uniform = _read_latest_evolved(output_gepa_uniform, skill_name)
         _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]", console)
 
+    console.print(f"*** Demo Step 03: Run GEPA Uniform Finished ***")
     return metrics_gepa_uniform

@@ -29,7 +29,7 @@ def run_gepa_optimization(
 
     Returns (optimized_module, optimizer_name, elapsed_seconds).
     """
-    console.print("Stage 05 - GEPA Optimization Run Started")
+    console.print("\n[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Started ~~~[/blue]")
 
     # ── Level 2: select training examples via factory ─────────────────────────
     selector = make_example_selector(trainset, skill_name, config)
@@ -85,7 +85,7 @@ def run_gepa_optimization(
             fitnesses.append(f)
         selector.update(selected_trainset, fitnesses)
 
-    console.print("Stage 05 - GEPA Optimization Run Finished")
+    console.print("[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Finished ~~~[/blue]")
     return optimized_module, optimizer_name, elapsed
 
 

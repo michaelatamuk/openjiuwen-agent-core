@@ -25,7 +25,7 @@ def apply_acceptance_gate(
 
     Returns True (accepted) or False (rejected).
     """
-    console.print("Stage 09 - Acceptance Gate Applying Started")
+    console.print("\n[blue]~~~ Evolving Stage 09 - Acceptance Gate Applying Started ~~~[/blue]")
 
     accepted = improvement >= min_improvement
     if not accepted:
@@ -48,5 +48,5 @@ def apply_acceptance_gate(
                 f"(accepted because threshold is {min_improvement:+.4f})[/yellow]"
             )
 
-    console.print("Stage 09 - Acceptance Gate Applying Finished")
+    console.print("[blue]~~~ Evolving Stage 09 - Acceptance Gate Applying Finished ~~~[/blue]")
     return accepted

@@ -17,7 +17,7 @@ def validate_baseline_constraints(
     Raises ValueError if any constraint fails.
     Returns the full list of ConstraintResult objects (all passed).
     """
-    console.print("Stage 02 - Skill Baseline Constraints Validation Started")
+    console.print("\n[blue]~~~ Evolving Stage 02 - Skill Baseline Constraints Validation Started ~~~[/blue]")
     validator = ConstraintValidator(config)
     checks = validator.validate_all(skill_raw, artifact_type="skill")
     failures = [c for c in checks if not c.passed]
@@ -28,5 +28,6 @@ def validate_baseline_constraints(
             )
         raise ValueError("Baseline skill fails constraints — fix before evolving.")
     console.print(f"[green]✓ Baseline — {len(checks)}/{len(checks)} constraints passed[/green]")
-    console.print("Stage 02 - Skill Baseline Constraints Validation Finished")
+
+    console.print("[blue]~~~ Evolving Stage 02 - Skill Baseline Constraints Validation Finished ~~~[/blue]")
     return checks

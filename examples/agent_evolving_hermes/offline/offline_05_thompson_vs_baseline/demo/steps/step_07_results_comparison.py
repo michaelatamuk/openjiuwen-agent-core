@@ -25,14 +25,16 @@ def run_step(baseline_score_single: float,
              metrics_gepa_gated:           Optional[dict] = None,
              metrics_gepa_rubric:  Optional[dict] = None,
              ts_batch_size:        int = 4,
-             console=None
-) -> None:
+             console=None) -> None:
     """Print comparison for whichever training modes ran.
 
     When ``n_runs == 1`` the table shows single values (original
     behaviour).  When ``n_runs > 1`` it shows mean ± std, a per-run
     detail table (learning-curve proxy), and bootstrap 95% CIs.
     """
+
+    console.print(f"\n*** Demo Step 07: Compare Results Started ***")
+
     # ── Collect present modes ──────────────────────────────────────────────
     mode_data: list[tuple[str, list[float], Optional[dict]]] = []
     if scores_gepa_uniform:       mode_data.append(("GEPA-Uniform",       scores_gepa_uniform,       metrics_gepa_uniform))
@@ -159,6 +161,7 @@ def run_step(baseline_score_single: float,
         console.print(f"\n  ▶  Best score: {winner_str}  (mean holdout {best_score:.4f})  — not accepted")
 
     if not multi:
+        console.print(f"*** Demo Step 07: Compare Results Finished (not multi) ***")
         return
 
     # ══════════════════════════════════════════════════════════════════════
@@ -211,3 +214,5 @@ def run_step(baseline_score_single: float,
             else:
                 verdict = "~ inconclusive"
             console.print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
+
+    console.print(f"*** Demo Step 07: Compare Results Finished ***")

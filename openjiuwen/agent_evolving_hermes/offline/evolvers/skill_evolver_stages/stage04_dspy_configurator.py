@@ -34,7 +34,7 @@ def configure_dspy_and_prepare_sets(
     (step banners, bootstrap traces, proposed instruction dumps) is suppressed.
     Set config.verbose=True to restore full DSPy logging.
     """
-    console.print("Stage 04 - DSPY Configure and Sets Prepare Started")
+    console.print("\n[blue]~~~ Evolving Stage 04 - DSPY Configure and Sets Prepare Started ~~~[/blue]")
     log_level = logging.INFO if config.verbose else logging.ERROR
     for name in _DSPY_LOGGERS:
         logging.getLogger(name).setLevel(log_level)
@@ -44,5 +44,5 @@ def configure_dspy_and_prepare_sets(
     valset = dataset.to_dspy_examples("val")
     baseline_module = SkillModule(skill_raw)
 
-    console.print("Stage 04 - DSPY Configure and Sets Prepare Finished")
+    console.print("[blue]~~~ Evolving Stage 04 - DSPY Configure and Sets Prepare Finished ~~~[/blue]")
     return baseline_module, trainset, valset

@@ -48,7 +48,7 @@ def display_results_table(
     vector (one float per dimension).
     """
 
-    console.print("Stage 10 - Results Display Started")
+    console.print("\n[blue]~~~ Evolving Stage 10 - Results Display Started ~~~[/blue]")
     def _name(c) -> str:
         return c.constraint_name if hasattr(c, "constraint_name") else c["name"]
 
@@ -158,4 +158,4 @@ def display_results_table(
                     f"  weights: {', '.join(f'{w:.2f}' for w in mo_weights)}"
                 )
 
-    console.print("Stage 10 - Results Display Finished")
+    console.print("[blue]~~~ Evolving Stage 10 - Results Display Finished ~~~[/blue]")
