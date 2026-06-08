@@ -14,10 +14,11 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index, n_runs=n_runs)
-    print("  Example selector : all training examples, equal weight")
-    print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
-    print()
+    _banner(f"② GEPA — without Thompson Sampling (scoring mode {scoring_mode})", run_index=run_index,
+            n_runs=n_runs, console=console)
+    console.print("  Example selector : all training examples, equal weight")
+    console.print("  Acceptance gate  : threshold only (improvement ≥ 0.0)")
+    console.print()
 
     evolver_config = EvolverConfig(
         skills_root=skills_root,
@@ -51,6 +52,6 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_uniform, ve
 
     if verbose:
         evolved_gepa_uniform = _read_latest_evolved(output_gepa_uniform, skill_name)
-        _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]")
+        _print_skill("  Evolved skill (no TS)", evolved_gepa_uniform or "[not produced]", console)
 
     return metrics_gepa_uniform

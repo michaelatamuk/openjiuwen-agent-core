@@ -16,12 +16,13 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_s
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index, n_runs=n_runs)
-    print("  TS-TrainingSelector : OFF (all training examples, equal weight)")
-    print()
-    print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
-    print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
-    print()
+    _banner("④ GEPA — TS-AcceptanceGate only (all examples equal weight)", run_index=run_index,
+            n_runs=n_runs, console=console)
+    console.print("  TS-TrainingSelector : OFF (all training examples, equal weight)")
+    console.print()
+    console.print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
+    console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
+    console.print()
 
     evolver_config = EvolverConfig(
         skills_root = skills_root,
@@ -55,10 +56,10 @@ def run_step(skills_root, skill_name, model, iterations, output_gepa_gated, ts_s
                                                     prebuilt_valset=prebuilt_valset,
                                                     console=console)
     metrics_gepa_gated = evolve_single_skill(params)
-    _print_ts_insights(ts_state_dir, skill_name)
+    _print_ts_insights(ts_state_dir, skill_name, console)
 
     if verbose:
         evolved_l3 = _read_latest_evolved(output_gepa_gated, skill_name)
-        _print_skill("  Evolved skill (TS-AcceptanceGate only)", evolved_l3 or "[not produced]")
+        _print_skill("  Evolved skill (TS-AcceptanceGate only)", evolved_l3 or "[not produced]", console)
 
     return metrics_gepa_gated

@@ -18,18 +18,18 @@ def run_step(skill_name: str, runs: list[tuple[str, Path]], ts_state_dir: Path, 
     """
     label_w = max((max(len(l) for l, _ in runs) if runs else 0), 8) + 2
 
-    print("\n  Output files:")
+    console.print("\n  Output files:")
     if runs:
         for label, path in runs:
-            print(f"    {label:{label_w}}→  {path}/{skill_name}/")
+            console.print(f"    {label:{label_w}}→  {path}/{skill_name}/")
     else:
-        print("    (no training passes ran — pre-training evaluation only)")
-    print(f"    {'TS state':{label_w}}→  {ts_state_dir}/")
+        console.print("    (no training passes ran — pre-training evaluation only)")
+    console.print(f"    {'TS state':{label_w}}→  {ts_state_dir}/")
 
-    print()
-    print("  To inspect TS arm state directly:")
-    print(f"    python -m json.tool {ts_state_dir}/ts_examples_{skill_name}.json")
-    print(f"    python -m json.tool {ts_state_dir}/ts_gate_{skill_name}.json")
-    print()
-    print("  To re-run with your own skill, edit SKILL_FRONTMATTER / SKILL_BODY")
-    print("  and add your own entries to GOLDEN_EXAMPLES in the scenario file.")
+    console.print()
+    console.print("  To inspect TS arm state directly:")
+    console.print(f"    python -m json.tool {ts_state_dir}/ts_examples_{skill_name}.json")
+    console.print(f"    python -m json.tool {ts_state_dir}/ts_gate_{skill_name}.json")
+    console.print()
+    console.print("  To re-run with your own skill, edit SKILL_FRONTMATTER / SKILL_BODY")
+    console.print("  and add your own entries to GOLDEN_EXAMPLES in the scenario file.")

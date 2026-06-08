@@ -57,12 +57,11 @@ def _bar(value: float, max_value: float, width: int = _BAR_W) -> str:
 # Chart 1: Score bar chart
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_score_bars(
-    baseline_score: float,
-    mode_data: List[Tuple[str, List[float]]],
-    multi: bool = False,
-    baseline_score_multi: Optional[float] = None,
-) -> None:
+def print_score_bars(baseline_score: float,
+                     mode_data: List[Tuple[str, List[float]]],
+                     multi: bool = False,
+                     baseline_score_multi: Optional[float] = None,
+                     console=None) -> None:
     """Print a horizontal bar chart of holdout scores to stdout."""
     pre_items: list[tuple[str, List[float]]] = [("Base-Holistic", [baseline_score])]
     if baseline_score_multi is not None:
@@ -74,8 +73,8 @@ def print_score_bars(
     title     = "Holdout scores" + (" (mean ± std)" if multi else "")
 
     border = "─" * (label_w + _BAR_W + 22)
-    print(f"\n  {_ANSI['bold']}{title}{_ANSI['reset']}")
-    print(f"  ┌{border}┐")
+    console.print(f"\n  {_ANSI['bold']}{title}{_ANSI['reset']}")
+    console.print(f"  ┌{border}┐")
 
     for lbl, scores in all_items:
         m = mean(scores)
@@ -85,20 +84,19 @@ def print_score_bars(
         if multi and s > 0.0001:
             val += f" ±{s:.4f}"
         colored_bar = _color(lbl, bar)
-        print(f"  │  {lbl:<{label_w}}  {colored_bar}  {val:<16}│")
+        console.print(f"  │  {lbl:<{label_w}}  {colored_bar}  {val:<16}│")
 
-    print(f"  └{border}┘")
+    console.print(f"  └{border}┘")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Chart 2: Run-by-run sparkline table
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_run_sparklines(
-    baseline_score: float,
-    mode_data: List[Tuple[str, List[float]]],
-    n_runs: int,
-) -> None:
+def print_run_sparklines(baseline_score: float,
+                         mode_data: List[Tuple[str, List[float]]],
+                         n_runs: int,
+                         console=None) -> None:
     """One row per mode, each cell shows that run's score as a tiny bar."""
     if n_runs < 2:
         return
@@ -111,10 +109,10 @@ def print_run_sparklines(
     header_cells = "  ".join(f"{'Run ' + str(i):^{CELL_W}}" for i in range(1, n_runs + 1))
     border = "─" * (label_w + (CELL_W + 2) * n_runs + 6)
 
-    print(f"\n  {_ANSI['bold']}Run-by-run scores{_ANSI['reset']}")
-    print(f"  ┌{border}┐")
-    print(f"  │  {' ' * label_w}  {header_cells}  │")
-    print(f"  ├{'─' * (len(border))}┤")
+    console.print(f"\n  {_ANSI['bold']}Run-by-run scores{_ANSI['reset']}")
+    console.print(f"  ┌{border}┐")
+    console.print(f"  │  {' ' * label_w}  {header_cells}  │")
+    console.print(f"  ├{'─' * (len(border))}┤")
 
     for lbl, scores in mode_data:
         cells = []
@@ -122,25 +120,24 @@ def print_run_sparklines(
             bar_len = round(s / max_score * CELL_W)
             cell = "█" * bar_len + "░" * (CELL_W - bar_len)
             cells.append(f"{_color(lbl, cell)}")
-        print(f"  │  {lbl:<{label_w}}  {'  '.join(cells)}  │")
+        console.print(f"  │  {lbl:<{label_w}}  {'  '.join(cells)}  │")
         # numeric sub-row
         vals = "  ".join(f"{s:^{CELL_W}.4f}" for s in scores)
-        print(f"  │  {' ' * label_w}  {vals}  │")
+        console.print(f"  │  {' ' * label_w}  {vals}  │")
 
-    print(f"  └{border}┘")
-    print(f"  {'Pre-train baseline':>{label_w + 4}}: {baseline_score:.4f}")
+    console.print(f"  └{border}┘")
+    console.print(f"  {'Pre-train baseline':>{label_w + 4}}: {baseline_score:.4f}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Chart 3: Bootstrap CI forest plot
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_ci_forest(
-    scores_gepa_uniform: List[float],
-    mode_data: List[Tuple[str, List[float]]],
-    n_runs: int,
-    width: int = 44,
-) -> None:
+def print_ci_forest(scores_gepa_uniform: List[float],
+                    mode_data: List[Tuple[str, List[float]]],
+                    n_runs: int,
+                    width: int = 44,
+                    console=None) -> None:
     """Horizontal CI bars for each TS mode vs GEPA-Uniform."""
     if not scores_gepa_uniform or len(mode_data) <= 1:
         return
@@ -165,15 +162,15 @@ def print_ci_forest(
     zero_col = to_col(0.0)
     label_w  = max(len(lbl) for lbl, *_ in ci_rows)
 
-    print(f"\n  {_ANSI['bold']}Bootstrap 95% CI  vs GEPA-Uniform  (n={n_runs} runs){_ANSI['reset']}")
+    console.print(f"\n  {_ANSI['bold']}Bootstrap 95% CI  vs GEPA-Uniform  (n={n_runs} runs){_ANSI['reset']}")
     border = "─" * (label_w + width + 28)
-    print(f"  ┌{border}┐")
+    console.print(f"  ┌{border}┐")
 
     # Axis header row
     axis_row = [" "] * width
     axis_row[zero_col] = "│"
     axis_str = "".join(axis_row)
-    print(f"  │  {' ' * label_w}  {axis_str}  {'':26}│")
+    console.print(f"  │  {' ' * label_w}  {axis_str}  {'':26}│")
 
     for lbl, d_mean, lo, hi in ci_rows:
         lo_c   = to_col(lo)
@@ -204,12 +201,12 @@ def print_ci_forest(
         sign     = "+" if d_mean >= 0 else ""
         delta    = f"{sign}{d_mean:.4f}"
         ci_range = f"[{'+' if lo >= 0 else ''}{lo:.4f},{'+' if hi >= 0 else ''}{hi:.4f}]"
-        print(f"  │  {lbl:<{label_w}}  {ci_str}  {delta} {ci_range} {verdict_str}│")
+        console.print(f"  │  {lbl:<{label_w}}  {ci_str}  {delta} {ci_range} {verdict_str}│")
 
     # Axis tick row
     tick_row = [" "] * width
     tick_row[zero_col] = "┴"
-    print(f"  │  {' ' * label_w}  {''.join(tick_row)}  {'':26}│")
+    console.print(f"  │  {' ' * label_w}  {''.join(tick_row)}  {'':26}│")
 
     # Zero label row
     lbl_row = [" "] * width
@@ -218,25 +215,23 @@ def print_ci_forest(
     for k, ch in enumerate(zero_lbl):
         if insert_at + k < width:
             lbl_row[insert_at + k] = ch
-    print(f"  │  {' ' * label_w}  {''.join(lbl_row)}  {'':26}│")
-
-    print(f"  └{border}┘")
+    console.print(f"  │  {' ' * label_w}  {''.join(lbl_row)}  {'':26}│")
+    console.print(f"  └{border}┘")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Combined entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_ascii_charts(
-    baseline_score_single: float,
-    baseline_score_multi: Optional[float],
-    scores_gepa_uniform:  Optional[List[float]],
-    scores_gepa_rubric: Optional[List[float]],
-    scores_gepa_full:  Optional[List[float]],
-    scores_gepa_focused:     Optional[List[float]],
-    scores_gepa_gated:     Optional[List[float]],
-    n_runs: int = 1,
-) -> None:
+def print_ascii_charts(baseline_score_single: float,
+                       baseline_score_multi: Optional[float],
+                       scores_gepa_uniform:  Optional[List[float]],
+                       scores_gepa_rubric: Optional[List[float]],
+                       scores_gepa_full:  Optional[List[float]],
+                       scores_gepa_focused:     Optional[List[float]],
+                       scores_gepa_gated:     Optional[List[float]],
+                       n_runs: int = 1,
+                       console=None) -> None:
     """Print all relevant ASCII charts to stdout."""
     mode_data: list[tuple[str, List[float]]] = []
     if scores_gepa_uniform:  mode_data.append(("GEPA-Uniform",   scores_gepa_uniform))
@@ -252,14 +247,14 @@ def print_ascii_charts(
 
     # Chart 1 — always
     print_score_bars(baseline_score_single, mode_data, multi=multi,
-                     baseline_score_multi=baseline_score_multi)
+                     baseline_score_multi=baseline_score_multi, console=console)
 
     # Chart 2 — only when multiple runs
     # Use multi baseline for the reference label when available, else single.
     if multi:
         sparkline_baseline = baseline_score_multi if baseline_score_multi is not None else baseline_score_single
-        print_run_sparklines(sparkline_baseline, mode_data, n_runs)
+        print_run_sparklines(sparkline_baseline, mode_data, n_runs, console)
 
     # Chart 3 — only when multiple runs AND GEPA-Uniform present
     if multi and scores_gepa_uniform:
-        print_ci_forest(scores_gepa_uniform, mode_data, n_runs)
+        print_ci_forest(scores_gepa_uniform, mode_data, n_runs, console)

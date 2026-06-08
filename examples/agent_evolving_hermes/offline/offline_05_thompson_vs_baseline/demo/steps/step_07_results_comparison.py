@@ -44,12 +44,12 @@ def run_step(baseline_score_single: float,
     ran_labels = [label for label, _, _ in mode_data]
     pre_labels = ["Base-Holistic", "Base-Rubric"] if baseline_score_multi is not None else ["Base-Holistic"]
     all_labels = pre_labels + (ran_labels if ran_labels else ["(pre-training only)"])
-    _banner("COMPARISON — " + "  ·  ".join(all_labels))
+    _banner("COMPARISON — " + "  ·  ".join(all_labels), console)
 
     if not mode_data:
-        print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
+        console.print(f"\n  Pre-training single holdout score: {baseline_score_single:.4f}  (no training modes ran)")
         if baseline_score_multi is not None:
-            print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
+            console.print(f"  Pre-training multi holdout score:  {baseline_score_multi:.4f}  (no training modes ran)")
         return
 
     n_runs = len(mode_data[0][1])  # all modes ran the same number of times
@@ -73,8 +73,8 @@ def run_step(baseline_score_single: float,
     for label, *_ in cols:
         header  += f"  {label:>{W}}"
         divider += f"  {'─' * W}"
-    print(header)
-    print(divider)
+    console.print(header)
+    console.print(divider)
 
     # Holdout score row
     score_row = f"  {'Holdout score':32s}"
@@ -87,7 +87,7 @@ def run_step(baseline_score_single: float,
             score_row += f"  {f'{m_val:.4f} ±{s_val:.4f}':>{W}}"
         else:
             score_row += f"  {scores[0]:>{W}.4f}"
-    print(score_row)
+    console.print(score_row)
 
     delta_row = f"  {'Δ over baseline':32s}"
     for label, scores, m, base in cols:
@@ -102,7 +102,7 @@ def run_step(baseline_score_single: float,
             )
             d = mean(scores) - mode_baseline
             delta_row += f"  {('+' if d >= 0 else '') + f'{d:.4f}':>{W}}"
-    print(delta_row)
+    console.print(delta_row)
 
     # ── Accepted (last run) ───────────────────────────────────────────────
     acc_row = f"  {'Accepted (last run)' if multi else 'Accepted':32s}"
@@ -111,7 +111,7 @@ def run_step(baseline_score_single: float,
             acc_row += f"  {'—':>{W}}"
         else:
             acc_row += f"  {'✓ yes' if m and m.get('accepted') else '✗ no':>{W}}"
-    print(acc_row)
+    console.print(acc_row)
 
     # ── Config rows ───────────────────────────────────────────────────────
     _GATE = {
@@ -138,8 +138,8 @@ def run_step(baseline_score_single: float,
         else:
             gate_row += f"  {_GATE.get(label, '?'):>{W}}"
             sel_row += f"  {_SEL.get(label, '?'):>{W}}"
-    print(gate_row)
-    print(sel_row)
+    console.print(gate_row)
+    console.print(sel_row)
 
     # ── Winner ────────────────────────────────────────────────────────────
     # Prefer accepted modes; fall back to best score with a "(not accepted)" note.
@@ -151,12 +151,12 @@ def run_step(baseline_score_single: float,
         best_score = max(s for _, s in accepted_modes)
         ties = [k for k, s in accepted_modes if s == best_score]
         winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
-        print(f"\n  ▶  Best accepted: {winner_str}  (mean holdout {best_score:.4f})")
+        console.print(f"\n  ▶  Best accepted: {winner_str}  (mean holdout {best_score:.4f})")
     else:
         best_score = max(s for _, s in all_modes_scored)
         ties = [k for k, s in all_modes_scored if s == best_score]
         winner_str = (" = ".join(ties) + "  (tie)") if len(ties) > 1 else ties[0]
-        print(f"\n  ▶  Best score: {winner_str}  (mean holdout {best_score:.4f})  — not accepted")
+        console.print(f"\n  ▶  Best score: {winner_str}  (mean holdout {best_score:.4f})  — not accepted")
 
     if not multi:
         return
@@ -166,13 +166,13 @@ def run_step(baseline_score_single: float,
     # ══════════════════════════════════════════════════════════════════════
 
     # ── Per-run table (learning-curve proxy) ──────────────────────────────
-    print(f"\n  Run-by-run results ({n_runs} independent runs):")
+    console.print(f"\n  Run-by-run results ({n_runs} independent runs):")
     header2, divider2 = f"  {'':22s}", f"  {'─' * 22}"
     for label, _, _, _ in cols:
         header2 += f"  {label:>{W}}"
         divider2 += f"  {'─' * W}"
-    print(header2)
-    print(divider2)
+    console.print(header2)
+    console.print(divider2)
 
     for i in range(n_runs):
         row = f"  {f'Run {i + 1}':22s}"
@@ -180,9 +180,9 @@ def run_step(baseline_score_single: float,
             # Use base if it's a pre-train column, otherwise the specific run score
             val = base if scores is None else scores[i]
             row += f"  {val:>{W}.4f}"
-        print(row)
+        console.print(row)
 
-    print(f"  {'─' * 22}" + f"  {'─' * W}" * len(cols))
+    console.print(f"  {'─' * 22}" + f"  {'─' * W}" * len(cols))
     mean_row, std_row = f"  {'Mean':22s}", f"  {'Std dev':22s}"
     for _, scores, _, base in cols:
         if scores is None:
@@ -191,12 +191,12 @@ def run_step(baseline_score_single: float,
         else:
             mean_row += f"  {mean(scores):>{W}.4f}"
             std_row += f"  {std(scores):>{W}.4f}"
-    print(mean_row)
-    print(std_row)
+    console.print(mean_row)
+    console.print(std_row)
 
     # ── Bootstrap CI vs GEPA-Uniform ─────────────────────────────────────────────
     if scores_gepa_uniform and len(mode_data) > 1:
-        print(f"\n  Bootstrap 95% CI vs GEPA-Uniform ({n_runs} runs, paired):")
+        console.print(f"\n  Bootstrap 95% CI vs GEPA-Uniform ({n_runs} runs, paired):")
         for label, scores, _ in mode_data:
             if label == "GEPA-Uniform":
                 continue
@@ -210,4 +210,4 @@ def run_step(baseline_score_single: float,
                 verdict = "✗ reliably worse"
             else:
                 verdict = "~ inconclusive"
-            print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")
+            console.print(f"    {label:<10}  Δ = {sign}{d_mean:.4f}  CI {ci_str}  {verdict}")

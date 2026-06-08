@@ -42,6 +42,7 @@ def run_step(baseline_score_single: float,
         scores_gepa_focused=scores_gepa_focused,
         scores_gepa_gated=scores_gepa_gated,
         n_runs=n_runs,
+        console=console
     )
 
     # ── Matplotlib PNG (file) ─────────────────────────────────────────────
@@ -61,8 +62,8 @@ def run_step(baseline_score_single: float,
             scenario_name=scenario_name,
             n_runs=n_runs,
         )
-        print(f"\n  PNG saved → {path}")
+        console.print(f"\n  PNG saved → {path}")
     except ImportError:
         pass   # matplotlib not installed — ASCII-only is fine
     except Exception as exc:
-        print(f"  [plots] PNG rendering failed: {exc}")
+        console.print(f"  [plots] PNG rendering failed: {exc}")

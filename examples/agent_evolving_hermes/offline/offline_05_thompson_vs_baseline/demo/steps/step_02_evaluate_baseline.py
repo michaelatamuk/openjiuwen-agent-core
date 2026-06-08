@@ -85,7 +85,7 @@ def run_step(skills_root: Path,
     """
     needs_multi = bool(run_modes and _MULTI_MODES.intersection(run_modes))
     modes_label = "single + multi" if needs_multi else "single"
-    _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})")
+    _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})", console=console)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     evolver_config = EvolverConfig(
@@ -128,7 +128,7 @@ def run_step(skills_root: Path,
     holdout = dataset.holdout or dataset.val
     total = len(holdout)
 
-    print(f"\n  Evaluating {total} holdout examples with single LLM-as-judge (~20–30s each)…")
+    console.print(f"\n  Evaluating {total} holdout examples with single LLM-as-judge (~20–30s each)…")
     scores: list[float] = []
     for i, ex in enumerate(holdout, start=1):
         score = 0.0
@@ -144,16 +144,16 @@ def run_step(skills_root: Path,
         except Exception:
             pass
         scores.append(score)
-        print(f"  [{i}/{total}] pre-train (single) → {score:.4f}")
+        console.print(f"  [{i}/{total}] pre-train (single) → {score:.4f}")
 
     single_score = round(sum(scores) / len(scores), 4) if scores else 0.0
-    print(f"  Pre-training holdout score (single): {single_score:.4f}  ({total} holdout examples)")
+    console.print(f"  Pre-training holdout score (single): {single_score:.4f}  ({total} holdout examples)")
 
     # ── Multi-objective evaluation (only when a multi mode will run) ───────
     multi_dims: Optional[Dict[str, float]] = None
     multi_score = None
     if needs_multi:
-        print()
+        console.print()
         multi_score, multi_dims = score_multi_baseline(baseline_module, dataset, evolver_config, console)
 
     return single_score, multi_score, multi_dims

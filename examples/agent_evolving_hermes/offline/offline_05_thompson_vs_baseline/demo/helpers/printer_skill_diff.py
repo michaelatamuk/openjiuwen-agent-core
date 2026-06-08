@@ -10,11 +10,11 @@ _NUM_W  = 4   # " 12 " — line-number field width (handles up to line 999)
 _MARK_W = 2   # "< " / "> " / "  " — diff-marker field width
 
 
-def print_skill_diff(
-    baseline_text: str,
-    winner_label: str,
-    winner_text: str,
-    winner_score: Optional[float] = None,
+def print_skill_diff(baseline_text: str,
+                     winner_label: str,
+                     winner_text: str,
+                     winner_score: Optional[float] = None,
+                     console=None
 ) -> None:
     """Print baseline and winner skills side by side with diff alignment.
 
@@ -25,7 +25,7 @@ def print_skill_diff(
     (line count, char count, Δ, block count) is printed above the diff.
     """
     score_suffix = f"  (score: {winner_score:.4f})" if winner_score is not None else ""
-    _banner(f"SKILL DIFF — Baseline  ·  {winner_label}{score_suffix}")
+    _banner(f"SKILL DIFF — Baseline  ·  {winner_label}{score_suffix}", console=console)
 
     term_w = max(80, shutil.get_terminal_size((120, 40)).columns)
     sep    = " │ "
@@ -51,18 +51,18 @@ def print_skill_diff(
     dc = f"{dc_sign}{w_chars  - b_chars}"
 
     if n_blocks == 0:
-        print(f"  Baseline  {b_nlines} lines · {b_chars} chars")
-        print(f"  Winner    {w_nlines} lines · {w_chars} chars")
-        print()
-        print("  (skills are identical — no changes were made by GEPA)")
-        print()
+        console.print(f"  Baseline  {b_nlines} lines · {b_chars} chars")
+        console.print(f"  Winner    {w_nlines} lines · {w_chars} chars")
+        console.print()
+        console.print("  (skills are identical — no changes were made by GEPA)")
+        console.print()
         return
 
     block_word = "block" if n_blocks == 1 else "blocks"
-    print(f"  Baseline  {b_nlines} lines · {b_chars} chars")
-    print(f"  Winner    {w_nlines} lines · {w_chars} chars   "
-          f"Δ {dl} lines · {dc} chars · {n_blocks} change {block_word}")
-    print()
+    console.print(f"  Baseline  {b_nlines} lines · {b_chars} chars")
+    console.print(f"  Winner    {w_nlines} lines · {w_chars} chars   "
+                  f"Δ {dl} lines · {dc} chars · {n_blocks} change {block_word}")
+    console.print()
 
     # ── Column headers ────────────────────────────────────────────────────────
     def _col_hdr(label: str) -> str:
@@ -70,8 +70,8 @@ def print_skill_diff(
         dashes = max(0, col_w - len(inner))
         return "─" * (dashes // 2) + inner + "─" * (dashes - dashes // 2)
 
-    print(_col_hdr(f"Baseline  [{b_nlines} ln]") + sep + _col_hdr(f"{winner_label}  [{w_nlines} ln]"))
-    print()
+    console.print(_col_hdr(f"Baseline  [{b_nlines} ln]") + sep + _col_hdr(f"{winner_label}  [{w_nlines} ln]"))
+    console.print()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     full_w = 2 * col_w + len(sep)
@@ -80,7 +80,7 @@ def print_skill_diff(
         """Full-width separator line with an embedded plain-English description."""
         inner  = f" {desc} "
         dashes = max(0, full_w - len(inner))
-        print("╌" * (dashes // 2) + inner + "╌" * (dashes - dashes // 2))
+        console.print("╌" * (dashes // 2) + inner + "╌" * (dashes - dashes // 2))
 
     def _fit(s: str) -> str:
         if len(s) > cont_w:
@@ -102,7 +102,7 @@ def print_skill_diff(
         is_diff_r = mr != "  "
         lv = _visible(left,  is_diff_l)
         rv = _visible(right, is_diff_r)
-        print(_lnum(ll) + ml + _fit(lv) + sep + _lnum(rl) + mr + _fit(rv))
+        console.print(_lnum(ll) + ml + _fit(lv) + sep + _lnum(rl) + mr + _fit(rv))
 
     # ── Diff body ─────────────────────────────────────────────────────────────
     ln_left  = 1
@@ -143,4 +143,4 @@ def print_skill_diff(
             ln_left  += len(left_block)
             ln_right += len(right_block)
 
-    print()
+    console.print()

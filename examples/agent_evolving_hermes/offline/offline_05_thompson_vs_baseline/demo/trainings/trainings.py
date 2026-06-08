@@ -125,9 +125,10 @@ class DemoTrainings:
                 last_out_gepa_uniform = out
             elapsed = time.monotonic() - t_start
             if len(scores_gepa_uniform) > 1:
-                print_mode_summary("GEPA-Uniform", baseline_score, scores_gepa_uniform, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Uniform", baseline_score, scores_gepa_uniform,
+                                   elapsed_sec=elapsed, console=console)
             else:
-                print_mode_timing("GEPA-Uniform", elapsed)
+                print_mode_timing("GEPA-Uniform", elapsed, console=console)
         return scores_gepa_uniform, metrics_gepa_uniform, last_out_gepa_uniform
 
     def _run_gepa_rubric(self, params: DemoParams, baseline_score_single: float = None,
@@ -161,9 +162,10 @@ class DemoTrainings:
                 last_out = out
             elapsed = time.monotonic() - t_start
             if len(scores) > 1:
-                print_mode_summary("GEPA-Rubric", baseline_score_single, scores, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Rubric", baseline_score_single, scores,
+                                   elapsed_sec=elapsed, console=console)
             else:
-                print_mode_timing("GEPA-Rubric", elapsed)
+                print_mode_timing("GEPA-Rubric", elapsed, console=console)
         return scores, metrics, last_out
 
     def _run_gepa_full(self, params: DemoParams, baseline_score: float = None,
@@ -196,9 +198,10 @@ class DemoTrainings:
                 last_out_gepa_full = out
             elapsed = time.monotonic() - t_start
             if len(scores_gepa_full) > 1:
-                print_mode_summary("GEPA-Full", baseline_score, scores_gepa_full, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Full", baseline_score, scores_gepa_full,
+                                   elapsed_sec=elapsed, console=console)
             else:
-                print_mode_timing("GEPA-Full", elapsed)
+                print_mode_timing("GEPA-Full", elapsed, console=console)
         return scores_gepa_full, metrics_gepa_full, last_out_gepa_full
 
     def _run_gepa_focused_on_difficulty(self, params: DemoParams, baseline_score: float = None,
@@ -231,9 +234,10 @@ class DemoTrainings:
                 last_out_gepa_focused = out
             elapsed = time.monotonic() - t_start
             if len(scores_gepa_focused) > 1:
-                print_mode_summary("GEPA-Focused", baseline_score, scores_gepa_focused, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Focused", baseline_score, scores_gepa_focused,
+                                   elapsed_sec=elapsed, console=console)
             else:
-                print_mode_timing("GEPA-Focused", elapsed)
+                print_mode_timing("GEPA-Focused", elapsed, console=console)
         return scores_gepa_focused, metrics_gepa_focused, last_out_gepa_focused
 
     def _run_gepa_gated(self, params: DemoParams, baseline_score: float = None,
@@ -265,9 +269,10 @@ class DemoTrainings:
                 last_out_gepa_gated = out
             elapsed = time.monotonic() - t_start
             if len(scores_gepa_gated) > 1:
-                print_mode_summary("GEPA-Gated", baseline_score, scores_gepa_gated, elapsed_sec=elapsed)
+                print_mode_summary("GEPA-Gated", baseline_score, scores_gepa_gated,
+                                   elapsed_sec=elapsed, console=console)
             else:
-                print_mode_timing("GEPA-Gated", elapsed)
+                print_mode_timing("GEPA-Gated", elapsed, console=console)
         return scores_gepa_gated, metrics_gepa_gated, last_out_gepa_gated
 
     @staticmethod

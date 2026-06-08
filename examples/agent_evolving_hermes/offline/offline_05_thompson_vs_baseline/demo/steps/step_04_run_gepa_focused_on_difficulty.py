@@ -14,14 +14,15 @@ def run_step(skills_root, skill_name, model, iterations, ts_batch_size, output_g
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index, n_runs=n_runs)
-    print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
+    _banner("③ GEPA — TS-TrainingSelector only (no Acceptance Gate)", run_index=run_index,
+            n_runs=n_runs, console=console)
+    console.print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
           f"10 train examples per iteration")
-    print("    TS learns which examples best distinguish good vs bad evolved skills")
-    print("    → discriminating examples (medium difficulty) accumulate higher α")
-    print()
-    print("  TS-AcceptanceGate   : OFF (threshold only, improvement ≥ 0.0)")
-    print()
+    console.print("    TS learns which examples best distinguish good vs bad evolved skills")
+    console.print("    → discriminating examples (medium difficulty) accumulate higher α")
+    console.print()
+    console.print("  TS-AcceptanceGate   : OFF (threshold only, improvement ≥ 0.0)")
+    console.print()
 
     evolver_config = EvolverConfig(
         skills_root = skills_root,
@@ -56,6 +57,6 @@ def run_step(skills_root, skill_name, model, iterations, ts_batch_size, output_g
 
     if verbose:
         evolved_l2 = _read_latest_evolved(output_gepa_focused_on_difficulty, skill_name)
-        _print_skill("  Evolved skill (TS-TrainingSelector only)", evolved_l2 or "[not produced]")
+        _print_skill("  Evolved skill (TS-TrainingSelector only)", evolved_l2 or "[not produced]", console)
 
     return metrics_gepa_focused

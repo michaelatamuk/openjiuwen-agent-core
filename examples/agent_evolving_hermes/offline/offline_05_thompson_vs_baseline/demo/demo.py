@@ -118,7 +118,7 @@ class Demo:
 
         # ── Optional: Skill diff (baseline vs winner) ─────────────────────────
         if self._config.print_skill_diff and trainings_results.runs:
-            self._print_skill_diff(params, trainings_results)
+            self._print_skill_diff(params, trainings_results, console)
 
         # ── Step 8: Plots ─────────────────────────────────────────────────────
         step_08_plot_results(baseline_score_single,
@@ -136,7 +136,8 @@ class Demo:
         # ── Step 7: Where to look ─────────────────────────────────────────────
         step_09_final_prints(params.skill_name, trainings_results.runs, params.ts_state_dir, console)
 
-    def _print_skill_diff(self, params: DemoParams, results: DemoTrainingsResults) -> None:
+    @staticmethod
+    def _print_skill_diff(params: DemoParams, results: DemoTrainingsResults, console) -> None:
         """Determine winner and print baseline vs winner skill side by side."""
         from statistics import mean as _mean
 
@@ -164,9 +165,8 @@ class Demo:
         if not winner_text:
             return
 
-        print_skill_diff(
-            baseline_path.read_text(),
-            winner_label,
-            winner_text,
-            winner_score=best_score,
-        )
+        print_skill_diff(baseline_path.read_text(),
+                         winner_label,
+                         winner_text,
+                         winner_score=best_score,
+                         console=console)

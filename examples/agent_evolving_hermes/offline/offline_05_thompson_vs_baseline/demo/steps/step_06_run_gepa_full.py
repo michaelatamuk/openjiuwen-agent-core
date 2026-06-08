@@ -16,15 +16,16 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
          scoring_mode: str = "single", baseline_score_multi=None, baseline_dims_multi=None,
          prebuilt_skill=None, prebuilt_dataset=None, prebuilt_baseline_module=None,
          prebuilt_trainset=None, prebuilt_valset=None, console=None):
-    _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index, n_runs=n_runs)
-    print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
-          f"{int(len(examples)*0.5)} train examples per iteration")
-    print("    TS learns which examples best distinguish good vs bad evolved skills")
-    print("    → discriminating examples (medium difficulty) accumulate higher α")
-    print()
-    print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
-    print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
-    print()
+    _banner("⑤ GEPA — with Thompson Sampling (TS-TrainingSelector + TS-AcceptanceGate)", run_index=run_index,
+            n_runs=n_runs, console=console)
+    console.print(f"  TS-TrainingSelector : selects top {ts_batch_size} of "
+                  f"{int(len(examples)*0.5)} train examples per iteration")
+    console.print("    TS learns which examples best distinguish good vs bad evolved skills")
+    console.print("    → discriminating examples (medium difficulty) accumulate higher α")
+    console.print()
+    console.print(f"  TS-AcceptanceGate   : P(candidate > deployed) ≥ 0.75")
+    console.print("    Monte Carlo (100 draws) — prevents accepting a lucky one-off run")
+    console.print()
 
     evolver_config = EvolverConfig(
         skills_root = skills_root,
@@ -58,10 +59,10 @@ def run_step(skills_root, skill_name, model, itrations, ts_batch_size, examples,
                                                     prebuilt_valset=prebuilt_valset,
                                                     console=console)
     metrics_ts = evolve_single_skill(params)
-    _print_ts_insights(ts_state_dir, skill_name)
+    _print_ts_insights(ts_state_dir, skill_name, console)
 
     if verbose:
         evolved_ts = _read_latest_evolved(output_ts, skill_name)
-        _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]")
+        _print_skill("  Evolved skill (with TS)", evolved_ts or "[not produced]", console)
 
     return metrics_ts
