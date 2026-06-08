@@ -35,8 +35,8 @@ from openjiuwen.agent_evolving_hermes.offline import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
     find_and_load_skill,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage02_baseline_constraint_validator import (
-    validate_baseline_constraints,
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage02_skill_constraint_validator import (
+    validate_skill_constraints,
 )
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder import (
     build_or_load_dataset,
@@ -93,7 +93,7 @@ def run_step(skills_root: Path,
     skill, _ = find_and_load_skill(skill_name, evolver_config, console)
 
     # Stage 2 — validate baseline constraints (run once here; skipped in evolve_single_skill when prebuilt_skill is provided)
-    validate_baseline_constraints(skill["raw"], evolver_config, console)
+    validate_skill_constraints(skill["raw"], evolver_config, console, stage_label="Baseline")
 
     # Stage 3 — build / load eval dataset
     dataset, _ = build_or_load_dataset(

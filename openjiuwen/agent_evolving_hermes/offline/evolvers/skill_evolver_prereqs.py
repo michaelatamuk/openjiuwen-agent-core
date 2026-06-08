@@ -18,7 +18,7 @@ from typing import Any, List, Optional
 
 from ._console_maker import _make_console
 from .skill_evolver_stages.stage01_skill_finder_and_loader import find_and_load_skill
-from .skill_evolver_stages.stage02_baseline_constraint_validator import validate_baseline_constraints
+from .skill_evolver_stages.stage02_skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage03_dataset_builder import build_or_load_dataset
 from .skill_evolver_stages.stage04_dspy_configurator import configure_dspy_and_prepare_sets
 from .skill_evolver_config import EvolverConfig
@@ -106,7 +106,7 @@ def build_evolution_prereqs(
     skill, prior_metrics = find_and_load_skill(skill_name, config, console)
 
     # Stage 2 — validate baseline constraints
-    validate_baseline_constraints(skill["raw"], config, console)
+    validate_skill_constraints(skill["raw"], config, console, stage_label="Baseline")
 
     # Stage 3 — build / load eval dataset
     dataset, cached_path = build_or_load_dataset(

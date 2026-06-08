@@ -7,7 +7,7 @@ skill_evolver_stages/. The logic that used to live here is now in:
 
   stage05_gepa_optimizer                — run GEPA (or MIPROv2 fallback)
   stage06_evolved_skill_extractor       — extract evolved body + reassemble
-  stage07_evolved_constraint_validator  — validate evolved skill
+  stage02_skill_constraint_validator    — validate evolved skill (stage 07)
   stage08_holdout_evaluator             — score baseline vs evolved on holdout
   stage09_acceptance_gate               — apply min_improvement threshold
   stage10_results_display               — print Rich table / plain-text summary
@@ -27,7 +27,7 @@ from .adaptive_rubric_weights import AdaptiveRubricWeights
 from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage05_gepa_optimizer import run_gepa_optimization
 from .skill_evolver_stages.stage06_evolved_skill_extractor import extract_evolved_skill
-from .skill_evolver_stages.stage07_evolved_constraint_validator import validate_evolved_constraints
+from .skill_evolver_stages.stage02_skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
 from .skill_evolver_stages.stage08_holdout_evaluator_judge_multi import MultiObjectiveFitnessScore
 from .skill_evolver_stages.stage10_results_display import display_results_table
@@ -76,11 +76,12 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
 
     # ── Step 7: Validate evolved constraints ─────────────────────────────────
     evolved_checks, constraints_passed = (
-        validate_evolved_constraints(evolved_text,
-                                     params.prebuilt_skill["raw"],
-                                     params.config,
-                                     output_dir,
-                                     params.console))
+        validate_skill_constraints(evolved_text,
+                                   params.config,
+                                   params.console,
+                                   stage_label="Evolved",
+                                   baseline_text=params.prebuilt_skill["raw"],
+                                   output_dir=output_dir))
 
     # ── Step 8: Evaluate on holdout ──────────────────────────────────────────
     baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_multi = \
