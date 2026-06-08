@@ -27,7 +27,7 @@ from .skill_scheduler import (
     ThompsonSkillScheduler,
     make_skill_scheduler,
 )
-from .example_selector import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selectors.selector import (
     SequentialExampleSelector,
     ThompsonExampleSelector,
     make_example_selector,

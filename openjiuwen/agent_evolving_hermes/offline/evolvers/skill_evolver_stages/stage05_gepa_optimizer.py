@@ -50,12 +50,14 @@ def run_gepa_optimization(baseline_module: SkillModule,
         optimizer = dspy.GEPA(metric=skill_fitness_metric,
                               max_full_evals=config.iterations,
                               reflection_lm=dspy.settings.lm)
-        optimized_module = optimizer.compile(baseline_module, trainset=selected_trainset_examples, valset=valset)
     except Exception as gepa_err:
         console.print(f"[yellow]GEPA not available ({gepa_err}), falling back to MIPROv2[/yellow]")
         optimizer_name = "MIPROv2"
         optimizer = dspy.MIPROv2(metric=skill_fitness_metric, auto="light")
-        optimized_module = optimizer.compile(baseline_module, trainset=selected_trainset_examples, valset=valset)
+
+    optimized_module = optimizer.compile(baseline_module,
+                                         trainset=selected_trainset_examples,
+                                         valset=valset)
 
     elapsed = time.time() - t0
     console.print(f"[green]✓ Optimisation complete in {elapsed:.1f}s[/green]")
