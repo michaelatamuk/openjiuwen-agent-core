@@ -24,6 +24,7 @@ from typing import List, Optional
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from .skill_evolver_single import evolve_single_skill
+from .skill_evolver_prereqs import build_evolution_prereqs
 from .selection import make_skill_scheduler
 from .skill_evolver_single_params import SkillEvolverParams
 
@@ -33,7 +34,7 @@ def evolve_skills_batch(
     eval_source: str = "synthetic",
     external_sources: Optional[list] = None,
     iterations: Optional[int] = None,
-    config: Optional[EvolverConfig] = None,
+    config: EvolverConfig = None,
     reuse_dataset: bool = False,
     min_improvement: float = 0.0,
 ) -> List[dict]:
@@ -54,9 +55,6 @@ def evolve_skills_batch(
     Returns:
         List of metrics dicts in the order the skills were actually run.
     """
-    if config is None:
-        config = EvolverConfig()
-
     # ── Level 1: schedule skill order via factory ─────────────────────────────
     scheduler = make_skill_scheduler(config, list(skill_names))
     ordered_names = scheduler.schedule(list(skill_names))
@@ -64,13 +62,30 @@ def evolve_skills_batch(
     results = []
     for name in ordered_names:
         try:
-            params: SkillEvolverParams = SkillEvolverParams(skill_name=name,
-                                                            eval_source=eval_source,
-                                                            external_sources=external_sources,
-                                                            iterations=iterations,
-                                                            config=config,
-                                                            reuse_dataset=reuse_dataset,
-                                                            min_improvement=min_improvement,)
+            prereqs = build_evolution_prereqs(
+                skill_name=name,
+                config=config,
+                eval_source=eval_source,
+                external_sources=external_sources,
+                reuse_dataset=reuse_dataset,
+            )
+            params: SkillEvolverParams = SkillEvolverParams(
+                skill_name=name,
+                eval_source=eval_source,
+                external_sources=external_sources,
+                iterations=iterations,
+                reuse_dataset=reuse_dataset,
+                min_improvement=min_improvement,
+                prior_metrics=prereqs.prior_metrics,
+                cached_path=prereqs.cached_path,
+                config=config,
+                console=prereqs.console,
+                prebuilt_skill=prereqs.skill,
+                prebuilt_dataset=prereqs.dataset,
+                prebuilt_baseline_module=prereqs.baseline_module,
+                prebuilt_trainset=prereqs.trainset,
+                prebuilt_valset=prereqs.valset,
+            )
             m = evolve_single_skill(params)
         except Exception as exc:
             m = {"skill_name": name, "error": str(exc)}

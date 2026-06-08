@@ -32,6 +32,7 @@ from pathlib import Path
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig, evolve_single_skill
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_prereqs import build_evolution_prereqs
 
 
 def run_example_evolution():
@@ -90,16 +91,31 @@ def run_example_evolution():
     print(f"  Models    : optimizer={config.optimizer_model}  eval={config.eval_model}")
     print()
 
-    params: SkillEvolverParams = SkillEvolverParams(skill_name="git-review",
-                                                    eval_source="synthetic", # generate dataset from skill using LLM
-                                                    config=config,)
-
     try:
-        metrics = evolve_single_skill(params)
+        prereqs = build_evolution_prereqs(
+            skill_name="git-review",
+            config=config,
+            eval_source="synthetic",  # generate dataset from skill using LLM
+        )
     except FileNotFoundError as exc:
         print(f"Skill not found: {exc}")
         print("\nCreate a minimal skill first — see docstring above.")
         return
+
+    params: SkillEvolverParams = SkillEvolverParams(
+        skill_name="git-review",
+        eval_source="synthetic",
+        prior_metrics=prereqs.prior_metrics,
+        cached_path=prereqs.cached_path,
+        config=config,
+        console=prereqs.console,
+        prebuilt_skill=prereqs.skill,
+        prebuilt_dataset=prereqs.dataset,
+        prebuilt_baseline_module=prereqs.baseline_module,
+        prebuilt_trainset=prereqs.trainset,
+        prebuilt_valset=prereqs.valset,
+    )
+    metrics = evolve_single_skill(params)
 
     print("\n── Results ─────────────────────────────────────────")
     print(f"  Baseline score : {metrics['baseline_score']:.4f}")

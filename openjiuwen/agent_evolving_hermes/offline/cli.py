@@ -24,6 +24,7 @@ import click
 from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import evolve_single_skill, evolve_skills_batch
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_prereqs import build_evolution_prereqs
 
 
 def _make_config(
@@ -344,14 +345,30 @@ def main(
 
     # ── Single skill ─────────────────────────────────────────────────────────
     if not evolve_all:
-        params: SkillEvolverParams = SkillEvolverParams(skill_name=skill_names[0],
-                                                        eval_source=eval_source,
-                                                        external_sources=list(external_sources)
-                                                        if external_sources else None,
-                                                        iterations=iterations,
-                                                        config=config,
-                                                        reuse_dataset=reuse_dataset,
-                                                        min_improvement=min_improvement,)
+        prereqs = build_evolution_prereqs(
+            skill_name=skill_names[0],
+            config=config,
+            eval_source=eval_source,
+            external_sources=list(external_sources) if external_sources else None,
+            reuse_dataset=reuse_dataset,
+        )
+        params: SkillEvolverParams = SkillEvolverParams(
+            skill_name=skill_names[0],
+            eval_source=eval_source,
+            external_sources=list(external_sources) if external_sources else None,
+            iterations=iterations,
+            reuse_dataset=reuse_dataset,
+            min_improvement=min_improvement,
+            prior_metrics=prereqs.prior_metrics,
+            cached_path=prereqs.cached_path,
+            config=config,
+            console=prereqs.console,
+            prebuilt_skill=prereqs.skill,
+            prebuilt_dataset=prereqs.dataset,
+            prebuilt_baseline_module=prereqs.baseline_module,
+            prebuilt_trainset=prereqs.trainset,
+            prebuilt_valset=prereqs.valset,
+        )
         metrics = evolve_single_skill(params)
         _print_summary([metrics])
         return
