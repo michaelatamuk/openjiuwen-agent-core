@@ -106,8 +106,8 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
         validate_baseline_constraints(skill["raw"], config, console)
 
     # ── Step 3: Build / reuse eval dataset ───────────────────────────────────
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = config.output_dir / params.skill_name / ts
+    time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = config.output_dir / params.skill_name / time_stamp
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if params.prebuilt_dataset is not None:
@@ -140,18 +140,23 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
     evolved_text = extract_evolved_skill(optimized_module, skill, console)
 
     # ── Step 7: Validate evolved constraints ─────────────────────────────────
-    evolved_checks, constraints_passed = validate_evolved_constraints(
-        evolved_text, skill["raw"], config, output_dir, console,
-    )
+    evolved_checks, constraints_passed = validate_evolved_constraints(evolved_text,
+                                                                      skill["raw"],
+                                                                      config,
+                                                                      output_dir,
+                                                                      console)
 
     # ── Step 8: Evaluate on holdout ──────────────────────────────────────────
     baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_multi = \
-        evaluate_on_holdout(
-            baseline_module, optimized_module, dataset, config, console, prior_metrics,
-            prior_baseline_score_single=params.prior_baseline_score_single,
-            scoring_mode=getattr(config, "scoring_mode", "single"),
-            prior_baseline_score_multi=params.prior_baseline_score_multi,
-        )
+        evaluate_on_holdout(baseline_module,
+                            optimized_module,
+                            dataset,
+                            config,
+                            console,
+                            prior_metrics,
+                            prior_baseline_score_single=params.prior_baseline_score_single,
+                            scoring_mode=getattr(config, "scoring_mode", "single"),
+                            prior_baseline_score_multi=params.prior_baseline_score_multi)
 
     # ── Step 8b: Multi-objective processing ──────────────────────────────────
     mo_state = None
@@ -209,27 +214,44 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
         )
 
     # ── Step 10: Display results table ───────────────────────────────────────
-    display_results_table(
-        params.skill_name, optimizer_name, config.iterations,
-        baseline_score, evolved_score, improvement,
-        cross_run_delta, accepted, elapsed,
-        len(skill["raw"]), len(evolved_text), console,
-        constraint_checks=evolved_checks,
-        prior_baseline_dims_multi=params.prior_baseline_dims_multi,
-        evolved_dims_multi=evolved_dims_multi,
-        mo_weights=mo_state.weights if mo_state is not None else None,
-    )
+    display_results_table(params.skill_name,
+                          optimizer_name,
+                          config.iterations,
+                          baseline_score,
+                          evolved_score,
+                          improvement,
+                          cross_run_delta,
+                          accepted,
+                          elapsed,
+                          len(skill["raw"]),
+                          len(evolved_text),
+                          console,
+                          constraint_checks=evolved_checks,
+                          prior_baseline_dims_multi=params.prior_baseline_dims_multi,
+                          evolved_dims_multi=evolved_dims_multi,
+                          mo_weights=mo_state.weights if mo_state is not None else None)
 
     # ── Step 11: Save outputs ─────────────────────────────────────────────────
-    output_result = save_outputs(
-        params.skill_name, ts,
-        baseline_score, evolved_score, improvement,
-        accepted, params.min_improvement, cross_run_delta, prior_metrics,
-        config, optimizer_name, params.eval_source, cached_path,
-        skill["raw"], evolved_text, evolved_checks,
-        elapsed, output_dir, console,
-        ts_confidence=ts_conf,
-    )
+    output_result = save_outputs(params.skill_name,
+                                 time_stamp,
+                                 baseline_score,
+                                 evolved_score,
+                                 improvement,
+                                 accepted,
+                                 params.min_improvement,
+                                 cross_run_delta,
+                                 prior_metrics,
+                                 config,
+                                 optimizer_name,
+                                 params.eval_source,
+                                 cached_path,
+                                 skill["raw"],
+                                 evolved_text,
+                                 evolved_checks,
+                                 elapsed,
+                                 output_dir,
+                                 console,
+                                 ts_confidence=ts_conf)
 
     console.print("Single Skill Evolver - Evolve Finished")
     return output_result

@@ -7,13 +7,11 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config impo
 from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintValidator
 
 
-def validate_evolved_constraints(
-    evolved_text: str,
-    skill_raw: str,
-    config: EvolverConfig,
-    output_dir: Path,
-    console,
-) -> Tuple[List, bool]:
+def validate_evolved_constraints(evolved_text: str,
+                                 skill_raw: str,
+                                 config: EvolverConfig,
+                                 output_dir: Path,
+                                 console) -> Tuple[List, bool]:
     """Validate the evolved skill text against all constraints.
 
     On failure: saves evolved_FAILED.md to output_dir and prints each failure.
@@ -23,9 +21,7 @@ def validate_evolved_constraints(
     console.print("\n[blue]~~~ Evolving Stage 07 - Evolved Constraints Validation Started ~~~[/blue]")
 
     validator = ConstraintValidator(config)
-    checks = validator.validate_all(
-        evolved_text, artifact_type="skill", baseline_text=skill_raw
-    )
+    checks = validator.validate_all(evolved_text, artifact_type="skill", baseline_text=skill_raw)
     result: bool
 
     failures = [c for c in checks if not c.passed]
@@ -33,9 +29,7 @@ def validate_evolved_constraints(
         failed_path = output_dir / "evolved_FAILED.md"
         failed_path.write_text(evolved_text, encoding="utf-8")
         for f in failures:
-            console.print(
-                f"[red]✗ EVOLVED CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]"
-            )
+            console.print(f"[red]✗ EVOLVED CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]")
         console.print(f"[dim]Saved failed variant to {failed_path}[/dim]")
         result = False
     else:

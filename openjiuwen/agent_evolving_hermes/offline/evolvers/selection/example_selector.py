@@ -188,11 +188,9 @@ class ThompsonExampleSelector:
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
-def make_example_selector(
-    trainset: List,
-    skill_name: str,
-    config: "EvolverConfig",
-) -> "SequentialExampleSelector | ThompsonExampleSelector":
+def make_example_selector(trainset: List,
+                          skill_name: str,
+                          config: EvolverConfig) -> SequentialExampleSelector | ThompsonExampleSelector:
     """Return the correct example selector based on ``config.ts_example_selector``.
 
     Parameters
@@ -221,14 +219,11 @@ def make_example_selector(
     """
     if getattr(config, "ts_example_selector", False):
         raw_state_dir = getattr(config, "ts_state_dir", None)
-        state_dir: Path = (
-            Path(raw_state_dir) if raw_state_dir else Path(config.output_dir)
-        )
+        state_dir: Path = (Path(raw_state_dir) if raw_state_dir else Path(config.output_dir))
         batch_size = int(getattr(config, "ts_example_batch_size", 0))
-        return ThompsonExampleSelector(
-            trainset=trainset,
-            skill_name=skill_name,
-            batch_size=batch_size,
-            state_dir=state_dir,
-        )
+        return ThompsonExampleSelector(trainset=trainset,
+                                       skill_name=skill_name,
+                                       batch_size=batch_size,
+                                       state_dir=state_dir)
+
     return SequentialExampleSelector(trainset)

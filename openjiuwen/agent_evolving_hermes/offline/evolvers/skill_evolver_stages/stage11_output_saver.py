@@ -7,28 +7,26 @@ from typing import List, Optional
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
 
-def save_outputs(
-    skill_name: str,
-    ts: str,
-    baseline_score: float,
-    evolved_score: float,
-    improvement: float,
-    accepted: bool,
-    min_improvement: float,
-    cross_run_delta: Optional[float],
-    prior_metrics: Optional[dict],
-    config: EvolverConfig,
-    optimizer_name: str,
-    eval_source: str,
-    cached_path: Optional[Path],
-    skill_raw: str,
-    evolved_text: str,
-    evolved_checks: List,
-    elapsed: float,
-    output_dir: Path,
-    console,
-    ts_confidence: Optional[float] = None,
-) -> dict:
+def save_outputs(skill_name: str,
+                 ts: str,
+                 baseline_score: float,
+                 evolved_score: float,
+                 improvement: float,
+                 accepted: bool,
+                 min_improvement: float,
+                 cross_run_delta: Optional[float],
+                 prior_metrics: Optional[dict],
+                 config: EvolverConfig,
+                 optimizer_name: str,
+                 eval_source: str,
+                 cached_path: Optional[Path],
+                 skill_raw: str,
+                 evolved_text: str,
+                 evolved_checks: List,
+                 elapsed: float,
+                 output_dir: Path,
+                 console,
+                 ts_confidence: Optional[float] = None) -> dict:
     """Write all output artefacts and return the metrics dict.
 
     Writes:
@@ -38,29 +36,26 @@ def save_outputs(
       - metrics_history.jsonl     — appended at skill level (cross-run log)
     """
     console.print("\n[blue]~~~ Evolving Stage 11 - Output Save Started ~~~[/blue]")
-    metrics = {
-        "skill_name": skill_name,
-        "timestamp": ts,
-        "baseline_score": round(baseline_score, 4),
-        "evolved_score": round(evolved_score, 4),
-        "improvement": round(improvement, 4),
-        "accepted": accepted,
-        "min_improvement_threshold": min_improvement,
-        "cross_run_delta": cross_run_delta,
-        "prior_run_timestamp": prior_metrics.get("timestamp") if prior_metrics else None,
-        "iterations": config.iterations,
-        "optimizer": optimizer_name,
-        "eval_source": eval_source,
-        "reused_dataset": cached_path is not None,
-        "baseline_chars": len(skill_raw),
-        "evolved_chars": len(evolved_text),
-        "elapsed_seconds": round(elapsed, 1),
-        "ts_acceptance_confidence": round(ts_confidence, 4) if ts_confidence is not None else None,
-        "constraint_checks": [
-            {"name": c.constraint_name, "passed": c.passed, "message": c.message}
-            for c in evolved_checks
-        ],
-    }
+    metrics = {"skill_name": skill_name,
+               "timestamp": ts,
+               "baseline_score": round(baseline_score, 4),
+               "evolved_score": round(evolved_score, 4),
+               "improvement": round(improvement, 4),
+               "accepted": accepted,
+               "min_improvement_threshold": min_improvement,
+               "cross_run_delta": cross_run_delta,
+               "prior_run_timestamp": prior_metrics.get("timestamp") if prior_metrics else None,
+               "iterations": config.iterations,
+               "optimizer": optimizer_name,
+               "eval_source": eval_source,
+               "reused_dataset": cached_path is not None,
+               "baseline_chars": len(skill_raw),
+               "evolved_chars": len(evolved_text),
+               "elapsed_seconds": round(elapsed, 1),
+               "ts_acceptance_confidence": round(ts_confidence, 4) if ts_confidence is not None else None,
+               "constraint_checks": [{"name": c.constraint_name, "passed": c.passed, "message": c.message}
+                                     for c in evolved_checks],
+               }
 
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     if accepted:
@@ -71,10 +66,8 @@ def save_outputs(
 
     console.print(f"\n[dim]Outputs saved to {output_dir}[/dim]")
     if accepted:
-        console.print(
-            f"[dim]History appended to "
-            f"{config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]"
-        )
+        console.print(f"[dim]History appended to "
+                      f"{config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]")
 
     console.print("[blue]~~~ Evolving Stage 11 - Output Save Finished ~~~[/blue]")
     return metrics

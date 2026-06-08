@@ -5,11 +5,9 @@ from typing import Dict
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule, reassemble_skill
 
 
-def extract_evolved_skill(
-        optimized_module: SkillModule,
-        skill: Dict,
-        console
-) -> str:
+def extract_evolved_skill(optimized_module: SkillModule,
+                          skill: Dict,
+                          console) -> str:
     """Extract the evolved skill body from the optimised module and reassemble.
 
     Combines the original frontmatter with the optimised body text.

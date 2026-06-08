@@ -20,12 +20,10 @@ _DSPY_LOGGERS = (
 )
 
 
-def configure_dspy_and_prepare_sets(
-        skill_raw: str,
-        dataset: EvalDataset,
-        config: EvolverConfig,
-        console
-) -> Tuple[SkillModule, List, List]:
+def configure_dspy_and_prepare_sets(skill_raw: str,
+                                    dataset: EvalDataset,
+                                    config: EvolverConfig,
+                                    console) -> Tuple[SkillModule, List, List]:
     """Configure the DSPy LM, build the baseline module, and convert splits.
 
     Returns (baseline_module, trainset, valset) ready for GEPA.
@@ -35,6 +33,7 @@ def configure_dspy_and_prepare_sets(
     Set config.verbose=True to restore full DSPy logging.
     """
     console.print("\n[blue]~~~ Evolving Stage 04 - DSPY Configure and Sets Prepare Started ~~~[/blue]")
+
     log_level = logging.INFO if config.verbose else logging.ERROR
     for name in _DSPY_LOGGERS:
         logging.getLogger(name).setLevel(log_level)

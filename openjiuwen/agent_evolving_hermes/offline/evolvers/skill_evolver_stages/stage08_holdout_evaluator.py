@@ -12,14 +12,13 @@ from ..skill_evolver_stages.stage08_holdout_evaluator_judge_multi import (
 )
 
 
-def _eval_multi_pass(
-        module: SkillModule,
-        holdout: list,
-        multi_judge: MultiObjectiveLLMJudge,
-        dim_names: List[str],
-        label: str,
-        console,
-) -> Tuple[float, Dict[str, float]]:
+def _eval_multi_pass(module: SkillModule,
+                     holdout: list,
+                     multi_judge: MultiObjectiveLLMJudge,
+                     dim_names: List[str],
+                     label: str,
+                     console) -> Tuple[float, Dict[str, float]]:
+
     """Score *module* on *holdout* with the multi-objective judge."""
     n = len(holdout)
     dim_accum: Dict[str, List[float]] = {d: [] for d in dim_names}
@@ -59,17 +58,15 @@ def _eval_multi_pass(
     return composite_mean, dim_means
 
 
-def evaluate_on_holdout(
-    baseline_module: SkillModule,
-    optimized_module: SkillModule,
-    dataset: EvalDataset,
-    config: EvolverConfig,
-    console,
-    prior_metrics: Optional[dict] = None,
-    prior_baseline_score_single: Optional[float] = None,
-    scoring_mode: str = "single",
-    prior_baseline_score_multi: Optional[float] = None,
-) -> Tuple:
+def evaluate_on_holdout(baseline_module: SkillModule,
+                        optimized_module: SkillModule,
+                        dataset: EvalDataset,
+                        config: EvolverConfig,
+                        console,
+                        prior_metrics: Optional[dict] = None,
+                        prior_baseline_score_single: Optional[float] = None,
+                        scoring_mode: str = "single",
+                        prior_baseline_score_multi: Optional[float] = None) -> Tuple:
     """Score the evolved module on holdout.
 
     Returns a 5-tuple in all cases:
