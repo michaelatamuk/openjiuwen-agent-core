@@ -9,7 +9,7 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     SharedEvolutionObjects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.helpers.printer_banner import _banner
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig
-from skill_evolver_stages.stage07_holdout_evaluator.holdout_evaluator import evaluate_baseline_on_holdout
+from skill_evolver_stages.stage06_holdout_evaluator.holdout_evaluator import evaluate_baseline_on_holdout
 
 # Modes that require a multi-rubric baseline pre-evaluation.
 _RUBRIC_MODES = {"gepa_plain_rubrics"}

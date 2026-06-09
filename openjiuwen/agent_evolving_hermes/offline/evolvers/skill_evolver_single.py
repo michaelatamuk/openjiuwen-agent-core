@@ -28,9 +28,9 @@ from .skill_evolver_stages.stage05_gepa_optimizer.gepa_optimizer_runner import r
 from .skill_evolver_stages.stage06_holdout_evaluator.adaptive_rubric_weights import AdaptiveRubricWeights
 from .skill_evolver_stages.stage06_holdout_evaluator.holdout_evaluator import evaluate_on_holdout
 from .skill_evolver_stages.stage06_holdout_evaluator._judge_by_rubrics import RubricsFitnessScore
-from .skill_evolver_stages.stage07_results_display.results_displayer import display_results_table
-from .skill_evolver_stages.stage08_output_saver.output_saver import save_outputs
-from .selection import make_acceptance_gate
+from .skill_evolver_stages.stage07_acceptance_gates.gates_applier import apply_acceptance_gates
+from .skill_evolver_stages.stage08_results_display.results_displayer import display_results_table
+from .skill_evolver_stages.stage09_output_saver.output_saver import save_outputs
 from .skill_evolver_single_params import SkillEvolverParams
 
 
@@ -124,16 +124,12 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
         rubrics_state.update_weights(e_list, b_list)
         rubrics_state.save(rubrics_state_path)
 
-    # ── Step 7: Acceptance gate (threshold or Thompson Sampling) ─────────────
-    if not constraints_passed:
-        accepted = False
-        ts_conf = None
-    else:
-        gate = make_acceptance_gate(params.config, params.min_improvement)
-        accepted, ts_conf = gate.decide(improvement, evolved_score, params.skill_name,
-                                        evolved_text, cross_run_delta, output_dir, params.console)
+    # ── Step 07: Acceptance gate (threshold or Thompson Sampling) ─────────────
+    accepted, ts_conf = apply_acceptance_gates(constraints_passed, params.config, params.min_improvement,
+                                               improvement, evolved_score, params.skill_name,
+                                               evolved_text, cross_run_delta, output_dir, params.console)
 
-    # ── Step 07: Display result table ───────────────────────────────────────
+    # ── Step 08: Display result table ───────────────────────────────────────
     display_results_table(params.skill_name,
                           optimizer_name,
                           params.config.iterations,
@@ -151,7 +147,7 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
                           evolved_dims_rubrics=evolved_dims_rubrics,
                           mo_weights=rubrics_state.weights if rubrics_state is not None else None)
 
-    # ── Step 08: Save outputs ─────────────────────────────────────────────────
+    # ── Step 09: Save outputs ─────────────────────────────────────────────────
     output_result = save_outputs(params.skill_name,
                                  time_stamp,
                                  baseline_score,
