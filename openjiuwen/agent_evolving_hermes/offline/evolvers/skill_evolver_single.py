@@ -28,7 +28,6 @@ from skill_evolver_stages.stage07_holdout_evaluator.holdout_evaluator import eva
 from skill_evolver_stages.stage07_holdout_evaluator._judge_by_rubrics import RubricsFitnessScore
 from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage05_gepa_optimizer.gepa_optimizer_runner import run_gepa_optimization
-from .skill_evolver_stages.stage06_evolved_skill_extractor.evolved_skill_extractor import extract_evolved_skill
 from .skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import validate_skill_constraints
 from skill_evolver_stages.stage08_results_display.results_displayer import display_results_table
 from skill_evolver_stages.stage09_output_saver.output_saver import save_outputs
@@ -61,18 +60,14 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Step 5: Run GEPA (or MIPROv2 fallback) ───────────────────────────────
-    optimized_module, optimizer_name, elapsed = (
+    optimized_module, optimizer_name, elapsed, evolved_text = (
         run_gepa_optimization(params.prebuilt_baseline_module,
+                              params.prebuilt_skill["frontmatter_text"],
                               params.prebuilt_trainset,
                               params.prebuilt_valset,
                               params.config,
                               params.console,
                               params.skill_name))
-
-    # ── Step 6: Extract evolved skill text ───────────────────────────────────
-    evolved_text = extract_evolved_skill(optimized_module,
-                                         params.prebuilt_skill,
-                                         params.console)
 
     # ── Step 7: Validate evolved constraints ─────────────────────────────────
     evolved_checks, constraints_passed = (

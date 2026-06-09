@@ -8,10 +8,12 @@ import dspy
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection import make_example_selector
+from ._evolved_skill_extractor import extract_evolved_skill
 from ._fitness_metric_resolver import resolve_fitness_metric
 
 
 def run_gepa_optimization(baseline_module: SkillModule,
+                          skill_frontmatter_text,
                           trainset: List,
                           valset: List,
                           config: EvolverConfig,
@@ -80,5 +82,7 @@ def run_gepa_optimization(baseline_module: SkillModule,
             fitnesses.append(f)
         examples_selector.update(selected_trainset_examples, fitnesses)
 
+    evolved_text = extract_evolved_skill(optimized_module, skill_frontmatter_text, console)
+
     console.print("[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Finished ~~~[/blue]")
-    return optimized_module, optimizer_name, elapsed
+    return optimized_module, optimizer_name, elapsed, evolved_text
