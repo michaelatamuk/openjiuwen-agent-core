@@ -32,13 +32,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.steps_shared_object import \
     SharedEvolutionObjects
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage01_skill_finder_and_loader.skill_finder_and_loader import (
     find_and_load_skill,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage02_skill_constraint_validator import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import (
     validate_skill_constraints,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder.dataset_builder import (
     build_or_load_dataset,
 )
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (

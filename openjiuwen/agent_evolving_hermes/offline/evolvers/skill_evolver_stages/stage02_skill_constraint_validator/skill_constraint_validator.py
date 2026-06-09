@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from openjiuwen.agent_evolving_hermes.offline import ConstraintResult, ConstraintValidator
+from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintResult, ConstraintValidator
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
 

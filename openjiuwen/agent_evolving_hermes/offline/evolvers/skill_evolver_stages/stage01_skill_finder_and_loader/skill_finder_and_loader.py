@@ -6,6 +6,7 @@ from typing import Dict, Optional, Tuple
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.skills import find_skill, load_skill
+from skill_evolver_stages.stage01_skill_finder_and_loader._prior_metrics_loader import _load_prior_metrics
 
 
 def find_and_load_skill(skill_name: str,
@@ -34,32 +35,3 @@ def find_and_load_skill(skill_name: str,
 
     console.print("[blue]~~~ Evolving Stage 01 - Skill Find and Load Finished ~~~[/blue]")
     return skill, prior_metrics
-
-
-def _load_prior_metrics(skill_name: str, output_dir: Path) -> Optional[dict]:
-    """Return the most recent metrics.json for this skill from a prior run.
-
-    Scans timestamped run directories under ``output_dir / skill_name``,
-    returning the metrics dict from the most recent run that has a
-    ``metrics.json`` file.  Returns None if no prior runs exist.
-
-    Used to detect cross-run regressions: compare the current run's
-    ``baseline_score`` against the prior run's ``evolved_score`` to see
-    whether a previously-evolved skill has deteriorated.
-    """
-    skill_base = output_dir / skill_name
-    if not skill_base.exists():
-        return None
-
-    run_dirs = sorted([d for d in skill_base.iterdir() if d.is_dir()],
-                      key=lambda p: p.name,
-                      reverse=True)
-
-    for run_dir in run_dirs:
-        m = run_dir / "metrics.json"
-        if m.exists():
-            try:
-                return json.loads(m.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-    return None
