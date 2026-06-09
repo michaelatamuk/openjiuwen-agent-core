@@ -56,7 +56,8 @@ class DemoConfig:
     fitness_metrics:
         One or more fast proxy metrics used inside the GEPA optimizer loop.
         Built-ins: ``"f1"`` (stop-word-filtered F1, default),
-        ``"bag_of_words"`` (word-bag with 0.3 floor).
+        ``"bag_of_words"`` (word-bag with 0.3 floor),
+        ``"graph"`` (concept-graph structural similarity).
         Custom: dotted import path (e.g.
         ``"examples.agent_evolving_hermes.offline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"``).
         When multiple values are given each mode runs once per metric, producing

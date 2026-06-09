@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict
 from ._fitness_metric_bag_of_words import fitness_metric as fitness_metric_bag_of_words
 from ._fitness_metric_custom import custom_fitness_gepa_signature
 from ._fitness_metric_f1 import fitness_metric as fitness_metric_f1
+from ._fitness_metric_graph import fitness_metric as fitness_metric_graph
 
 
 def resolve_fitness_metric(name: str,
@@ -19,6 +20,13 @@ def resolve_fitness_metric(name: str,
                             General-purpose; works for any skill domain. Default.
     ``"bag_of_words"``  — word-bag overlap with 0.3 floor,
                             matching original Hermes behaviour.
+    ``"graph"``         — concept-graph structural similarity.
+                            Converts expected behavior and agent output to
+                            concept graphs (unigram/bigram nodes + co-occurrence
+                            edges) and scores their structural overlap.
+                            Differentiates responses that use correct concepts
+                            in the right relational context vs. scattered
+                            keyword matches.
 
     Custom names
     ------------
@@ -33,6 +41,8 @@ def resolve_fitness_metric(name: str,
         return fitness_metric_f1
     if name in ("bag_of_words"):
         return fitness_metric_bag_of_words
+    if name in ("graph",):
+        return fitness_metric_graph
 
     # Check custom_metrics dict
     if name in custom_metrics:
@@ -54,5 +64,5 @@ def resolve_fitness_metric(name: str,
             raise ValueError(f"Cannot import fitness metric '{name}': {e}") from e
 
     raise ValueError(f"Unknown fitness metric '{name}'. "
-                     f"Built-ins: 'f1' (stop-word F1), 'bag_of_words' (word-bag). "
+                     f"Built-ins: 'f1' (stop-word F1), 'bag_of_words' (word-bag), 'graph' (concept-graph). "
                      f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config.")
