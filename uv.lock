@@ -1451,6 +1451,18 @@ wheels = [
 ]
 
 [[package]]
+name = "gitcode-api"
+version = "1.2.20"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d9/2b/a1a95fd3f38f85aeabcc43bf761079ee875c4e11081b2f3bc1517e2a43e9/gitcode_api-1.2.20.tar.gz", hash = "sha256:d9f6736b60ac5f661a43d65420b8f6dc7863ed3653a2e90ab9dff1ea3f393732" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/ab/9c/0a7cfa75e9bdddd65c005a33c9c11a867b3ef57cfb67c744cf323a9e185f/gitcode_api-1.2.20-py3-none-any.whl", hash = "sha256:907bde636a79ced22f6bcb1a1442bbebae87923c7ae17e2f9dafa134cd944718" },
+]
+
+[[package]]
 name = "gepa"
 version = "0.0.27"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -2128,29 +2140,6 @@ wheels = [
 ]
 
 [[package]]
-name = "litellm"
-version = "1.82.6"
-source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "click" },
-    { name = "fastuuid" },
-    { name = "httpx" },
-    { name = "importlib-metadata" },
-    { name = "jinja2" },
-    { name = "jsonschema" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "tiktoken" },
-    { name = "tokenizers" },
-]
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/29/75/1c537aa458426a9127a92bc2273787b2f987f4e5044e21f01f2eed5244fd/litellm-1.82.6.tar.gz", hash = "sha256:2aa1c2da21fe940c33613aa447119674a3ad4d2ad5eb064e4d5ce5ee42420136" }
-wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/02/6c/5327667e6dbe9e98cbfbd4261c8e91386a52e38f41419575854248bbab6a/litellm-1.82.6-py3-none-any.whl", hash = "sha256:164a3ef3e19f309e3cabc199bef3d2045212712fefdfa25fc7f75884a5b5b205" },
-]
-
-[[package]]
 name = "loguru"
 version = "0.7.3"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -2795,6 +2784,7 @@ dependencies = [
     { name = "dspy" },
     { name = "fastmcp" },
     { name = "filelock" },
+    { name = "gitcode-api" },
     { name = "json-repair" },
     { name = "loguru" },
     { name = "mcp" },
@@ -2812,7 +2802,7 @@ dependencies = [
     { name = "python-docx" },
     { name = "python-dotenv" },
     { name = "requests" },
-    { name = "sqlalchemy" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlmodel" },
     { name = "tenacity" },
     { name = "tiktoken" },
@@ -2832,7 +2822,6 @@ all = [
     { name = "asyncpg" },
     { name = "chromadb" },
     { name = "elasticsearch", extra = ["async"] },
-    { name = "greenlet" },
     { name = "opentelemetry-proto" },
     { name = "pgvector" },
     { name = "protobuf" },
@@ -2853,7 +2842,6 @@ all-storage = [
     { name = "async-gaussdb" },
     { name = "asyncpg" },
     { name = "elasticsearch", extra = ["async"] },
-    { name = "greenlet" },
     { name = "redis" },
 ]
 all-vector = [
@@ -2921,7 +2909,6 @@ sandbox = [
 ]
 sqlite = [
     { name = "aiosqlite" },
-    { name = "greenlet" },
 ]
 zmq = [
     { name = "pyzmq" },
@@ -2931,6 +2918,7 @@ zmq = [
 [package.dev-dependencies]
 dev = [
     { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "aiosqlite" },
     { name = "autodoc-pydantic" },
     { name = "codespell" },
     { name = "coverage" },
@@ -2962,6 +2950,7 @@ lint = [
 ]
 test = [
     { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "aiosqlite" },
     { name = "coverage" },
     { name = "fastapi" },
     { name = "pytest" },
@@ -3000,7 +2989,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'online-rl'", specifier = ">=0.100" },
     { name = "fastmcp", specifier = ">=2.14.2,<3.0" },
     { name = "filelock", specifier = ">=3.20.1" },
-    { name = "greenlet", marker = "extra == 'sqlite'", specifier = ">=3.1.1" },
+    { name = "gitcode-api", specifier = ">=1.2.20" },
     { name = "httpx", marker = "extra == 'online-rl'", specifier = ">=0.24" },
     { name = "json-repair", specifier = ">=0.55.0" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -3037,7 +3026,7 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'", specifier = ">=7.1.0" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.41" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.41" },
     { name = "sqlmodel", specifier = ">=0.0.37" },
     { name = "tenacity", specifier = ">=9.1.2" },
     { name = "tiktoken", specifier = ">=0.12.0" },
@@ -3051,6 +3040,7 @@ provides-extras = ["all-a2a", "pulsar", "elasticsearch", "redis", "sqlite", "pos
 [package.metadata.requires-dev]
 dev = [
     { name = "a2a-sdk", extras = ["http-server"], specifier = "==1.0.0" },
+    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "autodoc-pydantic", specifier = ">=2.2.0" },
     { name = "codespell", specifier = ">=2.2.4" },
     { name = "coverage", specifier = ">=7.7.1" },
@@ -3078,6 +3068,7 @@ lint = [
 ]
 test = [
     { name = "a2a-sdk", extras = ["http-server"], specifier = "==1.0.0" },
+    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "coverage", specifier = ">=7.7.1" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -5119,6 +5110,11 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/ae/ae/29b87775fadc43e627cf582fe3bda4d02e300f6b8f2747c764950d13784c/sqlalchemy-2.0.48-cp313-cp313t-win32.whl", hash = "sha256:9764014ef5e58aab76220c5664abb5d47d5bc858d9debf821e55cfdd0f128485" },
     { url = "https://mirrors.aliyun.com/pypi/packages/91/44/f39d063c90f2443e5b46ec4819abd3d8de653893aae92df42a5c4f5843de/sqlalchemy-2.0.48-cp313-cp313t-win_amd64.whl", hash = "sha256:e2f35b4cccd9ed286ad62e0a3c3ac21e06c02abc60e20aa51a3e305a30f5fa79" },
     { url = "https://mirrors.aliyun.com/pypi/packages/46/2c/9664130905f03db57961b8980b05cab624afd114bf2be2576628a9f22da4/sqlalchemy-2.0.48-py3-none-any.whl", hash = "sha256:a66fe406437dd65cacd96a72689a3aaaecaebbcd62d81c5ac1c0fdbeac835096" },
+]
+
+[package.optional-dependencies]
+asyncio = [
+    { name = "greenlet" },
 ]
 
 [[package]]
