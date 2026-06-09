@@ -14,7 +14,7 @@ from ._thompson_gate_arm import _Arm
 class ThompsonAcceptanceGate(BaseAcceptanceGate):
     """Accept only when both the hard threshold AND a TS confidence test pass.
 
-    Two Beta(α, β) arms are maintained per skill:
+    Two Arm(α, β) arms are maintained per skill:
 
     candidate arm  — updated on every evaluation run
     deployed arm   — updated only when a candidate is accepted and deployed
