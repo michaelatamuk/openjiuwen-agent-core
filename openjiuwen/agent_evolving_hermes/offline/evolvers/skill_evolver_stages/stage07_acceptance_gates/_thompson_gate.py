@@ -43,7 +43,7 @@ class ThompsonAcceptanceGate(BaseAcceptanceGate):
     def _state_path(self, skill_name: str) -> Path:
         return self._state_dir / f"ts_gate_{skill_name}.json"
 
-    def _load_arms(self, skill_name: str) -> Tuple[_BetaArm, _BetaArm]:
+    def _load_arms(self, skill_name: str) -> Tuple[_Arm, _Arm]:
         candidate_key = f"{skill_name}__candidate"
         deployed_key = f"{skill_name}__deployed"
         path = self._state_path(skill_name)
