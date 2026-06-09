@@ -6,8 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from openjiuwen.agent_evolving_hermes.offline import ConstraintResult, ConstraintValidator
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
-from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintValidator
 
 
 def validate_skill_constraints(skill_text: str,
@@ -42,9 +42,9 @@ def validate_skill_constraints(skill_text: str,
     kwargs = {}
     if baseline_text is not None:
         kwargs["baseline_text"] = baseline_text
-    checks = validator.validate_all(skill_text, artifact_type="skill", **kwargs)
+    constraint_results: List[ConstraintResult] = validator.validate_all(skill_text, artifact_type="skill", **kwargs)
 
-    failures = [c for c in checks if not c.passed]
+    failures = [c for c in constraint_results if not c.passed]
     if failures:
         if output_dir is not None:
             failed_path = output_dir / "evolved_FAILED.md"
@@ -54,8 +54,8 @@ def validate_skill_constraints(skill_text: str,
             console.print(f"[red]✗ {stage_label.upper()} CONSTRAINT FAILED: {f.constraint_name}: {f.message}[/red]")
         result = False
     else:
-        console.print(f"[green]✓ {stage_label} — {len(checks)}/{len(checks)} constraints passed[/green]")
+        console.print(f"[green]✓ {stage_label} — {len(constraint_results)}/{len(constraint_results)} constraints passed[/green]")
         result = True
 
     console.print(f"[blue]~~~ {stage_label} Skill Constraints Validation Finished ~~~[/blue]")
-    return checks, result
+    return constraint_results, result

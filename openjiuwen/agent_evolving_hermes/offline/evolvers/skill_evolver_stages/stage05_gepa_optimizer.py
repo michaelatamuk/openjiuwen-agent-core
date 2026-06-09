@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
 import time
-from typing import List, Set, Tuple
+from typing import List
 
 import dspy
 

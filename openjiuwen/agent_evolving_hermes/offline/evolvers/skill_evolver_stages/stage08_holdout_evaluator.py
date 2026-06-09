@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from offline import HolisticLLMJudge
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from ..adaptive_rubric_weights import AdaptiveRubricWeights
 from ..skill_evolver_stages.stage08_holdout_evaluator_judge_holistic import HolisticLLMJudge
 from ..skill_evolver_stages.stage08_holdout_evaluator_judge_by_rubrics import (
-    MultiRubricFitnessScore,
-    MultiRubricsLLMJudge,
+    RubricsFitnessScore,
+    RubricsLLMJudge,
 )
 
 # ── Private helpers ────────────────────────────────────────────────────────────
@@ -46,7 +45,7 @@ def _score_module_holistic(
 def _eval_rubrics_pass(
     module: SkillModule,
     holdout: list,
-    multi_judge: MultiRubricsLLMJudge,
+    multi_judge: RubricsLLMJudge,
     dim_names: List[str],
     label: str,
     console,
@@ -148,35 +147,36 @@ def evaluate_on_holdout(
         return baseline_score, evolved_score, improvement, cross_run_delta, None
 
     # ── RUBRICS mode ────────────────────────────────────────────────────────────
-    multi_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
-    dim_names = MultiRubricFitnessScore.DIM_NAMES
+    rubrics_judge = RubricsLLMJudge(model=config.eval_model)
+    dim_names = RubricsFitnessScore.DIM_NAMES
 
     if prior_baseline_score_rubrics is not None:
-        console.print(
-            f"[dim]  Pre-train score (rubrics, pre-computed): {prior_baseline_score_rubrics:.4f}"
-            f"  — skipping re-evaluation[/dim]"
-        )
+        console.print(f"[dim]  Pre-train score (rubrics, pre-computed): {prior_baseline_score_rubrics:.4f}"
+                      f"  — skipping re-evaluation[/dim]")
     else:
-        console.print(
-            f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
-            f"[dim]({n_holdout} examples, multi-rubrics)[/dim]"
-        )
-        prior_baseline_score_rubrics, _ = _eval_rubrics_pass(
-            baseline_module, holdout, multi_judge, dim_names, "pre-train skill", console
-        )
+        console.print(f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
+                      f"[dim]({n_holdout} examples, multi-rubrics)[/dim]")
+        prior_baseline_score_rubrics, _ = _eval_rubrics_pass(baseline_module,
+                                                             holdout,
+                                                             rubrics_judge,
+                                                             dim_names,
+                                                             "pre-train skill",
+                                                             console)
+
         console.print(f"  Pre-train holdout score: {prior_baseline_score_rubrics:.4f}  ({n_holdout} examples)")
 
-    console.print(
-        f"[bold]Evaluating evolved skill on holdout…[/bold] "
-        f"[dim]({n_holdout} examples, ~25s each, multi-objective)[/dim]"
-    )
-    evolved_composite, evolved_dims = _eval_rubrics_pass(
-        optimized_module, holdout, multi_judge, dim_names, "evolved skill", console
-    )
-    console.print(
-        f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)"
-        f"  [dim](unweighted; adaptive weighting applied in stage 8b)[/dim]"
-    )
+    console.print(f"[bold]Evaluating evolved skill on holdout…[/bold] "
+                  f"[dim]({n_holdout} examples, ~25s each, multi-objective)[/dim]")
+
+    evolved_composite, evolved_dims = _eval_rubrics_pass(optimized_module,
+                                                         holdout,
+                                                         rubrics_judge,
+                                                         dim_names,
+                                                         "evolved skill",
+                                                         console)
+
+    console.print(f"  Evolved holdout score:   {evolved_composite:.4f}  ({n_holdout} examples)"
+                  f"  [dim](unweighted; adaptive weighting applied in stage 8b)[/dim]")
 
     improvement = evolved_composite - prior_baseline_score_rubrics
     cross_run_delta = None
@@ -217,16 +217,16 @@ def evaluate_baseline_on_holdout(
     if not needs_rubrics:
         return holistic_score, None, None
 
-    multi_rubric_judge = MultiRubricsLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
+    multi_rubric_judge = RubricsLLMJudge(model=config.eval_model)
     console.print(
         f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, rubrics)[/dim]"
     )
     _, rubrics_dims = _eval_rubrics_pass(
         baseline_module, holdout, multi_rubric_judge,
-        MultiRubricFitnessScore.DIM_NAMES, "pre-train skill", console,
+        RubricsFitnessScore.DIM_NAMES, "pre-train skill", console,
     )
-    b_list = [rubrics_dims[d] for d in MultiRubricFitnessScore.DIM_NAMES]
+    b_list = [rubrics_dims[d] for d in RubricsFitnessScore.DIM_NAMES]
     rubrics_score = AdaptiveRubricWeights().aggregate(b_list)
     console.print(f"  Pre-train holdout score (rubric): {rubrics_score:.4f}  ({n_holdout} examples)")
     return holistic_score, rubrics_score, rubrics_dims

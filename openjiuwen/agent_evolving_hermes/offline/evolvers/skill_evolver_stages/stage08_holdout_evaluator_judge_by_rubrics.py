@@ -1,6 +1,6 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Multi-objective fitness scoring for GEPA optimisation.
+"""Rubrics fitness scoring for GEPA optimisation.
 
 Extends the existing single-scalar judge with 5 independent dimensions:
   1. correctness         — did the agent do the right thing?
@@ -20,7 +20,7 @@ import dspy
 
 
 @dataclass
-class MultiRubricFitnessScore:
+class RubricsFitnessScore:
     correctness: float = 0.0
     procedure_following: float = 0.0
     conciseness: float = 0.0
@@ -46,14 +46,14 @@ class MultiRubricFitnessScore:
         ]
 
 
-class MultiRubricsLLMJudge:
+class RubricsLLMJudge:
     """LLM-as-judge scorer with 5 independent quality dimensions.
 
     Used only when ``scoring_mode="rubrics"``.  The existing ``LLMJudge`` is
     untouched; this class is purely additive.
     """
 
-    class MultiRubricJudgeSignature(dspy.Signature):
+    class JudgeSignature(dspy.Signature):
         """Score an agent response across five independent quality dimensions.
 
         Return five independent float scores (0.0–1.0) and brief feedback.
@@ -61,58 +61,30 @@ class MultiRubricsLLMJudge:
         """
 
         task_input: str = dspy.InputField(desc="The task given to the agent")
-        expected_behavior: str = dspy.InputField(
-            desc="Rubric: what a good response looks like"
-        )
+        expected_behavior: str = dspy.InputField(desc="Rubric: what a good response looks like")
         agent_output: str = dspy.InputField(desc="The actual agent response to score")
-        skill_text: str = dspy.InputField(
-            desc="The skill instructions the agent was given"
-        )
-        correctness: float = dspy.OutputField(
-            desc="0.0–1.0: Did the agent do the right thing according to the task?"
-        )
-        procedure_following: float = dspy.OutputField(
-            desc="0.0–1.0: Did the agent follow the specified workflow in the skill?"
-        )
-        conciseness: float = dspy.OutputField(
-            desc="0.0–1.0: Was the response appropriately concise and free of padding?"
-        )
-        completeness: float = dspy.OutputField(
-            desc="0.0–1.0: Did the response cover all required aspects of the task?"
-        )
-        specificity: float = dspy.OutputField(
-            desc="0.0–1.0: Are findings specific and actionable rather than vague?"
-        )
-        feedback: str = dspy.OutputField(
-            desc="One sentence identifying the main strength or most important weakness."
-        )
+        skill_text: str = dspy.InputField(desc="The skill instructions the agent was given")
 
-    def __init__(self, model: str, max_skill_size: int = 15_000) -> None:
-        self.judge = dspy.ChainOfThought(self.MultiRubricJudgeSignature)
-        self.model = model
-        self.max_skill_size = max_skill_size
+        correctness: float = dspy.OutputField(desc="0.0–1.0: Did the agent do the right thing according to the task?")
+        procedure_following: float = dspy.OutputField(desc="0.0–1.0: Did the agent follow the specified workflow in the skill?")
+        conciseness: float = dspy.OutputField(desc="0.0–1.0: Was the response appropriately concise and free of padding?")
+        completeness: float = dspy.OutputField(desc="0.0–1.0: Did the response cover all required aspects of the task?")
+        specificity: float = dspy.OutputField(desc="0.0–1.0: Are findings specific and actionable rather than vague?")
+        feedback: str = dspy.OutputField(desc="One sentence identifying the main strength or most important weakness.")
 
-    def score(
-        self,
-        task_input: str,
-        expected_behavior: str,
-        agent_output: str,
-        skill_text: str,
-    ) -> MultiRubricFitnessScore:
-        lm = dspy.LM(self.model)
+    def __init__(self, model: str) -> None:
+        self._judge = dspy.ChainOfThought(self.JudgeSignature)
+        self._model = model
+
+    def score(self, task_input: str, expected_behavior: str, agent_output: str, skill_text: str) -> RubricsFitnessScore:
+        lm = dspy.LM(self._model)
         with dspy.context(lm=lm):
-            result = self.judge(
-                task_input=task_input,
-                expected_behavior=expected_behavior,
-                agent_output=agent_output,
-                skill_text=skill_text,
-            )
+            result = self._judge(task_input=task_input, expected_behavior=expected_behavior, agent_output=agent_output,
+                                 skill_text=skill_text)
 
-        return MultiRubricFitnessScore(
-            correctness=float(getattr(result, "correctness", 0.5)),
-            procedure_following=float(getattr(result, "procedure_following", 0.5)),
-            conciseness=float(getattr(result, "conciseness", 0.5)),
-            completeness=float(getattr(result, "completeness", 0.5)),
-            specificity=float(getattr(result, "specificity", 0.5)),
-            feedback=getattr(result, "feedback", ""),
-        )
+        return RubricsFitnessScore(correctness=float(getattr(result, "correctness", 0.5)),
+                                   procedure_following=float(getattr(result, "procedure_following", 0.5)),
+                                   conciseness=float(getattr(result, "conciseness", 0.5)),
+                                   completeness=float(getattr(result, "completeness", 0.5)),
+                                   specificity=float(getattr(result, "specificity", 0.5)),
+                                   feedback=getattr(result, "feedback", ""))
