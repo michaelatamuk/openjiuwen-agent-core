@@ -26,22 +26,17 @@ from existing ``metrics.json`` files found anywhere under ``skills_root``.
 """
 from __future__ import annotations
 
-import json
-import random
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.skills_schedulers.round_robin import \
-    RoundRobinSkillScheduler
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.skills_schedulers.thompson import \
-    ThompsonSkillScheduler
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from .round_robin import RoundRobinSkillScheduler
+from .thompson import ThompsonSkillScheduler
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
-def make_skill_scheduler(config: "EvolverConfig", skill_names: List[str]):
+def make_skill_scheduler(config: EvolverConfig, skill_names: List[str]):
     """Return the correct scheduler based on ``config.ts_skill_scheduler``.
 
     Also calls ``register(skill_names)`` so the returned scheduler is ready

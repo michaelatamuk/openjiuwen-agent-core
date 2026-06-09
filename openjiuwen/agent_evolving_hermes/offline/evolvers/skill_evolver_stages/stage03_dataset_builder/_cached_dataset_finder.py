@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 
 def _find_cached_dataset(skill_name: str, output_dir: Path) -> Optional[Path]:

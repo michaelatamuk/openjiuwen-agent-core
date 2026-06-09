@@ -5,11 +5,11 @@ from typing import List, Optional, Tuple
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
-from skill_evolver_stages.stage03_dataset_builder._cached_dataset_finder import _find_cached_dataset
-from skill_evolver_stages.stage03_dataset_builder._dataset_builder_synthetic import build as build_dataset_synthetic
-from skill_evolver_stages.stage03_dataset_builder._dataset_builder_external import build as build_dataset_external
-from skill_evolver_stages.stage03_dataset_builder._dataset_builder_trajectory import build as build_dataset_trajectory
-from skill_evolver_stages.stage03_dataset_builder._dataset_builder_golden import build as build_dataset_golden
+from ._cached_dataset_finder import _find_cached_dataset
+from ._dataset_builder_synthetic import build as build_dataset_synthetic
+from ._dataset_builder_external import build as build_dataset_external
+from ._dataset_builder_trajectory import build as build_dataset_trajectory
+from ._dataset_builder_golden import build as build_dataset_golden
 
 
 def build_or_load_dataset(skill_name: str,

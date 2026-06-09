@@ -11,7 +11,7 @@ from typing import List, Optional
 
 import yaml
 
-from skill_evolver_stages.stage02_skill_constraint_validator.constraint_result import ConstraintResult
+from .constraint_result import ConstraintResult
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 

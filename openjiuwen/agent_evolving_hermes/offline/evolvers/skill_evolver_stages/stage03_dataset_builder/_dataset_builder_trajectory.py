@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.external_importers import build_dataset_from_trajectories
-from skill_evolver_stages.stage03_dataset_builder._dataset_builder_synthetic import build as build_dataset_synthetic
+from ._dataset_builder_synthetic import build as build_dataset_synthetic
 
 
 def build(skill_name: str, skill_raw: str, dataset_dir, config: EvolverConfig, console):

@@ -23,9 +23,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from .batch_selection.skills_schedulers.skill_scheduler import make_skill_scheduler
 from .skill_evolver_single import evolve_single_skill
 from .skill_evolver_prereqs import build_evolution_prereqs
-from .selection import make_skill_scheduler
 from .skill_evolver_single_params import SkillEvolverParams
 
 
