@@ -3,20 +3,32 @@ from __future__ import annotations
 from typing import FrozenSet, List, Set, Tuple
 
 import dspy
+from nltk.stem import PorterStemmer  # pip install nltk
 from ._fitness_metric_stop_words import STOP_WORDS
 
+
+# Initialize the stemmer once globally to avoid overhead inside the loop
+_STEMMER = PorterStemmer()
 
 # Sliding window size for edge construction
 _WINDOW = 5
 
 
-def _tokenize(text: str) -> List[str]:
-    """Lowercase, strip punctuation, return content tokens of length > 1."""
+def _tokenize(text: str, stem = False) -> List[str]:
+    """Lowercase, strip punctuation, stem, and return content tokens of length > 1."""
     tokens = []
     for w in text.lower().split():
         w = w.strip(".,!?;:\"'()[]{}\\/")
-        if w and w not in STOP_WORDS and len(w) > 1:
-            tokens.append(w)
+        if w and w not in STOP_WORDS:
+            if stem:
+                # Stem the word to reduce it to its base/root form
+                stemmed_w = _STEMMER.stem(w)
+
+                # Check length post-stemming to drop degenerate roots if any
+                if len(stemmed_w) > 1:
+                    tokens.append(stemmed_w)
+            else:
+                tokens.append(w)
     return tokens
 
 

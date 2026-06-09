@@ -62,7 +62,8 @@ dependencies = [
     "anyio>=4.0.0",
     "loguru>=0.7.3",
     # Evovlving
-    "dspy"
+    "dspy",
+    "nltk"
 ]
 
 # A2A: required for `openjiuwen.remote_clients` / `openjiuwen.server_adapters` A2A entry
