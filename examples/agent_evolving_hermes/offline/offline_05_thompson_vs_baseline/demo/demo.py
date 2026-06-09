@@ -59,8 +59,8 @@ class Demo:
         * ``"gepa_full"``                 — both TS levels active simultaneously
 
         Valid ``fitness_metrics`` (used inside the GEPA optimizer loop):
-        * ``"jiuwen"``  — stop-word-filtered weighted F1 (general-purpose, default)
-        * ``"hermes"``  — word-bag with 0.3 floor (matches original Hermes)
+        * ``"f1"``  — stop-word-filtered weighted F1 (general-purpose, default)
+        * ``"bag_of_words"``  — word-bag with 0.3 floor (matches original Hermes)
         * Custom: dotted import path to any ``(example, prediction) -> float`` callable
 
         Use ``run_modes: []`` to run only the baseline holdout evaluation (no GEPA training).

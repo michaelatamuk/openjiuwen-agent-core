@@ -53,7 +53,7 @@ class DemoTrainings:
           output dir gets a matching suffix so every combination is stored
           independently.
         """
-        fitness_metrics: List[str] = getattr(self._config, "fitness_metrics", ["jiuwen"]) or ["jiuwen"]
+        fitness_metrics: List[str] = getattr(self._config, "fitness_metrics", ["bag_of_words"]) or ["bag_of_words"]
         multi_metric = len(fitness_metrics) > 1
 
         runs: List[Tuple[str, Path]] = []

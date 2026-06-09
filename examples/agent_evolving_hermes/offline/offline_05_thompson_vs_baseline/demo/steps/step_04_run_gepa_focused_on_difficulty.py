@@ -27,7 +27,7 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              scoring_mode: str = "holistic",
              baseline_score_rubrics=None,
              baseline_dims_rubrics=None,
-             fitness_metric: str = "jiuwen"):
+             fitness_metric: str = "bag_of_words"):
     console.print(f"\n[bold cyan]*** Demo Step 04: Run GEPA Focused On Difficulty Started ***[/bold cyan]")
 
     _banner("③ GEPA — Focused On Difficulty", run_index=run_index,

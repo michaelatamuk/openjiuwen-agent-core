@@ -42,7 +42,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         n_runs=int(data.get("n_runs", 1)),
         verbose=bool(data.get("verbose", False)),
         print_skill_diff=bool(data.get("print_skill_diff", False)),
-        fitness_metrics=list(data.get("fitness_metrics", ["jiuwen"])),
+        fitness_metrics=list(data.get("fitness_metrics", ["bag_of_words"])),
     )
 
     print(f"{'═' * 70}")

@@ -27,9 +27,9 @@ def resolve_fitness_metric(name: str,
     """
     custom_metrics = custom_metrics or {}
 
-    if name == "jiuwen":
+    if name == "f1":
         return fitness_metric_f1
-    if name == "hermes":
+    if name == "bag_of_words":
         return fitness_metric_bag_of_words
 
     # Check custom_metrics dict

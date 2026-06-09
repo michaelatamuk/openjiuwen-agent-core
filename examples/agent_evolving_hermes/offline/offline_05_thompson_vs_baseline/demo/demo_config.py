@@ -55,8 +55,8 @@ class DemoConfig:
         the winner skill side by side so changes are easy to read.
     fitness_metrics:
         One or more fast proxy metrics used inside the GEPA optimizer loop.
-        Built-ins: ``"jiuwen"`` (stop-word-filtered F1, default),
-        ``"hermes"`` (word-bag with 0.3 floor).
+        Built-ins: ``"f1"`` (stop-word-filtered F1, default),
+        ``"bag_of_words"`` (word-bag with 0.3 floor).
         Custom: dotted import path (e.g.
         ``"examples.agent_evolving_hermes.offline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"``).
         When multiple values are given each mode runs once per metric, producing
@@ -73,4 +73,4 @@ class DemoConfig:
     n_runs: int = 1
     verbose: bool = False
     print_skill_diff: bool = False
-    fitness_metrics: List[str] = field(default_factory=lambda: ["jiuwen"])
+    fitness_metrics: List[str] = field(default_factory=lambda: ["bag_of_words"])

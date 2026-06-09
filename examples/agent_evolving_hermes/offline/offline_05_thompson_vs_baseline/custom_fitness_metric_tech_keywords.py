@@ -41,7 +41,7 @@ Caveats
 This metric is domain-specific: it works best for technical code-review or
 security-analysis skills where the rubric contains backtick-wrapped identifiers
 and ALL-CAPS acronyms.  For non-technical skills prefer the built-in
-``"jiuwen"`` metric (stop-word-filtered weighted F1).
+``"bag_of_words"`` metric.
 """
 from __future__ import annotations
 

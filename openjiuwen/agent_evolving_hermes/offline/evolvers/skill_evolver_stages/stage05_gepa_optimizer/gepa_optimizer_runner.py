@@ -32,10 +32,8 @@ def run_gepa_optimization(baseline_module: SkillModule,
     console.print("\n[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Started ~~~[/blue]")
 
     # ── Resolve fitness metric callable ───────────────────────────────────────
-    fitness_metric_fn = resolve_fitness_metric(
-        getattr(config, "fitness_metric", "jiuwen"),
-        getattr(config, "custom_fitness_metrics", {}),
-    )
+    fitness_metric_fn = resolve_fitness_metric(getattr(config, "fitness_metric", "bag_of_words"),
+                                               getattr(config, "custom_fitness_metrics", {}))
 
     # ── Level 2: select training examples via factory ─────────────────────────
     examples_selector = make_example_selector(trainset, skill_name, config)
@@ -47,7 +45,7 @@ def run_gepa_optimization(baseline_module: SkillModule,
     if ts_active and len(selected_trainset_examples) < len(trainset):
         console.print(f" [dim][TS: {len(selected_trainset_examples)}/{len(trainset)} examples][/dim]")
 
-    metric_name = getattr(config, "fitness_metric", "jiuwen")
+    metric_name = config.fitness_metric
     console.print(f"\n[dim]  ↳ ~{config.iterations + 2} candidate skills will be scored below;"
                   f" each 'Average Metric: X / N (Y%)' line = {metric_name} score (not LLM-judge)[/dim]")
 
