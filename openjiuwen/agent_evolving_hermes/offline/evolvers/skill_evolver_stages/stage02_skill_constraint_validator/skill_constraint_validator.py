@@ -38,7 +38,7 @@ def validate_skill_constraints(skill_text: str,
     Returns:
         ``(checks, passed)`` — never raises.
     """
-    console.print(f"\n[blue]~~~ {stage_label} Skill Constraints Validation Started ~~~[/blue]")
+    console.print(f"\n[blue]~~~ Evolving Stage 02 Skill Constraints Validation Started ~~~[/blue]")
 
     validator = ConstraintValidator(config)
     kwargs = {}
@@ -59,5 +59,5 @@ def validate_skill_constraints(skill_text: str,
         console.print(f"[green]✓ {stage_label} — {len(constraint_results)}/{len(constraint_results)} constraints passed[/green]")
         result = True
 
-    console.print(f"[blue]~~~ {stage_label} Skill Constraints Validation Finished ~~~[/blue]")
+    console.print(f"\n[blue]~~~ Evolving Stage 02 Skill Constraints Validation Finished ~~~[/blue]")
     return constraint_results, result

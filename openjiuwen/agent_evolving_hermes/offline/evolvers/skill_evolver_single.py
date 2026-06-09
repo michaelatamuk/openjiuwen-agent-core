@@ -79,51 +79,17 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
                                    output_dir=output_dir))
 
     # ── Step 6: Evaluate on holdout ──────────────────────────────────────────
-    baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_rubrics = \
-        evaluate_on_holdout(params.prebuilt_baseline_module,
-                            optimized_module,
+    baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_rubrics, rubrics_state = \
+        evaluate_on_holdout(optimized_module,
                             params.config.scoring_mode,
                             params.prebuilt_dataset,
                             params.config,
                             params.console,
                             params.prior_metrics,
-                            prior_baseline_score_holistic=params.prior_baseline_score_holistic,
-
-                            prior_baseline_score_rubrics=params.prior_baseline_score_rubrics)
-
-    # ── Step 6b: Rubrics processing ──────────────────────────────────
-    rubrics_state = None
-    if params.config.scoring_mode == "rubrics" and evolved_dims_rubrics is not None:
-        rubrics_state_path = params.config.output_dir / "rubrics_state.json"
-        rubrics_state = AdaptiveRubricWeights.load_or_create(rubrics_state_path)
-        b_list = [params.prior_baseline_dims_rubrics[d] for d in RubricsFitnessScore.DIM_NAMES]
-        e_list = [evolved_dims_rubrics[d] for d in RubricsFitnessScore.DIM_NAMES]
-
-        nr_passed, failed_dims = rubrics_state.no_regression_passed(e_list, b_list)
-        if not nr_passed:
-            constraints_passed = False
-            params.console.print(f"\n[red]No-regression check FAILED — "
-                                 f"{', '.join(failed_dims)} dropped > 0.02 vs baseline[/red]")
-        else:
-            params.console.print("\n[green]No-regression check ✓  all 5 dimensions passed[/green]")
-
-        def _length_penalty(text: str) -> float:
-            _len = len(text)
-            _thr = params.config.max_skill_size * 0.90
-            if _len <= _thr:
-                return 0.0
-            return min(0.30, 0.30 * (_len - _thr) / (params.config.max_skill_size - _thr))
-
-        evolved_score = rubrics_state.aggregate(e_list, length_penalty=_length_penalty(evolved_text))
-        baseline_score = rubrics_state.aggregate(b_list, length_penalty=_length_penalty(params.prebuilt_skill["raw"]))
-        improvement = evolved_score - baseline_score
-        params.console.print(
-            f"  Weighted scores (stage 8b): baseline={baseline_score:.4f}  evolved={evolved_score:.4f}"
-            f"  Δ={improvement:+.4f}"
-        )
-
-        rubrics_state.update_weights(e_list, b_list)
-        rubrics_state.save(rubrics_state_path)
+                            params.prior_baseline_score_holistic,
+                            params.prior_baseline_dims_rubrics,
+                            params.prebuilt_skill["raw"],
+                            evolved_text)
 
     # ── Step 07: Acceptance gate (threshold or Thompson Sampling) ─────────────
     accepted, ts_conf = apply_acceptance_gates(constraints_passed, params.config, params.min_improvement,
