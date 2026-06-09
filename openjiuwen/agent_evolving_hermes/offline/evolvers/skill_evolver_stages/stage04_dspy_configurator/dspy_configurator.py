@@ -8,16 +8,7 @@ import dspy
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
-
-_DSPY_LOGGERS = (
-    "dspy",
-    "dspy.teleprompt",
-    "dspy.teleprompt.mipro_optimizer_v2",
-    "dspy.teleprompt.bootstrap",
-    "dspy.teleprompt.gepa",
-    "dspy.predict",
-    "dspy.adapters",
-)
+from ._dspy_loggers import _DSPY_LOGGERS
 
 
 def configure_dspy_and_prepare_sets(skill_raw: str,

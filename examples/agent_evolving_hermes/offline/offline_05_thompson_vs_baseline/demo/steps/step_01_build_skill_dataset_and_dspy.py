@@ -41,7 +41,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage03_dataset_builder.dataset_builder import (
     build_or_load_dataset,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator import (
+from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage04_dspy_configurator.dspy_configurator import (
     configure_dspy_and_prepare_sets,
 )
 

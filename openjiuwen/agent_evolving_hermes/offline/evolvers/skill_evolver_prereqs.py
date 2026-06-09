@@ -20,7 +20,7 @@ from ._console_maker import _make_console
 from .skill_evolver_stages.stage01_skill_finder_and_loader.skill_finder_and_loader import find_and_load_skill
 from .skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage03_dataset_builder.dataset_builder import build_or_load_dataset
-from .skill_evolver_stages.stage04_dspy_configurator import configure_dspy_and_prepare_sets
+from .skill_evolver_stages.stage04_dspy_configurator.dspy_configurator import configure_dspy_and_prepare_sets
 from .skill_evolver_config import EvolverConfig
 
 

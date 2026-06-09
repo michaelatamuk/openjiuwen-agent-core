@@ -14,16 +14,14 @@ from __future__ import annotations
 # ── Offline track ─────────────────────────────────────────────────────────────
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 
-from openjiuwen.agent_evolving_hermes.offline.constraints import (
-    ConstraintResult,
-    ConstraintValidator,
-)
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import (
     EvalDataset,
     EvalExample,
     GoldenDatasetLoader,
     SyntheticDatasetBuilder,
 )
+from skill_evolver_stages.stage02_skill_constraint_validator.constraint_result import ConstraintResult
+from skill_evolver_stages.stage02_skill_constraint_validator.constraint_validator import ConstraintValidator
 from skill_evolver_stages.stage08_holdout_evaluator_judge_holistic import FitnessScore, HolisticLLMJudge
 from .evolvers import evolve_skills_batch, evolve_single_skill
 from .external_importers import (
