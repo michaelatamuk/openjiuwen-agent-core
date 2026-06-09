@@ -9,7 +9,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config impo
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection import make_example_selector
 from ._evolved_skill_extractor import extract_evolved_skill
-from ._fitness_metric_resolver import resolve_fitness_metric
+from ._fitness_metrics._fitness_metric_resolver import resolve_fitness_metric
 
 
 def run_gepa_optimization(baseline_module: SkillModule,
