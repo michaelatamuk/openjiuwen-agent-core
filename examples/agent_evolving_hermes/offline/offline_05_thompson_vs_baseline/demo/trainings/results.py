@@ -16,8 +16,8 @@ _MODE_LABELS: Dict[str, str] = {
 def run_key_label(run_key: str) -> str:
     """Convert a run key to a human-readable label.
 
-    Single-metric run key  ``"gepa_plain_holistic"``            → ``"GEPA-Plain-Uniform"``
-    Multi-metric run key   ``"gepa_plain_holistic__jiuwen"``    → ``"GEPA-Plain-Uniform (jiuwen)"``
+    Single-metric run key  ``"gepa_plain_holistic"``                  → ``"GEPA-Plain-Holistic"``
+    Multi-metric run key   ``"gepa_plain_holistic__bag_of_words"``    → ``"GEPA-Plain-Holistic (bag_of_words)"``
     """
     parts = run_key.split("__", 1)
     mode_label = _MODE_LABELS.get(parts[0], parts[0])

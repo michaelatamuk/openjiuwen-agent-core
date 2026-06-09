@@ -203,7 +203,7 @@ class DemoTrainings:
         if mode == "gepa_full":
             return _step_full(
                 **common,
-                itrations=self._config.iterations,
+                iterations=self._config.iterations,
                 ts_batch_size=self._config.ts_batch_size,
                 examples=params.golden_examples,
                 ts_state_dir=ts_state_dir,
