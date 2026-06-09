@@ -3,9 +3,9 @@ from __future__ import annotations
 import importlib
 from typing import Any, Callable, Dict
 
-from ._fitness_metric_bag_of_words import fitness_metric as fitness_metric_f1
+from ._fitness_metric_bag_of_words import fitness_metric as fitness_metric_bag_of_words
 from ._fitness_metric_custom import custom_fitness_gepa_signature
-from ._fitness_metric_f1 import fitness_metric as fitness_metric_bag_of_words
+from ._fitness_metric_f1 import fitness_metric as fitness_metric_f1
 
 
 def resolve_fitness_metric(name: str,
@@ -14,9 +14,11 @@ def resolve_fitness_metric(name: str,
 
     Built-in names
     --------------
-    ``"jiuwen"``  — stop-word-filtered weighted F1 (0.7 recall + 0.3 precision).
-                    General-purpose; works for any skill domain. Default.
-    ``"hermes"``  — word-bag overlap with 0.3 floor, matching original Hermes.
+    ``"f1"``            — stop-word-filtered weighted F1
+                            (0.7 recall + 0.3 precision).
+                            General-purpose; works for any skill domain. Default.
+    ``"bag_of_words"``  — word-bag overlap with 0.3 floor,
+                            matching original Hermes behaviour.
 
     Custom names
     ------------
@@ -27,9 +29,9 @@ def resolve_fitness_metric(name: str,
     """
     custom_metrics = custom_metrics or {}
 
-    if name == "f1":
+    if name in ("f1"):
         return fitness_metric_f1
-    if name == "bag_of_words":
+    if name in ("bag_of_words"):
         return fitness_metric_bag_of_words
 
     # Check custom_metrics dict
@@ -52,5 +54,5 @@ def resolve_fitness_metric(name: str,
             raise ValueError(f"Cannot import fitness metric '{name}': {e}") from e
 
     raise ValueError(f"Unknown fitness metric '{name}'. "
-                     f"Built-ins: 'bag_of_words', 'f1'. "
+                     f"Built-ins: 'f1' (stop-word F1), 'bag_of_words' (word-bag). "
                      f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config.")

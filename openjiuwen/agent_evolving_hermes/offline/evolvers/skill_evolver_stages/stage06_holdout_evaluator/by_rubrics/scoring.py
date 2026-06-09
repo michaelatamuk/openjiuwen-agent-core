@@ -46,11 +46,18 @@ def run_rubrics_evaluation(module: SkillModule, holdout, config, console, label:
     b_list = [dim_means[d] for d in RubricsFitnessScore.DIM_NAMES]
     rubrics_score = AdaptiveRubricWeights().aggregate(b_list)
 
-    console.print(f"  Pre-train holdout score (rubric): {rubrics_score:.4f}  ({n_holdout} examples)")
+    console.print(f"  Holdout score ({label}, unweighted): {rubrics_score:.4f}  ({n_holdout} examples)")
     return rubrics_score, dim_means
 
 
 def evaluate_rubrics_path(module: SkillModule, holdout, config, console, baseline_dims, raw_skill, evolved_text) -> Tuple:
+    if baseline_dims is None:
+        raise ValueError(
+            "scoring_mode='rubrics' requires pre-computed baseline dimension scores "
+            "(prior_baseline_dims_rubrics). Run evaluate_baseline_on_holdout() first "
+            "and pass the returned rubrics_dims to SkillEvolverParams."
+        )
+
     evolved_score, evolved_dims = run_rubrics_evaluation(module, holdout, config, console, "evolved")
 
     # State management

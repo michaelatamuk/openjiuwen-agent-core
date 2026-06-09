@@ -21,7 +21,7 @@ def evaluate_on_holdout(optimized_module: SkillModule, scoring_mode: str, datase
             result = evaluate_rubrics_path(optimized_module, holdout, config, console,
                                            prior_baseline_dims_rubrics, raw_prebuilt_skill, evolved_text)
 
-        console.print("\n[blue]~~~ Evolving Stage 06 - Evaluation On Holdout Finishe ~~~[/blue]")
+        console.print("\n[blue]~~~ Evolving Stage 06 - Evaluation On Holdout Finished ~~~[/blue]")
         return result
 
 

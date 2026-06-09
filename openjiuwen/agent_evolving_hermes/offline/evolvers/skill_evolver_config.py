@@ -66,10 +66,10 @@ class EvolverConfig:
     scoring_mode: str = "holistic"
 
     # ── Fitness metric (fast proxy used inside the GEPA optimizer loop) ───────
-    # Built-ins: "jiuwen" (stop-word-filtered F1, general-purpose, default),
-    #            "hermes" (word-bag with 0.3 floor, matches original Hermes).
+    # Built-ins: "f1" (stop-word-filtered F1, general-purpose, default),
+    #            "bag_of_words" (word-bag with 0.3 floor).
     # Custom: dotted import path ("pkg.module.fn") or a key in custom_fitness_metrics.
-    fitness_metric: str = "jiuwen"
+    fitness_metric: str = "bag_of_words"
     custom_fitness_metrics: Dict[str, Any] = field(default_factory=dict)
 
     # ── Verbosity ─────────────────────────────────────────────────────────────
