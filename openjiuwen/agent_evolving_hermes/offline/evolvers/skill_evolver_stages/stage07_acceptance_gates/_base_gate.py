@@ -1,7 +1,15 @@
+from abc import abstractmethod, ABC
+from pathlib import Path
 from typing import Optional
 
 
-class BaseAcceptanceGate:
+class BaseAcceptanceGate(ABC):
+    @abstractmethod
+    def decide(self, improvement: float, evolved_score: float, skill_name: str, evolved_text: str,
+               cross_run_delta: Optional[float], output_dir: Path, console):
+        pass
+
+
     # ── Shared helper ─────────────────────────────────────────────────────────────
     @staticmethod
     def _trend_line(cross_run_delta: Optional[float]) -> Optional[str]:

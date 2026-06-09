@@ -13,7 +13,7 @@
         "blades-in-the-dark",
         "smarthub-support"
     ],
-    "run_modes": ["gepa_plain_holistic", "gepa_plain_rubrics"],
+    "run_modes": ["gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
     "_run_modes": ["gepa_plain_holistic", "gepa_plain_rubrics", "gepa_focused_on_difficulty", "gepa_gated", "gepa_full"],
     "api_key": "sk-c3a1d0d605d24dfc90cb487b6a2465a4",
     "model": "deepseek/deepseek-chat",
