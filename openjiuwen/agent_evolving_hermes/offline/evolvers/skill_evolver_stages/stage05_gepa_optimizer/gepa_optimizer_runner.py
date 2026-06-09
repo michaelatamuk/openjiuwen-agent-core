@@ -8,7 +8,7 @@ import dspy
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection import make_example_selector
-from .stage05_gepa_optimizer_fitness_metric import resolve_fitness_metric
+from ._fitness_metric_resolver import resolve_fitness_metric
 
 
 def run_gepa_optimization(baseline_module: SkillModule,

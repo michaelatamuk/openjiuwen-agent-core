@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Callable, Dict, Set
+from typing import Any, Callable, Dict
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage05_gepa_optimizer_fitness_metric_custom import \
-    custom_fitness_gepa_signature
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage05_gepa_optimizer_fitness_metric_hermes import \
-    fitness_metric as hermes_fitness_metric
-from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage05_gepa_optimizer_fitness_metric_jiuwen import \
-    fitness_metric as jiuwen_fitness_metric
+from ._fitness_metric_bag_of_words import fitness_metric as fitness_metric_f1
+from ._fitness_metric_custom import custom_fitness_gepa_signature
+from ._fitness_metric_f1 import fitness_metric as fitness_metric_bag_of_words
 
 
 def resolve_fitness_metric(name: str,
@@ -31,9 +28,9 @@ def resolve_fitness_metric(name: str,
     custom_metrics = custom_metrics or {}
 
     if name == "jiuwen":
-        return jiuwen_fitness_metric
+        return fitness_metric_f1
     if name == "hermes":
-        return hermes_fitness_metric
+        return fitness_metric_bag_of_words
 
     # Check custom_metrics dict
     if name in custom_metrics:
