@@ -74,11 +74,16 @@ def _concept_graph(text: str) -> Tuple[Set[str], Set[FrozenSet[str]]]:
     return nodes, edges
 
 
+def _edge_str(e: FrozenSet[str]) -> str:
+    a, b = sorted(e)
+    return f"{a}↔{b}"
+
+
 def fitness_metric(example: dspy.Example,
                    prediction: dspy.Prediction,
                    trace=None,
                    pred_name=None,
-                   pred_trace=None) -> float:
+                   pred_trace=None):
     """Concept-graph structural similarity metric.
 
     Converts both ``example.expected_behavior`` (gold rubric) and
@@ -120,15 +125,30 @@ def fitness_metric(example: dspy.Example,
     structural incoherence.  Conversely, a concise response that reproduces
     the key concept relationships (even with some paraphrasing) scores well
     on edges despite lower raw word overlap.
+
+    GEPA feedback
+    -------------
+    When called from GEPA (``pred_name`` is not None), returns a
+    ``dspy.Prediction(score, feedback)`` naming the specific concepts and
+    concept-pairs that were missing.  The reflection LM can use this to
+    propose targeted skill edits (e.g. add a step that requires the agent
+    to address the missing relationship).  When called from MIPROv2 or the
+    evaluation harness (``pred_name`` is None), returns a plain float for
+    direct numeric aggregation.
     """
     if not getattr(prediction, "output", "").strip():
+        if pred_name is not None:
+            return dspy.Prediction(score=0.0, feedback="score=0.00; response was empty")
         return 0.0
 
     exp_nodes, exp_edges = _concept_graph(example.expected_behavior)
     out_nodes, out_edges = _concept_graph(prediction.output)
 
     if not exp_nodes:
-        return 0.5 if out_nodes else 0.0
+        score = 0.5 if out_nodes else 0.0
+        if pred_name is not None:
+            return dspy.Prediction(score=score, feedback=f"score={score:.2f}; rubric had no content concepts to match")
+        return score
 
     # ── Node similarity (recall-biased F1) ────────────────────────────────────
     node_isect = exp_nodes & out_nodes
@@ -141,9 +161,25 @@ def fitness_metric(example: dspy.Example,
         edge_isect = exp_edges & out_edges
         edge_union = exp_edges | out_edges
         edge_score = len(edge_isect) / len(edge_union)
+        missing_edges = exp_edges - out_edges
     else:
         # Neither text had enough content tokens for edges; use node score only
         edge_score = node_score
+        missing_edges = set()
 
     # ── Combined ──────────────────────────────────────────────────────────────
-    return min(1.0, max(0.0, 0.6 * node_score + 0.4 * edge_score))
+    score = min(1.0, max(0.0, 0.6 * node_score + 0.4 * edge_score))
+
+    if pred_name is not None:
+        missing_nodes = sorted(exp_nodes - out_nodes)[:6]
+        missing_edge_strs = sorted(_edge_str(e) for e in missing_edges)[:4]
+        parts = [f"score={score:.2f}"]
+        if missing_nodes:
+            parts.append(f"missing concepts: {', '.join(missing_nodes)}")
+        else:
+            parts.append("all concepts covered")
+        if missing_edge_strs:
+            parts.append(f"missing relations: {', '.join(missing_edge_strs)}")
+        return dspy.Prediction(score=score, feedback="; ".join(parts))
+
+    return score
