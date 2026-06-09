@@ -102,7 +102,7 @@ def evaluate_on_holdout(
     multi_dims is None when scoring_mode="holistic".
     Falls back to val split if holdout is empty.
     """
-    console.print("\n[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Started ~~~[/blue]")
+    console.print("\n[blue]~~~ Evolving Stage 06 - Evaluation On Holdout Started ~~~[/blue]")
 
     holdout = dataset.holdout or dataset.val
     n_holdout = len(holdout)
@@ -141,7 +141,7 @@ def evaluate_on_holdout(
         if prior_metrics and "evolved_score" in prior_metrics:
             cross_run_delta = round(evolved_score - prior_metrics["evolved_score"], 4)
 
-        console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Holistic) ~~~[/blue]")
+        console.print("[blue]~~~ Evolving Stage 06 - Evaluation On Holdout Finished (Holistic) ~~~[/blue]")
         return baseline_score, evolved_score, improvement, cross_run_delta, None
 
     # ── RUBRICS mode ────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ def evaluate_on_holdout(
     if prior_metrics and "evolved_score" in prior_metrics:
         cross_run_delta = round(evolved_composite - prior_metrics["evolved_score"], 4)
 
-    console.print("[blue]~~~ Evolving Stage 08 - Evaluation On Holdout Finished (Rubrics) ~~~[/blue]")
+    console.print("[blue]~~~ Evolving Stage 06 - Evaluation On Holdout Finished (Rubrics) ~~~[/blue]")
     return prior_baseline_score_rubrics, evolved_composite, improvement, cross_run_delta, evolved_dims
 
 
