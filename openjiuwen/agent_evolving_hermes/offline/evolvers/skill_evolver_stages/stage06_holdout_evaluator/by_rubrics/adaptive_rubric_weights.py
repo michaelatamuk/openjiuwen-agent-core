@@ -26,7 +26,7 @@ _N_DIMS = 5
 _DIM_NAMES = [
     "correctness",
     "procedure_following",
-    "conciseness",
+    "format_adherence",
     "completeness",
     "specificity",
 ]

@@ -18,7 +18,7 @@ class JudgeSignature(dspy.Signature):
     correctness: float = dspy.OutputField(desc="0.0–1.0: Did the agent do the right thing according to the task?")
     procedure_following: float = dspy.OutputField(
         desc="0.0–1.0: Did the agent follow the specified workflow in the skill?")
-    conciseness: float = dspy.OutputField(desc="0.0–1.0: Was the response appropriately concise and free of padding?")
+    format_adherence: float = dspy.OutputField(desc="0.0–1.0: Did the response match the expected output format and structure?")
     completeness: float = dspy.OutputField(desc="0.0–1.0: Did the response cover all required aspects of the task?")
     specificity: float = dspy.OutputField(desc="0.0–1.0: Are findings specific and actionable rather than vague?")
     feedback: str = dspy.OutputField(desc="One sentence identifying the main strength or most important weakness.")

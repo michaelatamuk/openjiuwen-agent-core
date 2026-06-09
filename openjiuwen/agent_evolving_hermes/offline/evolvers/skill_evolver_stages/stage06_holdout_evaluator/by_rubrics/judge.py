@@ -39,7 +39,7 @@ class RubricsLLMJudge:
 
         return RubricsFitnessScore(correctness=float(getattr(result, "correctness", 0.5)),
                                    procedure_following=float(getattr(result, "procedure_following", 0.5)),
-                                   conciseness=float(getattr(result, "conciseness", 0.5)),
+                                   format_adherence=float(getattr(result, "format_adherence", 0.5)),
                                    completeness=float(getattr(result, "completeness", 0.5)),
                                    specificity=float(getattr(result, "specificity", 0.5)),
                                    feedback=getattr(result, "feedback", ""))

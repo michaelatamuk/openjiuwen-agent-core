@@ -12,7 +12,7 @@ except ImportError:
 _MO_DIM_NAMES: List[str] = [
     "correctness",
     "procedure_following",
-    "conciseness",
+    "format_adherence",
     "completeness",
     "specificity",
 ]

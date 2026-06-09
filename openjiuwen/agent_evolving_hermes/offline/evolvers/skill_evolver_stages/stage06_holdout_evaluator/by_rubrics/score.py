@@ -23,7 +23,7 @@ import dspy
 class RubricsFitnessScore:
     correctness: float = 0.0
     procedure_following: float = 0.0
-    conciseness: float = 0.0
+    format_adherence: float = 0.0
     completeness: float = 0.0
     specificity: float = 0.0
     feedback: str = ""
@@ -31,7 +31,7 @@ class RubricsFitnessScore:
     DIM_NAMES: ClassVar[List[str]] = [
         "correctness",
         "procedure_following",
-        "conciseness",
+        "format_adherence",
         "completeness",
         "specificity",
     ]
@@ -40,7 +40,7 @@ class RubricsFitnessScore:
         return [
             self.correctness,
             self.procedure_following,
-            self.conciseness,
+            self.format_adherence,
             self.completeness,
             self.specificity,
         ]

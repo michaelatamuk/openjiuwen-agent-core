@@ -2,17 +2,22 @@ import dspy
 
 
 class JudgeSignature(dspy.Signature):
-    """Score an agent response against the expected behavior rubric.
+    """Evaluate an agent's response against an expected behavior rubric.
 
-    Return three independent float scores (0.0–1.0) and brief feedback.
+    Score the response on three dimensions (0.0 to 1.0 each):
+    1. correctness: Did the response correctly address the task?
+    2. procedure_following: Did it follow the expected approach/procedure?
+    3. conciseness: Was it appropriately concise without omitting important info?
+
+    Also provide specific, actionable feedback on what could be improved.
     """
 
-    task_input: str = dspy.InputField(desc="The task given to the agent")
-    expected_behavior: str = dspy.InputField(desc="Rubric: what a good response looks like")
-    agent_output: str = dspy.InputField(desc="The actual agent response to score")
-    skill_text: str = dspy.InputField(desc="The skill instructions the agent was given")
+    task_input: str = dspy.InputField(desc="The task the agent was given")
+    expected_behavior: str = dspy.InputField(desc="Rubric describing what a good response looks like")
+    agent_output: str = dspy.InputField(desc="The agent's actual response")
+    skill_text: str = dspy.InputField(desc="The skill/instructions the agent was following")
 
-    correctness: float = dspy.OutputField(desc="0.0–1.0: Did the agent do the right thing?")
-    procedure_following: float = dspy.OutputField(desc="0.0–1.0: Did it follow the specified workflow?")
-    conciseness: float = dspy.OutputField(desc="0.0–1.0: Was the response appropriately concise?")
-    feedback: str = dspy.OutputField(desc="One sentence explaining the main strength or weakness.")
+    correctness: float = dspy.OutputField(desc="Score 0.0-1.0: Did the response correctly address the task?")
+    procedure_following: float = dspy.OutputField(desc="Score 0.0-1.0: Did it follow the expected procedure?")
+    conciseness: float = dspy.OutputField(desc="Score 0.0-1.0: Appropriately concise?")
+    feedback: str = dspy.OutputField(desc="Specific, actionable feedback on what could be improved")
