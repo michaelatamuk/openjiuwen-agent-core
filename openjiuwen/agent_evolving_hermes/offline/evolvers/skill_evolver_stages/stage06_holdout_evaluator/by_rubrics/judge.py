@@ -14,6 +14,8 @@ The existing LLMJudge and FitnessScore are NOT modified.
 from __future__ import annotations
 
 import dspy
+
+from .judge_signature import JudgeSignature
 from .score import RubricsFitnessScore
 
 
@@ -23,34 +25,16 @@ class RubricsLLMJudge:
     Used only when ``scoring_mode="rubrics"``.  The existing ``LLMJudge`` is
     untouched; this class is purely additive.
     """
-
-    class JudgeSignature(dspy.Signature):
-        """Score an agent response across five independent quality dimensions.
-
-        Return five independent float scores (0.0–1.0) and brief feedback.
-        Each dimension is scored independently — do not let one influence another.
-        """
-
-        task_input: str = dspy.InputField(desc="The task given to the agent")
-        expected_behavior: str = dspy.InputField(desc="Rubric: what a good response looks like")
-        agent_output: str = dspy.InputField(desc="The actual agent response to score")
-        skill_text: str = dspy.InputField(desc="The skill instructions the agent was given")
-
-        correctness: float = dspy.OutputField(desc="0.0–1.0: Did the agent do the right thing according to the task?")
-        procedure_following: float = dspy.OutputField(desc="0.0–1.0: Did the agent follow the specified workflow in the skill?")
-        conciseness: float = dspy.OutputField(desc="0.0–1.0: Was the response appropriately concise and free of padding?")
-        completeness: float = dspy.OutputField(desc="0.0–1.0: Did the response cover all required aspects of the task?")
-        specificity: float = dspy.OutputField(desc="0.0–1.0: Are findings specific and actionable rather than vague?")
-        feedback: str = dspy.OutputField(desc="One sentence identifying the main strength or most important weakness.")
-
     def __init__(self, model: str) -> None:
-        self._judge = dspy.ChainOfThought(self.JudgeSignature)
+        self._judge = dspy.ChainOfThought(JudgeSignature)
         self._model = model
 
     def score(self, task_input: str, expected_behavior: str, agent_output: str, skill_text: str) -> RubricsFitnessScore:
         lm = dspy.LM(self._model)
         with dspy.context(lm=lm):
-            result = self._judge(task_input=task_input, expected_behavior=expected_behavior, agent_output=agent_output,
+            result = self._judge(task_input=task_input,
+                                 expected_behavior=expected_behavior,
+                                 agent_output=agent_output,
                                  skill_text=skill_text)
 
         return RubricsFitnessScore(correctness=float(getattr(result, "correctness", 0.5)),

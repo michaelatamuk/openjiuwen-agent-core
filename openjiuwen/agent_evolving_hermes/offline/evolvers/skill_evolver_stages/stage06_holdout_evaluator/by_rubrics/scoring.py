@@ -20,11 +20,12 @@ def run_rubrics_evaluation(module: SkillModule, holdout, config, console, label:
     for i, ex in enumerate(holdout, start=1):
         try:
             pred = module(task_input=ex.task_input)
-            fs = judge.score(task_input=ex.task_input,
-                                   expected_behavior=ex.expected_behavior,
-                                   agent_output=getattr(pred, "output", ""),
-                                   skill_text=module._skill_text_value)
-            vals = fs.as_list()
+            pred_output = getattr(pred, "output", "")
+            score = judge.score(task_input=ex.task_input,
+                                expected_behavior=ex.expected_behavior,
+                                agent_output=pred_output,
+                                skill_text=module._skill_text_value)
+            vals = score.as_list()
             for d, v in zip(dim_names, vals):
                 dim_accum[d].append(v)
 

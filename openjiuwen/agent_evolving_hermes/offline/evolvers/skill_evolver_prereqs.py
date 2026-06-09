@@ -6,7 +6,7 @@ Runs stages 1–4 of the single-skill evolution pipeline exactly once and
 returns an :class:`EvolutionPrereqs` container.
 
 Call :func:`build_evolution_prereqs` before :func:`evolve_single_skill`
-so the evolver receives fully initialised objects rather than building
+so the evolver receives fully initialized objects rather than building
 them internally.  This mirrors what ``step_01_build_skill_dataset_and_dspy``
 does in the demo pipeline, but for production / CLI / batch callers.
 """

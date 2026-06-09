@@ -17,11 +17,12 @@ def run_holistic_evaluation(module: SkillModule, holdout, config,
         sc = 0.0
         try:
             pred = module(task_input=ex.task_input)
-            s = judge.score(task_input=ex.task_input,
-                            expected_behavior=ex.expected_behavior,
-                            agent_output=getattr(pred, "output", ""),
-                            skill_text=module._skill_text_value)
-            sc = s.composite
+            pred_output = getattr(pred, "output", "")
+            score = judge.score(task_input=ex.task_input,
+                                expected_behavior=ex.expected_behavior,
+                                agent_output=pred_output,
+                                skill_text=module._skill_text_value)
+            sc = score.composite
         except Exception:
             pass
         scores.append(sc)
