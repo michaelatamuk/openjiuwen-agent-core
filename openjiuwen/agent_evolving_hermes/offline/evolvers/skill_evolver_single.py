@@ -82,12 +82,13 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
     baseline_score, evolved_score, improvement, cross_run_delta, evolved_dims_rubrics = \
         evaluate_on_holdout(params.prebuilt_baseline_module,
                             optimized_module,
+                            params.config.scoring_mode,
                             params.prebuilt_dataset,
                             params.config,
                             params.console,
                             params.prior_metrics,
                             prior_baseline_score_holistic=params.prior_baseline_score_holistic,
-                            scoring_mode=params.config.scoring_mode,
+
                             prior_baseline_score_rubrics=params.prior_baseline_score_rubrics)
 
     # ── Step 6b: Rubrics processing ──────────────────────────────────
