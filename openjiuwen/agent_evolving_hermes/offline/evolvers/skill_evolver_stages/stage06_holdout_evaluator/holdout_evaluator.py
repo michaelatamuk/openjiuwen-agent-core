@@ -2,85 +2,16 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+from by_rubrics.scoring import eval_rubrics_pass
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
-from ._judges._judge_holistic import HolisticLLMJudge
-from ._judges._judge_by_rubrics import RubricsFitnessScore, RubricsLLMJudge
+from .by_rubrics.judge import RubricsLLMJudge
+from .by_rubrics.score import RubricsFitnessScore
+from .holistic.judge import HolisticLLMJudge
 from .adaptive_rubric_weights import AdaptiveRubricWeights
+from .holistic.scoring import score_module_holistic
 
-
-# ── Private helpers ────────────────────────────────────────────────────────────
-
-def _score_module_holistic(
-    module: SkillModule,
-    holdout: list,
-    judge: HolisticLLMJudge,
-    n_holdout: int,
-    console,
-    label: str,
-) -> float:
-    """Score *module* on *holdout* with the single LLM judge. Returns mean composite."""
-    scores: List[float] = []
-    for i, ex in enumerate(holdout, start=1):
-        sc = 0.0
-        try:
-            pred = module(task_input=ex.task_input)
-            s = judge.score(
-                task_input=ex.task_input,
-                expected_behavior=ex.expected_behavior,
-                agent_output=getattr(pred, "output", ""),
-                skill_text=module._skill_text_value,
-            )
-            sc = s.composite
-        except Exception:
-            pass
-        scores.append(sc)
-        console.print(f"  [{i}/{n_holdout}] {label} → {sc:.4f}")
-    return sum(scores) / len(scores) if scores else 0.0
-
-
-def _eval_rubrics_pass(
-    module: SkillModule,
-    holdout: list,
-    multi_judge: RubricsLLMJudge,
-    dim_names: List[str],
-    label: str,
-    console,
-) -> Tuple[float, Dict[str, float]]:
-    """Score *module* on *holdout* with the multi-objective judge."""
-    n = len(holdout)
-    dim_accum: Dict[str, List[float]] = {d: [] for d in dim_names}
-    composites: List[float] = []
-
-    for i, ex in enumerate(holdout, start=1):
-        try:
-            pred = module(task_input=ex.task_input)
-            fs = multi_judge.score(
-                task_input=ex.task_input,
-                expected_behavior=ex.expected_behavior,
-                agent_output=getattr(pred, "output", ""),
-                skill_text=module._skill_text_value,
-            )
-            vals = fs.as_list()
-            for d, v in zip(dim_names, vals):
-                dim_accum[d].append(v)
-            composite = sum(vals) / len(vals)
-            composites.append(composite)
-            dims_str = ", ".join([f"{d}: {v:.2f}" for d, v in zip(dim_names, vals)])
-            console.print(f"  [{i}/{n}] {label} → raw {composite:.4f} | ({dims_str})")
-        except Exception:
-            for d in dim_names:
-                dim_accum[d].append(0.0)
-            composites.append(0.0)
-            console.print(f"  [{i}/{n}] {label} → 0.0000 (error)")
-
-    composite_mean = sum(composites) / len(composites) if composites else 0.0
-    dim_means = {
-        d: sum(dim_accum[d]) / len(dim_accum[d]) if dim_accum[d] else 0.0
-        for d in dim_names
-    }
-    return composite_mean, dim_means
 
 
 # ── Public interface ───────────────────────────────────────────────────────────
@@ -122,18 +53,14 @@ def evaluate_on_holdout(
                 f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
                 f"[dim]({n_holdout} examples, cached)[/dim]"
             )
-            baseline_score = _score_module_holistic(
-                baseline_module, holdout, judge, n_holdout, console, "pre-train skill"
-            )
+            baseline_score = score_module_holistic(baseline_module, holdout, judge, n_holdout, console,
+                                                   "pre-train skill")
             console.print(f"  Pre-train holdout score: {baseline_score:.4f}  ({n_holdout} examples)")
 
-        console.print(
-            f"[bold]Evaluating evolved skill on holdout…[/bold] "
-            f"[dim]({n_holdout} examples, ~25s each, no cache)[/dim]"
-        )
-        evolved_score = _score_module_holistic(
-            optimized_module, holdout, judge, n_holdout, console, "evolved skill"
-        )
+        console.print(f"[bold]Evaluating evolved skill on holdout…[/bold] "
+                      f"[dim]({n_holdout} examples, ~25s each, no cache)[/dim]")
+        evolved_score = score_module_holistic(optimized_module, holdout, judge, n_holdout, console,
+                                              "evolved skill")
         console.print(f"  Evolved holdout score:   {evolved_score:.4f}  ({n_holdout} examples)")
 
         improvement = evolved_score - baseline_score
@@ -154,7 +81,7 @@ def evaluate_on_holdout(
     else:
         console.print(f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
                       f"[dim]({n_holdout} examples, multi-rubrics)[/dim]")
-        prior_baseline_score_rubrics, _ = _eval_rubrics_pass(baseline_module,
+        prior_baseline_score_rubrics, _ = eval_rubrics_pass(baseline_module,
                                                              holdout,
                                                              rubrics_judge,
                                                              dim_names,
@@ -166,7 +93,7 @@ def evaluate_on_holdout(
     console.print(f"[bold]Evaluating evolved skill on holdout…[/bold] "
                   f"[dim]({n_holdout} examples, ~25s each, multi-objective)[/dim]")
 
-    evolved_composite, evolved_dims = _eval_rubrics_pass(optimized_module,
+    evolved_composite, evolved_dims = eval_rubrics_pass(optimized_module,
                                                          holdout,
                                                          rubrics_judge,
                                                          dim_names,
@@ -208,7 +135,7 @@ def evaluate_baseline_on_holdout(
     judge = HolisticLLMJudge(model=config.eval_model, max_skill_size=config.max_skill_size)
 
     holistic_score = round(
-        _score_module_holistic(baseline_module, holdout, judge, n_holdout, console, "pre-train (single)"), 4
+        score_module_holistic(baseline_module, holdout, judge, n_holdout, console, "pre-train (single)"), 4
     )
     console.print(f"  Pre-train holdout score (holistic): {holistic_score:.4f}  ({n_holdout} examples)")
 
@@ -220,7 +147,7 @@ def evaluate_baseline_on_holdout(
         f"[bold]\nEvaluating pre-train skill on holdout…[/bold] "
         f"[dim]({n_holdout} examples, rubrics)[/dim]"
     )
-    _, rubrics_dims = _eval_rubrics_pass(
+    _, rubrics_dims = eval_rubrics_pass(
         baseline_module, holdout, multi_rubric_judge,
         RubricsFitnessScore.DIM_NAMES, "pre-train skill", console,
     )
