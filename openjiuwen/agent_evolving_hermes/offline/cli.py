@@ -21,10 +21,12 @@ from typing import Optional
 
 import click
 
-from offline.evolvers.skill_evolver_single_params import SkillEvolverParams
 from openjiuwen.agent_evolving_hermes.offline import evolve_single_skill, evolve_skills_batch
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_prereqs import build_evolution_prereqs
+from openjiuwen.agent_evolving_hermes.online import skill_list
+from skill_evolver_single_params import SkillEvolverParams
+from skill_evolver_stages.stage02_skill_constraint_validator.constraint_validator import ConstraintValidator
 
 
 def _make_config(
@@ -283,8 +285,6 @@ def main(
 
     # ── Resolve skill list for --all ─────────────────────────────────────────
     if evolve_all:
-        from online.stores.skill import skill_list
-
         skill_names = asyncio.run(skill_list(config.skills_root, include_archived=False))
         if not skill_names:
             click.echo(f"No skills found under {config.skills_root}.")
@@ -295,7 +295,6 @@ def main(
 
     # ── Dry-run mode ─────────────────────────────────────────────────────────
     if dry_run:
-        from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintValidator
         from openjiuwen.agent_evolving_hermes.offline.skills.skill_module import find_skill, load_skill
 
         any_failed = False
@@ -352,35 +351,31 @@ def main(
             external_sources=list(external_sources) if external_sources else None,
             reuse_dataset=reuse_dataset,
         )
-        params: SkillEvolverParams = SkillEvolverParams(
-            skill_name=skill_names[0],
-            eval_source=eval_source,
-            external_sources=list(external_sources) if external_sources else None,
-            reuse_dataset=reuse_dataset,
-            min_improvement=min_improvement,
-            prior_metrics=prereqs.prior_metrics,
-            cached_path=prereqs.cached_path,
-            config=config,
-            console=prereqs.console,
-            prebuilt_skill=prereqs.skill,
-            prebuilt_dataset=prereqs.dataset,
-            prebuilt_baseline_module=prereqs.baseline_module,
-            prebuilt_trainset=prereqs.trainset,
-            prebuilt_valset=prereqs.valset,
-        )
+        params: SkillEvolverParams = SkillEvolverParams(skill_name=skill_names[0],
+                                                        eval_source=eval_source,
+                                                        external_sources=list(external_sources) if external_sources else None,
+                                                        reuse_dataset=reuse_dataset,
+                                                        min_improvement=min_improvement,
+                                                        prior_metrics=prereqs.prior_metrics,
+                                                        cached_path=prereqs.cached_path,
+                                                        config=config,
+                                                        console=prereqs.console,
+                                                        prebuilt_skill=prereqs.skill,
+                                                        prebuilt_dataset=prereqs.dataset,
+                                                        prebuilt_baseline_module=prereqs.baseline_module,
+                                                        prebuilt_trainset=prereqs.trainset,
+                                                        prebuilt_valset=prereqs.valset)
         metrics = evolve_single_skill(params)
         _print_summary([metrics])
         return
 
     # ── Batch (--all) ─────────────────────────────────────────────────────────
-    all_metrics = evolve_skills_batch(
-        skill_names=skill_names,
-        eval_source=eval_source,
-        external_sources=list(external_sources) if external_sources else None,
-        config=config,
-        reuse_dataset=reuse_dataset,
-        min_improvement=min_improvement,
-    )
+    all_metrics = evolve_skills_batch(skill_names=skill_names,
+                                      eval_source=eval_source,
+                                      external_sources=list(external_sources) if external_sources else None,
+                                      config=config,
+                                      reuse_dataset=reuse_dataset,
+                                      min_improvement=min_improvement)
     _print_summary(all_metrics)
 
 

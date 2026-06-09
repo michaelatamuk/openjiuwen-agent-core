@@ -6,8 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from openjiuwen.agent_evolving_hermes.offline.constraints import ConstraintResult, ConstraintValidator
+
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from .constraint_result import ConstraintResult
+from .constraint_validator import ConstraintValidator
 
 
 def validate_skill_constraints(skill_text: str,
