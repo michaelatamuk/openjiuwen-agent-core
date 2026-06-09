@@ -3,20 +3,8 @@ from __future__ import annotations
 from typing import FrozenSet, List, Set, Tuple
 
 import dspy
+from ._fitness_metric_stop_words import STOP_WORDS
 
-
-# Common English stop words — filtered out during graph extraction
-_STOP_WORDS: Set[str] = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
-    "been", "being", "have", "has", "had", "do", "does", "did", "will",
-    "would", "could", "should", "may", "might", "shall", "can", "not",
-    "no", "nor", "so", "yet", "both", "either", "neither", "each",
-    "than", "that", "this", "these", "those", "it", "its", "also",
-    "if", "then", "when", "where", "which", "who", "what", "how",
-    "all", "any", "some", "such", "more", "most", "other", "same",
-    "just", "about", "up", "out", "into", "through", "during",
-}
 
 # Sliding window size for edge construction
 _WINDOW = 5
@@ -27,7 +15,7 @@ def _tokenize(text: str) -> List[str]:
     tokens = []
     for w in text.lower().split():
         w = w.strip(".,!?;:\"'()[]{}\\/")
-        if w and w not in _STOP_WORDS and len(w) > 1:
+        if w and w not in STOP_WORDS and len(w) > 1:
             tokens.append(w)
     return tokens
 

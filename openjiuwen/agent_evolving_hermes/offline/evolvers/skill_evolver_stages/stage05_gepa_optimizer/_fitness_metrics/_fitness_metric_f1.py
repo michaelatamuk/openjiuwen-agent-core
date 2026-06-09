@@ -3,20 +3,7 @@ from __future__ import annotations
 from typing import Set
 
 import dspy
-
-
-# Common English stop words — filtered out during jiuwen F1 scoring
-_STOP_WORDS: Set[str] = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
-    "been", "being", "have", "has", "had", "do", "does", "did", "will",
-    "would", "could", "should", "may", "might", "shall", "can", "not",
-    "no", "nor", "so", "yet", "both", "either", "neither", "each",
-    "than", "that", "this", "these", "those", "it", "its", "also",
-    "if", "then", "when", "where", "which", "who", "what", "how",
-    "all", "any", "some", "such", "more", "most", "other", "same",
-    "just", "about", "up", "out", "into", "through", "during",
-}
+from ._fitness_metric_stop_words import STOP_WORDS
 
 
 def fitness_metric(example: dspy.Example,
@@ -50,7 +37,7 @@ def fitness_metric(example: dspy.Example,
         return 0.0
 
     def _content_words(text: str) -> Set[str]:
-        return {w for w in text.lower().split() if w not in _STOP_WORDS and len(w) > 1}
+        return {w for w in text.lower().split() if w not in STOP_WORDS and len(w) > 1}
 
     expected = _content_words(example.expected_behavior)
     output = _content_words(prediction.output)
