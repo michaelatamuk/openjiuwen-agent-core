@@ -8,7 +8,7 @@ skill_evolver_stages/. The logic that used to live here is now in:
   stage05_gepa_optimizer                — run GEPA (or MIPROv2 fallback)
   stage06_evolved_skill_extractor       — extract evolved body + reassemble
   stage02_skill_constraint_validator    — validate evolved skill (stage 07)
-  stage08_holdout_evaluator             — score baseline vs evolved on holdout
+  stage07_holdout_evaluator             — score baseline vs evolved on holdout
   stage09_acceptance_gate               — apply min_improvement threshold
   stage10_results_display               — print Rich table / plain-text summary
   stage11_output_saver                  — write artefacts + metrics_history.jsonl
@@ -28,8 +28,8 @@ from .selection import make_acceptance_gate
 from .skill_evolver_stages.stage05_gepa_optimizer.gepa_optimizer_runner import run_gepa_optimization
 from .skill_evolver_stages.stage06_evolved_skill_extractor.evolved_skill_extractor import extract_evolved_skill
 from .skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import validate_skill_constraints
-from .skill_evolver_stages.stage08_holdout_evaluator import evaluate_on_holdout
-from .skill_evolver_stages.stage08_holdout_evaluator_judge_by_rubrics import RubricsFitnessScore
+from skill_evolver_stages.stage07_holdout_evaluator.holdout_evaluator import evaluate_on_holdout
+from skill_evolver_stages.stage07_holdout_evaluator._judge_by_rubrics import RubricsFitnessScore
 from .skill_evolver_stages.stage10_results_display import display_results_table
 from .skill_evolver_stages.stage11_output_saver import save_outputs
 from .skill_evolver_single_params import SkillEvolverParams

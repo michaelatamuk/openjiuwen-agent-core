@@ -22,7 +22,7 @@ from openjiuwen.agent_evolving_hermes.offline.dataset_builder import (
 )
 from skill_evolver_stages.stage02_skill_constraint_validator.constraint_result import ConstraintResult
 from skill_evolver_stages.stage02_skill_constraint_validator.constraint_validator import ConstraintValidator
-from skill_evolver_stages.stage08_holdout_evaluator_judge_holistic import FitnessScore, HolisticLLMJudge
+from skill_evolver_stages.stage07_holdout_evaluator._judge_holistic import FitnessScore, HolisticLLMJudge
 from .evolvers import evolve_skills_batch, evolve_single_skill
 from .external_importers import (
     ClaudeCodeImporter,
