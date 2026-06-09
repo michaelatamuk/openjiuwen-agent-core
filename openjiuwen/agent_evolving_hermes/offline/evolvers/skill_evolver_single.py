@@ -23,8 +23,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from by_rubrics.adaptive_rubric_weights import AdaptiveRubricWeights
-from by_rubrics.score import RubricsFitnessScore
 from .skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage05_gepa_optimizer.gepa_optimizer_runner import run_gepa_optimization
 from .skill_evolver_stages.stage06_holdout_evaluator.holdout_evaluator import evaluate_on_holdout
@@ -38,7 +36,7 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
     """Run one GEPA evolution pass on a skill (stages 5–11).
 
     Stages 1–4 must be completed by the caller before this function is
-    invoked.  All required artefacts are read from *params*:
+    invoked.  All required artifacts are read from *params*:
 
     Args:
         params: Fully populated :class:`SkillEvolverParams`.  The
