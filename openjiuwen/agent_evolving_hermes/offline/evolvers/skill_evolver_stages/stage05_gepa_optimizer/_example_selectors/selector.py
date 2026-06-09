@@ -31,11 +31,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selectors.sequential_examples import \
-    SequentialExampleSelector
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selectors.thompson_examples import \
-    ThompsonExampleSelector
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from .sequential_examples import SequentialExampleSelector
+from .thompson_examples import ThompsonExampleSelector
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

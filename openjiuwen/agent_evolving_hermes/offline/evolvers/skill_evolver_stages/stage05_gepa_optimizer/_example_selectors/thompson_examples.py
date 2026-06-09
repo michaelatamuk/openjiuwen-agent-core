@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selectors.example_arm import _ExampleArm
+from .thompson_examples_arm import _ExampleArm
 
 
 # ── Thompson Sampling example selector ────────────────────────────────────────

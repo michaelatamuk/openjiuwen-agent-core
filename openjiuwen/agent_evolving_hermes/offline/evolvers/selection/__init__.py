@@ -17,34 +17,15 @@ Level 3 — Acceptance Gate  (config.ts_acceptance_gate)
     Whether to deploy an evolved skill candidate.
     make_acceptance_gate(config, min_improvement) → AcceptanceGateProtocol
 """
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.skills_schedulers.protocols import (
-    AcceptanceGateProtocol,
-    ExampleSelectorProtocol,
-    SkillSchedulerProtocol,
-)
 from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.skills_schedulers.skill_scheduler import (
     RoundRobinSkillScheduler,
     ThompsonSkillScheduler,
     make_skill_scheduler,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selectors.selector import (
-    SequentialExampleSelector,
-    ThompsonExampleSelector,
-    make_example_selector,
-)
 
 
 __all__ = [
-    # Protocols
-    "SkillSchedulerProtocol",
-    "ExampleSelectorProtocol",
-    "AcceptanceGateProtocol",
-    # Level 1
     "RoundRobinSkillScheduler",
     "ThompsonSkillScheduler",
     "make_skill_scheduler",
-    # Level 2
-    "SequentialExampleSelector",
-    "ThompsonExampleSelector",
-    "make_example_selector",
 ]
