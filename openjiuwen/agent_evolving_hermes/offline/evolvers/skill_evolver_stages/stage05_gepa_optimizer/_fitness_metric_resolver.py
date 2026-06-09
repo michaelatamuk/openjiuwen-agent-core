@@ -52,5 +52,5 @@ def resolve_fitness_metric(name: str,
             raise ValueError(f"Cannot import fitness metric '{name}': {e}") from e
 
     raise ValueError(f"Unknown fitness metric '{name}'. "
-                     f"Built-ins: 'jiuwen', 'hermes'. "
+                     f"Built-ins: 'bag_of_words', 'f1'. "
                      f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config.")

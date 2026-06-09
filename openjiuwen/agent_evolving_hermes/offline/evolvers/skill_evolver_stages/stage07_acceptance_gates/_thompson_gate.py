@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.acceptance_gates.base import BaseAcceptanceGate
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
+from ._base_gate import BaseAcceptanceGate
 
 
 # ── Shared Beta arm ───────────────────────────────────────────────────────────

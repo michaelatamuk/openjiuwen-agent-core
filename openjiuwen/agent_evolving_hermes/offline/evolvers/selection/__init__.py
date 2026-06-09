@@ -32,11 +32,7 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.example_selecto
     ThompsonExampleSelector,
     make_example_selector,
 )
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.acceptance_gates.acceptance_gate import (
-    ThresholdAcceptanceGate,
-    ThompsonAcceptanceGate,
-    make_acceptance_gate,
-)
+
 
 __all__ = [
     # Protocols
@@ -51,8 +47,4 @@ __all__ = [
     "SequentialExampleSelector",
     "ThompsonExampleSelector",
     "make_example_selector",
-    # Level 3
-    "ThresholdAcceptanceGate",
-    "ThompsonAcceptanceGate",
-    "make_acceptance_gate",
 ]

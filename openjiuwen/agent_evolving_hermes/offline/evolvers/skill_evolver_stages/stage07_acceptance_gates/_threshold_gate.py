@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Tuple
 
-from openjiuwen.agent_evolving_hermes.offline.evolvers.selection.acceptance_gates.base import BaseAcceptanceGate
+from ._base_gate import BaseAcceptanceGate
+
 
 # ── Threshold gate (no TS) ────────────────────────────────────────────────────
 

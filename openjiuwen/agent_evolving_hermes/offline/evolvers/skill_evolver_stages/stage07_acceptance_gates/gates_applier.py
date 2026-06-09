@@ -1,4 +1,4 @@
-from ...selection import make_acceptance_gate
+from ._gate_maker import make_acceptance_gate
 
 
 def apply_acceptance_gates(constraints_passed, config, min_improvement, improvement, evolved_score, skill_name,
