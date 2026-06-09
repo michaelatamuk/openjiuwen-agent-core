@@ -23,10 +23,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from by_rubrics.adaptive_rubric_weights import AdaptiveRubricWeights
 from by_rubrics.score import RubricsFitnessScore
 from .skill_evolver_stages.stage02_skill_constraint_validator.skill_constraint_validator import validate_skill_constraints
 from .skill_evolver_stages.stage05_gepa_optimizer.gepa_optimizer_runner import run_gepa_optimization
-from .skill_evolver_stages.stage06_holdout_evaluator.adaptive_rubric_weights import AdaptiveRubricWeights
 from .skill_evolver_stages.stage06_holdout_evaluator.holdout_evaluator import evaluate_on_holdout
 from .skill_evolver_stages.stage07_acceptance_gates.gates_applier import apply_acceptance_gates
 from .skill_evolver_stages.stage08_results_display.results_displayer import display_results_table
