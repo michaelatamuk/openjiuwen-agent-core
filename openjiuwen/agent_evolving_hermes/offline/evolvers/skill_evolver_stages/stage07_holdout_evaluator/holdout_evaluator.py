@@ -5,9 +5,9 @@ from typing import Dict, List, Optional, Tuple
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_config import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.dataset_builder import EvalDataset
 from openjiuwen.agent_evolving_hermes.offline.skills import SkillModule
-from ...adaptive_rubric_weights import AdaptiveRubricWeights
 from ._judge_holistic import HolisticLLMJudge
 from ._judge_by_rubrics import RubricsFitnessScore, RubricsLLMJudge
+from .adaptive_rubric_weights import AdaptiveRubricWeights
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────
