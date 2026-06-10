@@ -16,19 +16,29 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 
 # Per-mode acceptance gate type
 _GATE = {
-    "gepa_plain_holistic": "threshold",
-    "gepa_plain_rubrics": "threshold",
-    "gepa_full":                  "TS gate",
-    "gepa_focused_on_difficulty": "threshold",
-    "gepa_gated":                 "TS gate",
+    "gepa_plain_holistic":              "threshold",
+    "gepa_plain_rubrics":               "threshold",
+    "gepa_plain_graph":                 "threshold",
+    "gepa_plain_checklist":             "threshold",
+    "gepa_plain_instruction_following": "threshold",
+    "gepa_plain_consistency":           "threshold",
+    "gepa_plain_comparative":           "threshold",
+    "gepa_full":                        "TS gate",
+    "gepa_focused_on_difficulty":       "threshold",
+    "gepa_gated":                       "TS gate",
 }
 # Per-mode example selector type (placeholder for ts_batch_size, filled at runtime)
 _SEL_TMPL = {
-    "gepa_plain_holistic": "all train",
-    "gepa_plain_rubrics": "all train",
-    "gepa_full":                  "top {n} (TS)",
-    "gepa_focused_on_difficulty": "top {n} (TS)",
-    "gepa_gated":                 "all train",
+    "gepa_plain_holistic":              "all train",
+    "gepa_plain_rubrics":               "all train",
+    "gepa_plain_graph":                 "all train",
+    "gepa_plain_checklist":             "all train",
+    "gepa_plain_instruction_following": "all train",
+    "gepa_plain_consistency":           "all train",
+    "gepa_plain_comparative":           "all train",
+    "gepa_full":                        "top {n} (TS)",
+    "gepa_focused_on_difficulty":       "top {n} (TS)",
+    "gepa_gated":                       "all train",
 }
 
 

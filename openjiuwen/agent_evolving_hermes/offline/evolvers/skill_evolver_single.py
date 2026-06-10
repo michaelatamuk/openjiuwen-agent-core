@@ -85,9 +85,14 @@ def evolve_single_skill(params: SkillEvolverParams) -> dict:
                             params.console,
                             params.prior_metrics,
                             params.prior_baseline_score_holistic,
+                            params.prior_baseline_score_graph,
                             params.prior_baseline_dims_rubrics,
                             params.prebuilt_skill["raw"],
-                            evolved_text)
+                            evolved_text,
+                            prior_baseline_score_checklist=params.prior_baseline_score_checklist,
+                            prior_baseline_score_instruction_following=params.prior_baseline_score_instruction_following,
+                            prior_baseline_score_consistency=params.prior_baseline_score_consistency,
+                            baseline_module=params.prebuilt_baseline_module)
 
     # ── Step 07: Acceptance gate (threshold or Thompson Sampling) ─────────────
     accepted, ts_conf = apply_acceptance_gates(constraints_passed, params.config, params.min_improvement,

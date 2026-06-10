@@ -5,11 +5,16 @@ from typing import Dict, List, Optional, Tuple
 
 # Canonical display label for each mode identifier.
 _MODE_LABELS: Dict[str, str] = {
-    "gepa_plain_holistic": "GEPA-Plain-Holistic",
-    "gepa_plain_rubrics": "GEPA-Plain-Rubrics",
-    "gepa_focused_on_difficulty": "GEPA-Focused",
-    "gepa_gated":                 "GEPA-Gated",
-    "gepa_full":                  "GEPA-Full",
+    "gepa_plain_holistic":              "GEPA-Plain-Holistic",
+    "gepa_plain_rubrics":               "GEPA-Plain-Rubrics",
+    "gepa_plain_graph":                 "GEPA-Plain-Graph",
+    "gepa_plain_checklist":             "GEPA-Plain-Checklist",
+    "gepa_plain_instruction_following": "GEPA-Plain-IF",
+    "gepa_plain_consistency":           "GEPA-Plain-Consistency",
+    "gepa_plain_comparative":           "GEPA-Plain-Comparative",
+    "gepa_focused_on_difficulty":       "GEPA-Focused",
+    "gepa_gated":                       "GEPA-Gated",
+    "gepa_full":                        "GEPA-Full",
 }
 
 

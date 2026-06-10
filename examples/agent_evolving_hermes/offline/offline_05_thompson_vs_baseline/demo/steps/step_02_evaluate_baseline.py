@@ -11,8 +11,13 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
 from openjiuwen.agent_evolving_hermes.offline import EvolverConfig
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage06_holdout_evaluator.holdout_evaluator import evaluate_baseline_on_holdout
 
-# Modes that require a multi-rubric baseline pre-evaluation.
-_RUBRIC_MODES = {"gepa_plain_rubrics"}
+# Modes that require specific baseline pre-evaluations.
+_RUBRIC_MODES        = {"gepa_plain_rubrics"}
+_GRAPH_MODES         = {"gepa_plain_graph"}
+_CHECKLIST_MODES     = {"gepa_plain_checklist"}
+_IF_MODES            = {"gepa_plain_instruction_following"}
+_CONSISTENCY_MODES   = {"gepa_plain_consistency"}
+# Comparative uses a fixed 0.5 neutral baseline — no pre-computation needed.
 
 
 def run_step(shared_evolution_object: SharedEvolutionObjects,
@@ -21,45 +26,50 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              output_dir: Path,
              run_modes: Optional[List[str]],
              console,
-             verbose: bool = False,):
+             verbose: bool = False):
     """Score the baseline skill on holdout for every scoring system that will be used.
 
-    Evaluates the single-score baseline unconditionally.  If any mode in
-    *run_modes* requires multi-objective scoring (currently ``"gepa_plain_rubrics"``),
-    the 5-dimension baseline is also evaluated here so that GEPA runs never
-    need to re-evaluate the baseline themselves.
+    Evaluates the holistic baseline unconditionally.  Additional evaluations
+    are triggered only when a mode in *run_modes* requires them:
+
+    * ``"gepa_plain_rubrics"``               → 5-dimension rubrics baseline
+    * ``"gepa_plain_graph"``                 → graph similarity baseline (no LLM)
+    * ``"gepa_plain_checklist"``             → checklist pass-rate baseline
+    * ``"gepa_plain_instruction_following"`` → instruction-following baseline
+    * ``"gepa_plain_consistency"``           → output consistency baseline (no judge)
 
     Parameters
     ----------
     shared_evolution_object:
         Built by step_01 — contains baseline_module and dataset.
-    skills_root:
-        Root directory that contains the skill sub-directory.
-    model:
-        DSPy model string used for both running the skill and judging.
-    output_dir:
-        Directory where the golden dataset cache is written.
+    skills_root, model, output_dir, console, verbose:
+        Standard demo step params.
     run_modes:
-        List of mode names from config.  Drives whether multi-objective
-        baseline evaluation is performed.  Pass ``None`` / ``[]`` to
-        skip multi evaluation.
-    verbose:
-        ``True`` → show DSPy / Rich INFO logs during evaluation.
+        List of mode names from config.  Drives which baseline evaluations run.
+        Pass ``None`` / ``[]`` to skip non-holistic evaluations.
 
     Returns
     -------
-    (single_score, multi_score, multi_dims)
-        ``single_score``  — composite holdout score in [0, 1] (always computed).
-        ``multi_score``   — equal-weight composite from the multi-objective
-                            judge, or ``None`` when no multi mode was requested.
-        ``multi_dims``    — ``{dim: mean_score}`` from the multi-objective
-                            judge, or ``None`` when no multi mode was requested.
+    (holistic_score, rubrics_score, rubrics_dims, graph_score,
+     checklist_score, instruction_following_score, consistency_score)
+        Non-requested scores are ``None``.
     """
     console.print(f"\n[bold cyan]*** Demo Step 02: Evaluate Baseline Started ***[/bold cyan]")
 
-    needs_rubrics = bool(run_modes and _RUBRIC_MODES.intersection(run_modes))
-    modes_label = "holistic + rubrics" if needs_rubrics else "holistic"
-    _banner(f"① PRE-TRAINING — holdout evaluation ({modes_label})", console=console)
+    modes_set = set(run_modes) if run_modes else set()
+    needs_rubrics               = bool(modes_set & _RUBRIC_MODES)
+    needs_graph                 = bool(modes_set & _GRAPH_MODES)
+    needs_checklist             = bool(modes_set & _CHECKLIST_MODES)
+    needs_instruction_following = bool(modes_set & _IF_MODES)
+    needs_consistency           = bool(modes_set & _CONSISTENCY_MODES)
+
+    parts = ["holistic"]
+    if needs_rubrics:               parts.append("rubrics")
+    if needs_graph:                 parts.append("graph")
+    if needs_checklist:             parts.append("checklist")
+    if needs_instruction_following: parts.append("instruction-following")
+    if needs_consistency:           parts.append("consistency")
+    _banner(f"① PRE-TRAINING — holdout evaluation ({' + '.join(parts)})", console=console)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     evolver_config = EvolverConfig(skills_root=skills_root,
@@ -68,13 +78,19 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    eval_model=model,
                                    verbose=verbose)
 
-    single_score, rubrics_score, rubrics_dims = evaluate_baseline_on_holdout(
+    (single_score, rubrics_score, rubrics_dims, graph_score,
+     checklist_score, instruction_following_score, consistency_score) = evaluate_baseline_on_holdout(
         shared_evolution_object.baseline_module,
         shared_evolution_object.dataset,
         evolver_config,
         console,
         needs_rubrics=needs_rubrics,
+        needs_graph=needs_graph,
+        needs_checklist=needs_checklist,
+        needs_instruction_following=needs_instruction_following,
+        needs_consistency=needs_consistency,
     )
 
     console.print(f"[bold cyan]*** Demo Step 02: Evaluate Baseline Finished ***[/bold cyan]")
-    return single_score, rubrics_score, rubrics_dims
+    return (single_score, rubrics_score, rubrics_dims, graph_score,
+            checklist_score, instruction_following_score, consistency_score)

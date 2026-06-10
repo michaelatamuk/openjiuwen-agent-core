@@ -87,7 +87,9 @@ class Demo:
                                                  verbose=self._config.verbose))
 
         # ── Step 02: Evaluate baseline on holdout (NO training) ───────────────
-        baseline_score_holistic, baseline_score_rubrics, baseline_rubrics_dims = (
+        (baseline_score_holistic, baseline_score_rubrics, baseline_rubrics_dims,
+         baseline_score_graph, baseline_score_checklist,
+         baseline_score_instruction_following, baseline_score_consistency) = (
             step_02_evaluate_baseline(shared_evolution_object=shared_evolution_object,
                                       skills_root=params.skills_root,
                                       model=self._config.model,
@@ -101,6 +103,10 @@ class Demo:
             params,
             baseline_score_holistic=baseline_score_holistic,
             baseline_score_rubrics=baseline_score_rubrics,
+            baseline_score_graph=baseline_score_graph,
+            baseline_score_checklist=baseline_score_checklist,
+            baseline_score_instruction_following=baseline_score_instruction_following,
+            baseline_score_consistency=baseline_score_consistency,
             baseline_dims_rubrics=baseline_rubrics_dims,
             shared_evolution_object=shared_evolution_object,
             console=console,

@@ -12,6 +12,10 @@ class SkillEvolverParams:
                  min_improvement: float = 0.0,
                  prior_baseline_score_holistic: Optional[float] = None,
                  prior_baseline_score_rubrics: Optional[float] = None,
+                 prior_baseline_score_graph: Optional[float] = None,
+                 prior_baseline_score_checklist: Optional[float] = None,
+                 prior_baseline_score_instruction_following: Optional[float] = None,
+                 prior_baseline_score_consistency: Optional[float] = None,
                  prior_baseline_dims_rubrics=None,
                  prior_metrics=None,
                  cached_path=None,
@@ -31,6 +35,10 @@ class SkillEvolverParams:
         self.min_improvement: float = min_improvement
         self.prior_baseline_score_holistic: Optional[float] = prior_baseline_score_holistic
         self.prior_baseline_score_rubrics: Optional[float] = prior_baseline_score_rubrics
+        self.prior_baseline_score_graph: Optional[float] = prior_baseline_score_graph
+        self.prior_baseline_score_checklist: Optional[float] = prior_baseline_score_checklist
+        self.prior_baseline_score_instruction_following: Optional[float] = prior_baseline_score_instruction_following
+        self.prior_baseline_score_consistency: Optional[float] = prior_baseline_score_consistency
         self.prior_baseline_dims_rubrics = prior_baseline_dims_rubrics
         self.prior_metrics = prior_metrics
         self.cached_path = cached_path

@@ -37,6 +37,10 @@ class DemoTrainings:
             shared_evolution_object: SharedEvolutionObjects,
             baseline_score_holistic: float = None,
             baseline_score_rubrics: float = None,
+            baseline_score_graph: float = None,
+            baseline_score_checklist: float = None,
+            baseline_score_instruction_following: float = None,
+            baseline_score_consistency: float = None,
             baseline_dims_rubrics=None,
             console=None,
     ) -> DemoTrainingsResults:
@@ -74,6 +78,10 @@ class DemoTrainings:
                     shared=shared_evolution_object,
                     baseline_score_holistic=baseline_score_holistic,
                     baseline_score_rubrics=baseline_score_rubrics,
+                    baseline_score_graph=baseline_score_graph,
+                    baseline_score_checklist=baseline_score_checklist,
+                    baseline_score_instruction_following=baseline_score_instruction_following,
+                    baseline_score_consistency=baseline_score_consistency,
                     baseline_dims_rubrics=baseline_dims_rubrics,
                     console=console,
                 )
@@ -96,6 +104,10 @@ class DemoTrainings:
         shared: SharedEvolutionObjects,
         baseline_score_holistic: float,
         baseline_score_rubrics: float,
+        baseline_score_graph: float,
+        baseline_score_checklist: float,
+        baseline_score_instruction_following: float,
+        baseline_score_consistency: float,
         baseline_dims_rubrics,
         console,
     ) -> Tuple[List[float], Optional[dict], Path]:
@@ -119,6 +131,10 @@ class DemoTrainings:
                 ts_state_dir=ts_state_dir,
                 baseline_score_holistic=baseline_score_holistic,
                 baseline_score_rubrics=baseline_score_rubrics,
+                baseline_score_graph=baseline_score_graph,
+                baseline_score_checklist=baseline_score_checklist,
+                baseline_score_instruction_following=baseline_score_instruction_following,
+                baseline_score_consistency=baseline_score_consistency,
                 baseline_dims_rubrics=baseline_dims_rubrics,
                 run_index=i,
                 console=console,
@@ -147,6 +163,10 @@ class DemoTrainings:
         ts_state_dir: Path,
         baseline_score_holistic: float,
         baseline_score_rubrics: float,
+        baseline_score_graph: float,
+        baseline_score_checklist: float,
+        baseline_score_instruction_following: float,
+        baseline_score_consistency: float,
         baseline_dims_rubrics,
         run_index: int,
         console,
@@ -181,6 +201,51 @@ class DemoTrainings:
                 scoring_mode="rubrics",
                 baseline_score_rubrics=baseline_score_rubrics,
                 baseline_dims_rubrics=baseline_dims_rubrics,
+            ) or {}
+
+        if mode == "gepa_plain_graph":
+            return step_03_run_gepa_plain(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="graph",
+                baseline_score_graph=baseline_score_graph,
+            ) or {}
+
+        if mode == "gepa_plain_checklist":
+            return step_03_run_gepa_plain(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="checklist",
+                baseline_score_checklist=baseline_score_checklist,
+            ) or {}
+
+        if mode == "gepa_plain_instruction_following":
+            return step_03_run_gepa_plain(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="instruction_following",
+                baseline_score_instruction_following=baseline_score_instruction_following,
+            ) or {}
+
+        if mode == "gepa_plain_consistency":
+            return step_03_run_gepa_plain(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="consistency",
+                baseline_score_consistency=baseline_score_consistency,
+            ) or {}
+
+        if mode == "gepa_plain_comparative":
+            return step_03_run_gepa_plain(
+                **common,
+                iterations=self._config.iterations,
+                baseline_score_holistic=baseline_score_holistic,
+                scoring_mode="comparative",
+                # comparative uses fixed 0.5 neutral baseline — no prior_baseline_score needed
             ) or {}
 
         if mode == "gepa_focused_on_difficulty":

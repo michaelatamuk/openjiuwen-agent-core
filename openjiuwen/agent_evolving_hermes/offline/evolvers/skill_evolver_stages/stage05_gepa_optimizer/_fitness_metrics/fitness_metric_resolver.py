@@ -6,7 +6,11 @@ from typing import Any, Callable, Dict
 from ._fitness_metric_bag_of_words import fitness_metric as fitness_metric_bag_of_words
 from ._fitness_metric_custom import custom_fitness_gepa_signature
 from ._fitness_metric_f1 import fitness_metric as fitness_metric_f1
+from ._fitness_metric_format import fitness_metric as fitness_metric_format
 from ._fitness_metric_graph import fitness_metric as fitness_metric_graph
+from ._fitness_metric_ner import fitness_metric as fitness_metric_ner
+from ._fitness_metric_rouge_l import fitness_metric as fitness_metric_rouge_l
+from ._fitness_metric_semantic import fitness_metric as fitness_metric_semantic
 
 
 def resolve_fitness_metric(name: str,
@@ -27,6 +31,23 @@ def resolve_fitness_metric(name: str,
                             Differentiates responses that use correct concepts
                             in the right relational context vs. scattered
                             keyword matches.
+    ``"rouge_l"``       — ROUGE-L (Longest Common Subsequence F1).
+                            Order-preserving token overlap; penalises responses
+                            that cover required keywords but in a different order.
+                            Useful for procedural / step-by-step skills.
+    ``"semantic"``      — Sentence-transformer cosine similarity
+                            (``all-MiniLM-L6-v2``).  Captures paraphrase and
+                            synonymy that lexical metrics miss.
+                            Requires: ``pip install sentence-transformers``
+    ``"format"``        — Format-compliance marker detection.
+                            Checks whether the response uses the same structural
+                            markers as the rubric (bullet lists, numbered lists,
+                            code fences, Markdown headers, JSON, tables).
+    ``"ner"``           — Named-entity coverage (recall-biased F1).
+                            Extracts entities via spaCy ``en_core_web_sm``;
+                            falls back to capitalised-word heuristic when spaCy
+                            is unavailable.
+                            Requires: ``pip install spacy && python -m spacy download en_core_web_sm``
 
     Custom names
     ------------
@@ -37,12 +58,20 @@ def resolve_fitness_metric(name: str,
     """
     custom_metrics = custom_metrics or {}
 
-    if name in ("f1"):
+    if name in ("f1",):
         return fitness_metric_f1
-    if name in ("bag_of_words"):
+    if name in ("bag_of_words",):
         return fitness_metric_bag_of_words
     if name in ("graph",):
         return fitness_metric_graph
+    if name in ("rouge_l",):
+        return fitness_metric_rouge_l
+    if name in ("semantic",):
+        return fitness_metric_semantic
+    if name in ("format",):
+        return fitness_metric_format
+    if name in ("ner",):
+        return fitness_metric_ner
 
     # Check custom_metrics dict
     if name in custom_metrics:
@@ -63,6 +92,8 @@ def resolve_fitness_metric(name: str,
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Cannot import fitness metric '{name}': {e}") from e
 
-    raise ValueError(f"Unknown fitness metric '{name}'. "
-                     f"Built-ins: 'f1' (stop-word F1), 'bag_of_words' (word-bag), 'graph' (concept-graph). "
-                     f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config.")
+    raise ValueError(
+        f"Unknown fitness metric '{name}'. "
+        f"Built-ins: 'f1', 'bag_of_words', 'graph', 'rouge_l', 'semantic', 'format', 'ner'. "
+        f"For custom metrics pass a dotted import path or add to custom_fitness_metrics config."
+    )

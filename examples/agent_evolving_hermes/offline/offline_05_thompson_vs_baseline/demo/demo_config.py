@@ -6,11 +6,18 @@ from dataclasses import dataclass, field
 from typing import List
 
 # All valid run-mode identifiers, in canonical order.
-ALL_MODES: List[str] = ["gepa_plain_holistic",
-                        "gepa_plain_rubrics",
-                        "gepa_focused_on_difficulty",
-                        "gepa_gated",
-                        "gepa_full",]
+ALL_MODES: List[str] = [
+    "gepa_plain_holistic",
+    "gepa_plain_rubrics",
+    "gepa_plain_graph",
+    "gepa_plain_checklist",
+    "gepa_plain_instruction_following",
+    "gepa_plain_consistency",
+    "gepa_plain_comparative",
+    "gepa_focused_on_difficulty",
+    "gepa_gated",
+    "gepa_full",
+]
 
 
 @dataclass
