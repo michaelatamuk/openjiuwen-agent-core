@@ -5,17 +5,26 @@ For each fitness metric this step:
   2. Runs a plain GEPA pass (step_03_run_gepa_plain) using the wrapped fn.
   3. Collects the per-call log and the run metrics into the matrix dict.
 
+After all per-metric runs complete a cross-evaluation pass scores every unique
+(example, candidate_output) pair seen in any run against ALL metrics, producing
+a flat table suitable for oracle / regression training.
+
 Returns a dict compatible with DemoTrainings' ``mode_scores`` collection:
   {
-      "evolved_score":   float,   # mean evolved_score across all metrics
-      "baseline_score":  float,   # mean baseline_score across all metrics
+      "run_id":          str,    # UUID for this matrix run
+      "evolved_score":   float,  # mean evolved_score across all metrics
+      "baseline_score":  float,  # mean baseline_score across all metrics
       "improvement":     float,
-      "accepted":        bool,    # True if any metric run was accepted
-      "matrix":          dict,    # full scoring matrix (passed to step_matrix_save)
+      "accepted":        bool,   # True if any metric run was accepted
+      "matrix":          dict,   # full scoring matrix (passed to step_matrix_save)
+      "cross_eval":      list,   # cross-metric oracle table
   }
 """
 from __future__ import annotations
 
+import hashlib
+import types
+import uuid
 from pathlib import Path
 from typing import List, Optional
 
@@ -28,6 +37,8 @@ from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stag
 from openjiuwen.agent_evolving_hermes.offline.evolvers.skill_evolver_stages.stage05_gepa_optimizer._fitness_metrics._fitness_metric_logging_wrapper import \
     wrap_metric_for_logging
 
+
+# ── Helper: detect candidate / example boundaries ─────────────────────────────
 
 def _infer_candidate_and_example_idx(call_log: list) -> None:
     """Annotate each call entry with ``candidate_idx`` and ``example_idx``.
@@ -74,6 +85,128 @@ def _infer_candidate_and_example_idx(call_log: list) -> None:
         entry["_batch_size"] = inferred
 
 
+# ── Helper: estimate GEPA iteration per call ──────────────────────────────────
+
+def _infer_gepa_iteration(call_log: list, n_iterations: int) -> None:
+    """Estimate which GEPA generation produced each candidate.
+
+    GEPA runs for *n_iterations* generations.  Without access to its internal
+    state we partition candidates evenly.  The field is tagged
+    ``gepa_iteration`` and should be treated as an estimate.
+    """
+    if not call_log:
+        return
+    if n_iterations <= 0:
+        for entry in call_log:
+            entry["gepa_iteration"] = 0
+        return
+
+    max_candidate = max(e.get("candidate_idx", 0) for e in call_log)
+    n_candidates = max_candidate + 1
+    candidates_per_iter = n_candidates / n_iterations  # float for even spread
+
+    for entry in call_log:
+        cand_idx = entry.get("candidate_idx", 0)
+        entry["gepa_iteration"] = min(
+            int(cand_idx / candidates_per_iter), n_iterations - 1
+        )
+
+
+# ── Helper: cross-metric evaluation pass ──────────────────────────────────────
+
+def _run_cross_eval(
+    matrix: dict,
+    fitness_metrics: List[str],
+    custom_fitness_metrics: dict,
+    console,
+) -> list:
+    """Score every unique (example, candidate_output) pair with ALL metrics.
+
+    Each per-metric GEPA run sees different evolved candidate skill variants.
+    This pass collects the union of all (example, output) pairs observed across
+    all metric runs and evaluates each against every configured metric.
+
+    Returns a list of rows::
+
+        {
+            "example_id":       str,   # sha256[:8] of example_input
+            "example_input":    str,
+            "example_expected": str,
+            "candidate_output": str,
+            "source_metric":    str,   # which metric's GEPA run produced this output
+            "candidate_idx":    int,
+            "gepa_iteration":   int,
+            "scores":           {metric_name: float | None, ...},
+        }
+
+    This table is the primary input for oracle / regression model training:
+    given a candidate output on an example, predict quality across all metrics.
+    """
+    # Collect unique (example_id, output_hash) → row dict
+    unique: dict = {}
+    for metric_name, metric_data in matrix.items():
+        for call in metric_data.get("calls", []):
+            ex_id    = call.get("example_id", "")
+            out_hash = hashlib.sha256(
+                call.get("candidate_output", "").encode("utf-8", errors="replace")
+            ).hexdigest()[:8]
+            key = (ex_id, out_hash)
+            if key not in unique:
+                unique[key] = {
+                    "example_id":       ex_id,
+                    "example_input":    call.get("example_input", ""),
+                    "example_expected": call.get("example_expected", ""),
+                    "candidate_output": call.get("candidate_output", ""),
+                    "source_metric":    metric_name,
+                    "candidate_idx":    call.get("candidate_idx"),
+                    "gepa_iteration":   call.get("gepa_iteration"),
+                    "scores":           {},
+                }
+
+    if not unique:
+        return []
+
+    console.print(
+        f"\n  [dim]Cross-eval: scoring {len(unique)} unique (example, output) pairs"
+        f" × {len(fitness_metrics)} metrics …[/dim]"
+    )
+
+    # Resolve all metric functions once
+    metric_fns: dict = {}
+    for mn in fitness_metrics:
+        try:
+            metric_fns[mn] = resolve_fitness_metric(mn, custom_fitness_metrics)
+        except ValueError:
+            metric_fns[mn] = None
+
+    # Score each unique pair with every metric
+    for row in unique.values():
+        ex_obj   = types.SimpleNamespace(
+            task_input=row["example_input"],
+            expected_behavior=row["example_expected"],
+        )
+        pred_obj = types.SimpleNamespace(output=row["candidate_output"])
+
+        for mn, fn in metric_fns.items():
+            if fn is None:
+                row["scores"][mn] = None
+                continue
+            try:
+                result = fn(ex_obj, pred_obj)
+                if hasattr(result, "score"):
+                    row["scores"][mn] = float(result.score)
+                else:
+                    row["scores"][mn] = float(result)
+            except Exception:  # noqa: BLE001
+                row["scores"][mn] = None
+
+    cross_eval_rows = list(unique.values())
+    console.print(f"  [dim]Cross-eval complete: {len(cross_eval_rows)} rows[/dim]")
+    return cross_eval_rows
+
+
+# ── Main step ─────────────────────────────────────────────────────────────────
+
 def run_step(
     shared_evolution_object: SharedEvolutionObjects,
     fitness_metrics: List[str],
@@ -104,9 +237,12 @@ def run_step(
     -------
     dict
         Summary metrics dict compatible with ``DemoTrainings._run_mode_passes``,
-        with an extra ``"matrix"`` key holding the full per-metric × per-call data.
+        with extra keys ``"matrix"``, ``"cross_eval"``, and ``"run_id"``.
     """
+    run_id = str(uuid.uuid4())
+
     console.print(f"\n[bold cyan]*** Demo Step (Matrix): Run GEPA Scoring Matrix Started ***[/bold cyan]")
+    console.print(f"  Run ID           : {run_id}")
     console.print(f"  Fitness metrics  : {', '.join(fitness_metrics)}")
     console.print(f"  Run index        : {run_index}/{n_runs}")
 
@@ -169,43 +305,59 @@ def run_step(
         # appears again (i.e. the input sequence wraps).
         _infer_candidate_and_example_idx(call_log)
 
+        # Estimate which GEPA generation each candidate belongs to.
+        # Stored as "gepa_iteration" (estimated via even partition).
+        _infer_gepa_iteration(call_log, iterations)
+
         n_examples = len(shared_evolution_object.trainset)
         inferred_batch_size = call_log[0].get("_batch_size", 1) if call_log else 0
         n_candidates = max((e["candidate_idx"] for e in call_log), default=-1) + 1 if call_log else 0
 
         matrix[metric_name] = {
-            "baseline_score": m.get("baseline_score") if m else None,
-            "evolved_score": m.get("evolved_score") if m else None,
-            "improvement": m.get("improvement") if m else None,
-            "accepted": m.get("accepted", False) if m else False,
+            "baseline_score":      m.get("baseline_score") if m else None,
+            "evolved_score":       m.get("evolved_score") if m else None,
+            "improvement":         m.get("improvement") if m else None,
+            "accepted":            m.get("accepted", False) if m else False,
             "n_examples_trainset": n_examples,
             "n_examples_per_candidate": inferred_batch_size,
-            "n_candidates": n_candidates,
-            "calls": call_log,
+            "n_candidates":        n_candidates,
+            # Skill texts — present in the return dict from output_saver (not on disk metrics.json)
+            "baseline_skill_text": m.get("baseline_skill_text") if m else None,
+            "evolved_skill_text":  m.get("evolved_skill_text") if m else None,
+            "calls":               call_log,
         }
 
-    # ── Summary metrics for DemoTrainings integration ─────────────────────
-    evolved_scores = [v["evolved_score"] for v in matrix.values() if v.get("evolved_score") is not None]
-    baseline_scores = [v["baseline_score"] for v in matrix.values() if v.get("baseline_score") is not None]
-    any_accepted = any(v.get("accepted", False) for v in matrix.values())
+    # ── Cross-metric evaluation pass ───────────────────────────────────────
+    # Score every unique (example, output) pair from ALL metric runs against
+    # ALL metrics, producing the oracle training table.
+    cross_eval = _run_cross_eval(matrix, fitness_metrics, custom_fitness_metrics, console)
 
-    mean_evolved = sum(evolved_scores) / len(evolved_scores) if evolved_scores else 0.0
+    # ── Summary metrics for DemoTrainings integration ─────────────────────
+    evolved_scores  = [v["evolved_score"]  for v in matrix.values() if v.get("evolved_score")  is not None]
+    baseline_scores = [v["baseline_score"] for v in matrix.values() if v.get("baseline_score") is not None]
+    any_accepted    = any(v.get("accepted", False) for v in matrix.values())
+
+    mean_evolved  = sum(evolved_scores)  / len(evolved_scores)  if evolved_scores  else 0.0
     mean_baseline = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0.0
 
     summary = {
-        "evolved_score": mean_evolved,
+        "run_id":         run_id,
+        "evolved_score":  mean_evolved,
         "baseline_score": mean_baseline,
-        "improvement": mean_evolved - mean_baseline,
-        "accepted": any_accepted,
-        "matrix": matrix,
+        "improvement":    mean_evolved - mean_baseline,
+        "accepted":       any_accepted,
+        "matrix":         matrix,
+        "cross_eval":     cross_eval,
         "fitness_metrics": fitness_metrics,
     }
 
     total_calls = sum(len(v["calls"]) for v in matrix.values())
     console.print(f"\n[bold cyan]*** Demo Step (Matrix): GEPA Scoring Matrix Finished ***[/bold cyan]")
+    console.print(f"  Run ID           : {run_id}")
     console.print(f"  Metrics run      : {len(matrix)}")
     console.print(f"  Mean evolved     : {mean_evolved:.4f}")
     console.print(f"  Total calls logged: {total_calls}")
+    console.print(f"  Cross-eval rows  : {len(cross_eval)}")
     for mn, mv in matrix.items():
         n_calls = len(mv.get("calls", []))
         n_cands = mv.get("n_candidates", "?")

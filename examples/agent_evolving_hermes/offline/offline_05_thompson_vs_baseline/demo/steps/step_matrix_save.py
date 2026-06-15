@@ -52,6 +52,7 @@ def run_step(
     tmp_path = out_path.with_suffix(".json.tmp")
 
     payload = {
+        "run_id": matrix_summary.get("run_id"),
         "skill_name": skill_name,
         "timestamp": datetime.now().isoformat(),
         "model": model,
@@ -63,6 +64,7 @@ def run_step(
             "accepted": matrix_summary.get("accepted"),
         },
         "matrix": matrix_summary.get("matrix", {}),
+        "cross_eval": matrix_summary.get("cross_eval", []),
     }
 
     try:
@@ -75,8 +77,10 @@ def run_step(
         raise
 
     total_calls = sum(len(v.get("calls", [])) for v in payload["matrix"].values())
+    n_cross = len(payload.get("cross_eval", []))
     console.print(f"\n  [green]✓ Scoring matrix saved:[/green] {out_path}")
-    console.print(f"    {len(payload['matrix'])} metric(s)  ·  {total_calls} total calls logged")
+    console.print(f"    {len(payload['matrix'])} metric(s)  ·  {total_calls} calls logged"
+                  f"  ·  {n_cross} cross-eval rows")
 
     analyze(out_path)
 

@@ -6,7 +6,13 @@ the GEPA optimizer sees exactly the same signal.
 """
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Callable, List
+
+
+def _example_id(text: str) -> str:
+    """8-char hex prefix of SHA-256 of *text* — stable key for grouping examples."""
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:8]
 
 
 def wrap_metric_for_logging(metric_fn: Callable, call_log: List[dict]) -> Callable:
@@ -19,7 +25,7 @@ def wrap_metric_for_logging(metric_fn: Callable, call_log: List[dict]) -> Callab
         ``(example, prediction, trace=None, pred_name=None, pred_trace=None)``.
     call_log:
         A mutable list.  One dict is appended per invocation:
-        ``{call_idx, example_input, example_expected, candidate_output, score, feedback}``.
+        ``{call_idx, example_id, example_input, example_expected, candidate_output, score, feedback}``.
 
     Returns
     -------
@@ -44,9 +50,11 @@ def wrap_metric_for_logging(metric_fn: Callable, call_log: List[dict]) -> Callab
                 score = 0.0
             feedback = None
 
+        ex_input = getattr(example, "task_input", "")
         call_log.append({
             "call_idx": call_idx[0],
-            "example_input": getattr(example, "task_input", ""),
+            "example_id": _example_id(ex_input),
+            "example_input": ex_input,
             "example_expected": getattr(example, "expected_behavior", ""),
             "candidate_output": getattr(prediction, "output", str(prediction)),
             "score": score,

@@ -70,6 +70,12 @@ def save_outputs(skill_name: str,
                       f"{config.output_dir / skill_name / 'metrics_history.jsonl'}[/dim]")
 
     console.print("[blue]~~~ Evolving Stage 09 - Output Save Finished ~~~[/blue]")
+
+    # Add full skill texts to the in-memory return dict only (not written to metrics.json
+    # since they can be large — they live in baseline_skill.md / evolved_skill.md on disk).
+    metrics["baseline_skill_text"] = skill_raw
+    metrics["evolved_skill_text"] = evolved_text
+
     return metrics
 
 
