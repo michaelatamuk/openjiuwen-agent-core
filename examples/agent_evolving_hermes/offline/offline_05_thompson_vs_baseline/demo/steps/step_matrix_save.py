@@ -57,6 +57,7 @@ def run_step(
         "timestamp": datetime.now().isoformat(),
         "model": model,
         "fitness_metrics": matrix_summary.get("fitness_metrics", []),
+        "skill_metadata": matrix_summary.get("skill_metadata", {}),
         "summary": {
             "evolved_score": matrix_summary.get("evolved_score"),
             "baseline_score": matrix_summary.get("baseline_score"),

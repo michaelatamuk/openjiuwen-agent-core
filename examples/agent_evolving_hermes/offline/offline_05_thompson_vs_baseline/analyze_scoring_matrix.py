@@ -82,11 +82,27 @@ def build_cross_eval_df(data: dict) -> pd.DataFrame:
 # ── Print sections ────────────────────────────────────────────────────────────
 
 def print_header(data: dict, path: Path) -> None:
-    s = data["summary"]
+    s  = data["summary"]
+    sm = data.get("skill_metadata") or {}
     print("=" * 90)
     print(f"  Scoring Matrix Analysis")
     print(f"  Run ID  : {data.get('run_id', 'n/a')}")
     print(f"  Skill   : {data['skill_name']}")
+    if sm.get("description"):
+        print(f"  Desc    : {_truncate(sm['description'], 80)}")
+    if sm:
+        n_train   = sm.get("n_examples_trainset", "?")
+        n_val     = sm.get("n_examples_valset", "?")
+        n_holdout = sm.get("n_examples_holdout")
+        holdout_s = f"  holdout={n_holdout}" if n_holdout is not None else ""
+        print(f"  Dataset : train={n_train}  val={n_val}{holdout_s}")
+        b_chars = sm.get("baseline_skill_chars")
+        body_chars = sm.get("baseline_skill_body_chars")
+        if b_chars is not None:
+            print(f"  Skill   : {b_chars} chars total  ({body_chars} body)")
+        extra = sm.get("frontmatter_extra") or {}
+        if extra:
+            print(f"  FM extra: {extra}")
     print(f"  Model   : {data['model']}")
     print(f"  File    : {path.name}")
     print(f"  Metrics : {', '.join(data['fitness_metrics'])}")

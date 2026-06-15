@@ -205,6 +205,53 @@ def _run_cross_eval(
     return cross_eval_rows
 
 
+# ── Helper: build skill metadata dict ────────────────────────────────────────
+
+def _build_skill_metadata(shared_evolution_object: SharedEvolutionObjects) -> dict:
+    """Extract stable, oracle-relevant metadata about the skill being evolved.
+
+    Fields
+    ------
+    name                  : skill name from frontmatter
+    description           : skill description from frontmatter
+    n_examples_trainset   : size of the DSPy trainset
+    n_examples_valset     : size of the DSPy valset
+    n_examples_holdout    : holdout set size (None if not accessible)
+    baseline_skill_chars  : total character count of the raw SKILL.md
+    baseline_skill_body_chars : character count of the skill body (instructions only)
+    frontmatter_extra     : all frontmatter keys other than name/description
+    """
+    skill = shared_evolution_object.skill
+    fm: dict = skill.get("frontmatter") or {}
+
+    # Holdout count — EvalDataset may expose it via different attributes
+    n_holdout = None
+    dataset = shared_evolution_object.dataset
+    for attr in ("holdout", "holdout_set", "test", "testset"):
+        candidate = getattr(dataset, attr, None)
+        if candidate is not None:
+            try:
+                n_holdout = len(candidate)
+                break
+            except TypeError:
+                pass
+
+    # Extra frontmatter fields (anything beyond the two required ones)
+    standard_keys = {"name", "description"}
+    frontmatter_extra = {k: v for k, v in fm.items() if k not in standard_keys}
+
+    return {
+        "name":                    skill.get("name", ""),
+        "description":             skill.get("description", ""),
+        "n_examples_trainset":     len(shared_evolution_object.trainset),
+        "n_examples_valset":       len(shared_evolution_object.valset),
+        "n_examples_holdout":      n_holdout,
+        "baseline_skill_chars":    len(skill.get("raw", "")),
+        "baseline_skill_body_chars": len(skill.get("body", "")),
+        "frontmatter_extra":       frontmatter_extra,
+    }
+
+
 # ── Main step ─────────────────────────────────────────────────────────────────
 
 def run_step(
@@ -240,9 +287,11 @@ def run_step(
         with extra keys ``"matrix"``, ``"cross_eval"``, and ``"run_id"``.
     """
     run_id = str(uuid.uuid4())
+    skill_metadata = _build_skill_metadata(shared_evolution_object)
 
     console.print(f"\n[bold cyan]*** Demo Step (Matrix): Run GEPA Scoring Matrix Started ***[/bold cyan]")
     console.print(f"  Run ID           : {run_id}")
+    console.print(f"  Skill            : {skill_metadata['name']}")
     console.print(f"  Fitness metrics  : {', '.join(fitness_metrics)}")
     console.print(f"  Run index        : {run_index}/{n_runs}")
 
@@ -341,13 +390,14 @@ def run_step(
     mean_baseline = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0.0
 
     summary = {
-        "run_id":         run_id,
-        "evolved_score":  mean_evolved,
-        "baseline_score": mean_baseline,
-        "improvement":    mean_evolved - mean_baseline,
-        "accepted":       any_accepted,
-        "matrix":         matrix,
-        "cross_eval":     cross_eval,
+        "run_id":          run_id,
+        "skill_metadata":  skill_metadata,
+        "evolved_score":   mean_evolved,
+        "baseline_score":  mean_baseline,
+        "improvement":     mean_evolved - mean_baseline,
+        "accepted":        any_accepted,
+        "matrix":          matrix,
+        "cross_eval":      cross_eval,
         "fitness_metrics": fitness_metrics,
     }
 
