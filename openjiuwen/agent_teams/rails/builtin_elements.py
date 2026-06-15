@@ -43,6 +43,7 @@ from openjiuwen.harness.rails.interrupt.confirm_rail import ConfirmInterruptRail
 from openjiuwen.harness.rails.sys_operation_rail import SysOperationRail
 from openjiuwen.harness.schema.config import AudioModelConfig, VisionModelConfig
 from openjiuwen.harness.tools import (
+    AudioMetadataTool,
     WebFetchWebpageTool,
     WebFreeSearchTool,
     WebPaidSearchTool,
@@ -73,6 +74,7 @@ WEB_FETCH = "core.web_fetch"
 WEB_PAID_SEARCH = "core.web_paid_search"
 VISION = "core.vision"
 AUDIO = "core.audio"
+OBSERVABILITY = "core.observability"
 
 
 def _build_skill_use_rail(params: dict[str, Any], context: Any) -> SkillUseRail:
@@ -282,39 +284,63 @@ class AudioToolsInput(ConstructionInput):
     )
     audio_model_config: dict[str, Any] = param_field(
         default_factory=dict,
-        description="AudioModelConfig kwargs; empty keeps only audio_metadata.",
+        description="AudioModelConfig kwargs; empty keeps audio_metadata only.",
     )
 
 
 def _build_audio_tool_group(params: dict[str, Any], context: Any) -> list[Any]:
     """Build the audio tool group from a supplied AudioModelConfig.
 
-    When a dedicated audio model is configured but the full config is incomplete,
-    only ``audio_metadata`` is kept (mirrors the legacy degraded fallback).
+    ``audio_metadata`` does not need a large model, so it is always available.
+    Speech transcription and audio question-answering are added only when a
+    complete audio model config is supplied.
 
     Args:
         params: Spec params carrying ``dedicated`` and ``audio_model_config``.
         context: Per-member build context; supplies ``language`` / ``agent_id``.
 
     Returns:
-        The audio tools (full set, metadata-only, or empty).
+        The audio tools: metadata-only without model config, full set with one.
     """
     inp = AudioToolsInput.resolve(params, context)
-    if not inp.dedicated:
-        return []
-    config = (
-        AudioModelConfig(**inp.audio_model_config) if inp.audio_model_config else None
-    )
-    tools = list(
+    if not inp.dedicated or not inp.audio_model_config:
+        return [
+            AudioMetadataTool(
+                language=inp.language,
+                audio_model_config=AudioModelConfig(),
+                agent_id=inp.agent_id,
+            )
+        ]
+    config = AudioModelConfig(**inp.audio_model_config)
+    return list(
         create_audio_tools(
             language=inp.language,
             audio_model_config=config,
             agent_id=inp.agent_id,
         )
     )
-    if config is None:
-        return [tool for tool in tools if tool.card.name == "audio_metadata"]
-    return tools
+
+
+def _build_observability_rail(params: dict[str, Any], context: Any) -> Any:
+    """Build an ObservabilityRail when observability is initialized.
+
+    Returns ``None`` when observability is not initialized, making this a
+    safe unconditional addition to any spec's ``rails`` list — the provider
+    handles the on/off logic itself.
+
+    Args:
+        params: Spec params (unused).
+        context: Per-member build context (unused).
+
+    Returns:
+        An ``ObservabilityRail``, or ``None`` when observability is disabled.
+    """
+    from openjiuwen.agent_teams.observability.setup import is_initialized
+
+    if not is_initialized():
+        return None
+    from openjiuwen.agent_teams.observability import ObservabilityRail
+    return ObservabilityRail()
 
 
 harness_element(
@@ -427,6 +453,12 @@ harness_element(
     input_model=AudioToolsInput,
     builder=_build_audio_tool_group,
 )
+harness_element(
+    kind=ElementKind.RAIL,
+    name=OBSERVABILITY,
+    description="Creates per-iteration agent spans for observability tracing.",
+    builder=_build_observability_rail,
+)
 
 
 __all__ = [
@@ -447,4 +479,5 @@ __all__ = [
     "WEB_PAID_SEARCH",
     "VISION",
     "AUDIO",
+    "OBSERVABILITY",
 ]
