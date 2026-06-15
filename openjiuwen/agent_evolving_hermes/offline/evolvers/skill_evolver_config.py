@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 @dataclass
@@ -72,6 +72,9 @@ class EvolverConfig:
     # Custom: dotted import path ("pkg.module.fn") or a key in custom_fitness_metrics.
     fitness_metric: str = "bag_of_words"
     custom_fitness_metrics: Dict[str, Any] = field(default_factory=dict)
+    # Optional pre-resolved callable that bypasses the resolver entirely.
+    # Set by the scoring-matrix mode to inject a logging-wrapped metric fn.
+    fitness_metric_fn_override: Optional[Callable] = field(default=None, repr=False)
 
     # ── Verbosity ─────────────────────────────────────────────────────────────
     verbose: bool = False                          # True = show DSPy INFO training logs

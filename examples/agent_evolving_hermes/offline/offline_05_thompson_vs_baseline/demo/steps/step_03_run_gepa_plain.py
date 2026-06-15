@@ -29,7 +29,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
              baseline_score_checklist=None,
              baseline_score_instruction_following=None,
              baseline_score_consistency=None,
-             fitness_metric: str = "bag_of_words"):
+             fitness_metric: str = "bag_of_words",
+             fitness_metric_fn_override=None):
     console.print(f"\n[bold cyan]*** Demo Step 03: Run GEPA Plain Started ***[/bold cyan]")
 
     _banner(f"② GEPA - Plain", run_index=run_index, n_runs=n_runs, console=console)
@@ -51,7 +52,8 @@ def run_step(shared_evolution_object: SharedEvolutionObjects,
                                    ts_example_selector=False,
                                    ts_acceptance_gate=False,
                                    scoring_mode=scoring_mode,
-                                   fitness_metric=fitness_metric)
+                                   fitness_metric=fitness_metric,
+                                   fitness_metric_fn_override=fitness_metric_fn_override)
 
     params: SkillEvolverParams = SkillEvolverParams(skill_name,
                                                     "golden",

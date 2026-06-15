@@ -14,6 +14,7 @@ ALL_MODES: List[str] = [
     "gepa_plain_instruction_following",
     "gepa_plain_consistency",
     "gepa_plain_comparative",
+    "gepa_scoring_matrix",
     "gepa_focused_on_difficulty",
     "gepa_gated",
     "gepa_full",

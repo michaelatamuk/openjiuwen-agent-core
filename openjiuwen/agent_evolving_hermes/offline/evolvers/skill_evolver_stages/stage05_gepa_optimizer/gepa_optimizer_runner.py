@@ -32,8 +32,12 @@ def run_gepa_optimization(baseline_module: SkillModule,
     console.print("\n[blue]~~~ Evolving Stage 05 - GEPA Optimization Run Started ~~~[/blue]")
 
     # ── Resolve fitness metric callable ───────────────────────────────────────
-    fitness_metric_fn = resolve_fitness_metric(getattr(config, "fitness_metric", "bag_of_words"),
-                                               getattr(config, "custom_fitness_metrics", {}))
+    _fn_override = getattr(config, "fitness_metric_fn_override", None)
+    if _fn_override is not None:
+        fitness_metric_fn = _fn_override
+    else:
+        fitness_metric_fn = resolve_fitness_metric(getattr(config, "fitness_metric", "bag_of_words"),
+                                                   getattr(config, "custom_fitness_metrics", {}))
 
     # ── Level 2: select training examples via factory ─────────────────────────
     examples_selector = make_example_selector(trainset, skill_name, config)

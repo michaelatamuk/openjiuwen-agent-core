@@ -19,6 +19,10 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo
     SharedEvolutionObjects
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_03_run_gepa_plain import \
     run_step as step_03_run_gepa_plain
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_matrix_run_gepa import \
+    run_step as step_matrix_run_gepa
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_matrix_save import \
+    run_step as step_matrix_save
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_04_run_gepa_focused_on_difficulty import \
     run_step as _step_focused
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.demo.steps.step_05_run_gepa_gated import \
@@ -65,6 +69,67 @@ class DemoTrainings:
         metrics: Dict[str, Optional[dict]] = {}
 
         for mode in self._config.run_modes:
+            # ── gepa_scoring_matrix: handles all metrics internally ────────────
+            if mode == "gepa_scoring_matrix":
+                run_key = mode
+                output_base = f"output_{mode}"
+                _mode_scores: List[float] = []
+                _last_metrics: Optional[dict] = None
+                _last_out: Path = params.workdir / output_base
+
+                _t_start = time.monotonic()
+                for i in range(1, self._config.n_runs + 1):
+                    _out_dir = self._out(params, output_base, i)
+                    self._step_restore_baseline_skill(params)
+
+                    _m = step_matrix_run_gepa(
+                        shared_evolution_object=shared_evolution_object,
+                        fitness_metrics=fitness_metrics,
+                        skills_root=params.skills_root,
+                        skill_name=params.skill_name,
+                        model=self._config.model,
+                        iterations=self._config.iterations,
+                        output_dir=_out_dir,
+                        console=console,
+                        verbose=self._config.verbose,
+                        baseline_score_holistic=baseline_score_holistic,
+                        baseline_score_rubrics=baseline_score_rubrics,
+                        baseline_dims_rubrics=baseline_dims_rubrics,
+                        baseline_score_graph=baseline_score_graph,
+                        baseline_score_checklist=baseline_score_checklist,
+                        baseline_score_instruction_following=baseline_score_instruction_following,
+                        baseline_score_consistency=baseline_score_consistency,
+                        run_index=i,
+                        n_runs=self._config.n_runs,
+                    ) or {}
+
+                    step_matrix_save(
+                        matrix_summary=_m,
+                        skill_name=params.skill_name,
+                        output_dir=_out_dir,
+                        model=self._config.model,
+                        console=console,
+                    )
+
+                    _mode_scores.append(_m.get("evolved_score", 0.0))
+                    _last_metrics = _m
+                    _last_out = _out_dir
+
+                _elapsed = time.monotonic() - _t_start
+                _label = run_key_label(run_key)
+                if len(_mode_scores) > 1:
+                    print_mode_summary(_label, baseline_score_holistic, _mode_scores,
+                                       elapsed_sec=_elapsed, console=console)
+                else:
+                    print_mode_timing(_label, _elapsed, console=console)
+
+                if _mode_scores:
+                    scores[run_key] = _mode_scores
+                    metrics[run_key] = _last_metrics
+                    runs.append((run_key, _last_out))
+                continue
+            # ──────────────────────────────────────────────────────────────────
+
             for metric in fitness_metrics:
                 run_key = f"{mode}__{metric}" if multi_metric else mode
                 output_base = f"output_{run_key}"
