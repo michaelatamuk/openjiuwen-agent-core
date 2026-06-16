@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 # All valid run-mode identifiers, in canonical order.
 ALL_MODES: List[str] = [
@@ -70,6 +70,13 @@ class DemoConfig:
         ``"examples.agent_evolving_hermes.offline.custom_fitness_metric_tech_keywords.tech_keyword_fitness_metric"``).
         When multiple values are given each mode runs once per metric, producing
         independent output directories (e.g. ``output_gepa_plain_holistic__jiuwen``).
+    oracle_data_dir:
+        Persistent directory where every ``scoring_matrix_*.json`` produced by
+        ``gepa_scoring_matrix`` mode is also copied.  All skills accumulate here
+        across runs, enabling ``build_oracle_dataset.py`` to aggregate them into
+        a single oracle training table.  Supports ``~`` expansion.
+        ``None`` (default) disables the copy — matrices are only saved in the
+        per-run temp workdir.
     """
 
     scenario_names: List[str]
@@ -83,3 +90,4 @@ class DemoConfig:
     verbose: bool = False
     print_skill_diff: bool = False
     fitness_metrics: List[str] = field(default_factory=lambda: ["bag_of_words"])
+    oracle_data_dir: Optional[str] = None

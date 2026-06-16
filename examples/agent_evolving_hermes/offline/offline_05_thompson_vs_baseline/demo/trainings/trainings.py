@@ -109,6 +109,7 @@ class DemoTrainings:
                         output_dir=_out_dir,
                         model=self._config.model,
                         console=console,
+                        oracle_data_dir=getattr(self._config, "oracle_data_dir", None),
                     )
 
                     _mode_scores.append(_m.get("evolved_score", 0.0))

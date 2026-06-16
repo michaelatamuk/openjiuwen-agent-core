@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.analyze_scoring_matrix import (
     analyze,
@@ -21,6 +23,7 @@ def run_step(
     output_dir: Path,
     model: str,
     console,
+    oracle_data_dir: Optional[str] = None,
 ) -> Path:
     """Serialise *matrix_summary* to ``scoring_matrix_<timestamp>.json``.
 
@@ -84,6 +87,14 @@ def run_step(
                   f"  ·  {n_cross} cross-eval rows")
 
     analyze(out_path)
+
+    # ── Copy to persistent oracle data dir ────────────────────────────────
+    if oracle_data_dir:
+        oracle_dir = Path(oracle_data_dir).expanduser()
+        oracle_dir.mkdir(parents=True, exist_ok=True)
+        oracle_dest = oracle_dir / out_path.name
+        shutil.copy2(out_path, oracle_dest)
+        console.print(f"  [dim]✓ Oracle copy → {oracle_dest}[/dim]")
 
     return out_path
 
