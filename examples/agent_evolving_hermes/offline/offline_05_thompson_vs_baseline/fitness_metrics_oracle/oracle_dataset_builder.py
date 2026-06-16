@@ -1,21 +1,3 @@
-"""Aggregate all scoring_matrix_*.json files from oracle_data_dir into
-a single oracle training dataset.
-
-Usage
------
-    # Use the default oracle dir (~/.openjiuwen/oracle):
-    python build_oracle_dataset.py
-
-    # Explicit dir:
-    python build_oracle_dataset.py ~/.openjiuwen/oracle
-
-    # Dry-run (print only, no CSV written):
-    python build_oracle_dataset.py --dry-run
-
-Output files (written to oracle_data_dir):
-    oracle_labels.csv      — one row per (run × metric), oracle training table
-    oracle_cross_eval.csv  — flat cross-eval rows across all runs
-"""
 from __future__ import annotations
 
 import json
@@ -30,19 +12,16 @@ pd.set_option("display.max_columns", None)
 pd.set_option("display.width", 160)
 pd.set_option("display.float_format", "{:.4f}".format)
 
-DEFAULT_ORACLE_DIR = Path("~/.openjiuwen/oracle").expanduser()
-
-
 # ── Load & scan ───────────────────────────────────────────────────────────────
 
-def find_matrix_files(oracle_dir: Path) -> list[Path]:
+def _find_matrix_files(oracle_dir: Path) -> list[Path]:
     files = sorted(oracle_dir.glob("scoring_matrix_*.json"))
     if not files:
         sys.exit(f"No scoring_matrix_*.json found in {oracle_dir}")
     return files
 
 
-def load(path: Path) -> dict:
+def _load(path: Path) -> dict:
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -93,7 +72,7 @@ def _cross_metric_corr(cross_eval: list, metric: str, all_metrics: list) -> Opti
 
 # ── Build oracle_labels table ─────────────────────────────────────────────────
 
-def build_oracle_labels(files: list[Path]) -> pd.DataFrame:
+def _build_oracle_labels(files: list[Path]) -> pd.DataFrame:
     """One row per (run_id, metric). Oracle training table.
 
     Features
@@ -114,7 +93,7 @@ def build_oracle_labels(files: list[Path]) -> pd.DataFrame:
 
     for path in files:
         try:
-            data = load(path)
+            data = _load(path)
         except Exception as exc:
             print(f"  [WARN] Cannot load {path.name}: {exc}")
             continue
@@ -180,7 +159,7 @@ def build_oracle_labels(files: list[Path]) -> pd.DataFrame:
 
 # ── Build oracle_cross_eval table ─────────────────────────────────────────────
 
-def build_oracle_cross_eval(files: list[Path]) -> pd.DataFrame:
+def _build_oracle_cross_eval(files: list[Path]) -> pd.DataFrame:
     """Flat table of all cross_eval rows across all runs.
 
     Each row is one unique (run_id, example_id, candidate_output) triple
@@ -190,7 +169,7 @@ def build_oracle_cross_eval(files: list[Path]) -> pd.DataFrame:
 
     for path in files:
         try:
-            data = load(path)
+            data = _load(path)
         except Exception:
             continue
 
@@ -218,7 +197,7 @@ def build_oracle_cross_eval(files: list[Path]) -> pd.DataFrame:
 
 # ── Print summary ─────────────────────────────────────────────────────────────
 
-def print_summary(labels: pd.DataFrame, cross_eval: pd.DataFrame, oracle_dir: Path) -> None:
+def _print_summary(labels: pd.DataFrame, cross_eval: pd.DataFrame, oracle_dir: Path) -> None:
     n_runs   = labels["run_id"].nunique()
     n_skills = labels["skill_name"].nunique()
     n_rows   = len(labels)
@@ -262,13 +241,13 @@ def print_summary(labels: pd.DataFrame, cross_eval: pd.DataFrame, oracle_dir: Pa
 def build(oracle_dir: Path, dry_run: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load all matrix files and return (oracle_labels_df, cross_eval_df)."""
     print(f"\nScanning: {oracle_dir}")
-    files = find_matrix_files(oracle_dir)
+    files = _find_matrix_files(oracle_dir)
     print(f"Found {len(files)} matrix file(s):\n  " + "\n  ".join(f.name for f in files))
 
-    labels    = build_oracle_labels(files)
-    cross_eval = build_oracle_cross_eval(files)
+    labels    = _build_oracle_labels(files)
+    cross_eval = _build_oracle_cross_eval(files)
 
-    print_summary(labels, cross_eval, oracle_dir)
+    _print_summary(labels, cross_eval, oracle_dir)
 
     if not dry_run and not labels.empty:
         labels_path    = oracle_dir / "oracle_labels.csv"
@@ -279,19 +258,3 @@ def build(oracle_dir: Path, dry_run: bool = False) -> tuple[pd.DataFrame, pd.Dat
         print(f"  Saved: {cross_eval_path}")
 
     return labels, cross_eval
-
-
-def main() -> None:
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    dry_run = "--dry-run" in sys.argv
-
-    oracle_dir = Path(args[0]).expanduser() if args else DEFAULT_ORACLE_DIR
-    if not oracle_dir.exists():
-        sys.exit(f"Oracle dir not found: {oracle_dir}\n"
-                 f"Run gepa_scoring_matrix mode first with oracle_data_dir set in config.json.")
-
-    build(oracle_dir, dry_run=dry_run)
-
-
-if __name__ == "__main__":
-    main()
