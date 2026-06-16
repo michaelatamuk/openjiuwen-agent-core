@@ -205,6 +205,191 @@ def _run_cross_eval(
     return cross_eval_rows
 
 
+# ── Helper: find best candidate idx in a call log ────────────────────────────
+
+def _get_best_candidate_idx(call_log: list) -> int:
+    """Return the candidate_idx with the highest mean score.
+
+    Used as a proxy for the evolved/selected skill — GEPA does not expose
+    which candidate it ultimately returned, so we pick the one that scored
+    best on the training mini-batches.
+    """
+    from collections import defaultdict
+    scores_by_cand: dict = defaultdict(list)
+    for entry in call_log:
+        cand_idx = entry.get("candidate_idx", 0)
+        score    = entry.get("score")
+        if score is not None:
+            scores_by_cand[cand_idx].append(float(score))
+    if not scores_by_cand:
+        return 0
+    return max(
+        scores_by_cand,
+        key=lambda k: sum(scores_by_cand[k]) / len(scores_by_cand[k]),
+    )
+
+
+# ── Helper: baseline cross-eval ───────────────────────────────────────────────
+
+def _run_baseline_cross_eval(
+    matrix: dict,
+    fitness_metrics: List[str],
+    custom_fitness_metrics: dict,
+    console,
+) -> list:
+    """Score the unchanged baseline skill's outputs against ALL metrics.
+
+    GEPA evaluates the seed skill on the full training set before any mutation
+    (``candidate_idx == 0``).  We take those outputs from the first available
+    metric's log (they are the same for all metrics since the same skill and
+    LLM are used) and score them against every configured metric, giving one
+    row per training example.
+
+    Returns::
+
+        [{"example_id", "example_input", "example_expected",
+          "candidate_output", "scores": {metric: float|None}}, ...]
+    """
+    baseline_calls: list = []
+    for _mn, metric_data in matrix.items():
+        baseline_calls = [
+            c for c in metric_data.get("calls", [])
+            if c.get("candidate_idx", 1) == 0
+        ]
+        if baseline_calls:
+            break
+
+    if not baseline_calls:
+        console.print("  [dim]Baseline cross-eval: no candidate_idx=0 calls found — skipped[/dim]")
+        return []
+
+    console.print(
+        f"\n  [dim]Baseline cross-eval: {len(baseline_calls)} examples"
+        f" × {len(fitness_metrics)} metrics …[/dim]"
+    )
+
+    metric_fns: dict = {}
+    for mn in fitness_metrics:
+        try:
+            metric_fns[mn] = resolve_fitness_metric(mn, custom_fitness_metrics)
+        except ValueError:
+            metric_fns[mn] = None
+
+    rows = []
+    for call in baseline_calls:
+        ex_obj   = types.SimpleNamespace(
+            task_input=call.get("example_input", ""),
+            expected_behavior=call.get("example_expected", ""),
+        )
+        pred_obj = types.SimpleNamespace(output=call.get("candidate_output", ""))
+        scores: dict = {}
+        for mn, fn in metric_fns.items():
+            if fn is None:
+                scores[mn] = None
+                continue
+            try:
+                result = fn(ex_obj, pred_obj)
+                scores[mn] = float(result.score) if hasattr(result, "score") else float(result)
+            except Exception:  # noqa: BLE001
+                scores[mn] = None
+        rows.append({
+            "example_id":       call.get("example_id", ""),
+            "example_input":    call.get("example_input", ""),
+            "example_expected": call.get("example_expected", ""),
+            "candidate_output": call.get("candidate_output", ""),
+            "scores":           scores,
+        })
+
+    console.print(f"  [dim]Baseline cross-eval complete: {len(rows)} rows[/dim]")
+    return rows
+
+
+# ── Helper: evolved cross-eval ────────────────────────────────────────────────
+
+def _run_evolved_cross_eval(
+    matrix: dict,
+    fitness_metrics: List[str],
+    custom_fitness_metrics: dict,
+    console,
+) -> list:
+    """Score each metric's best-performing (evolved) candidate against ALL metrics.
+
+    For each metric's GEPA run the candidate with the highest mean training
+    score is treated as the "evolved skill" (proxy, since GEPA does not expose
+    which candidate it selected).  Its per-example outputs are collected and
+    scored against every metric.  ``best_candidate_idx`` is also written back
+    to the matrix entry.
+
+    Returns::
+
+        [{"example_id", "example_input", "example_expected",
+          "candidate_output", "source_metric",
+          "scores": {metric: float|None}}, ...]
+    """
+    unique: dict = {}  # (example_id, out_hash) → row
+
+    for metric_name, metric_data in matrix.items():
+        call_log = metric_data.get("calls", [])
+        if not call_log:
+            continue
+        best_idx = _get_best_candidate_idx(call_log)
+        metric_data["best_candidate_idx"] = best_idx  # stored in JSON output
+
+        for call in call_log:
+            if call.get("candidate_idx") != best_idx:
+                continue
+            ex_id    = call.get("example_id", "")
+            out_hash = hashlib.sha256(
+                call.get("candidate_output", "").encode("utf-8", errors="replace")
+            ).hexdigest()[:8]
+            key = (ex_id, out_hash)
+            if key not in unique:
+                unique[key] = {
+                    "example_id":       ex_id,
+                    "example_input":    call.get("example_input", ""),
+                    "example_expected": call.get("example_expected", ""),
+                    "candidate_output": call.get("candidate_output", ""),
+                    "source_metric":    metric_name,
+                    "scores":           {},
+                }
+
+    if not unique:
+        console.print("  [dim]Evolved cross-eval: no best-candidate calls found — skipped[/dim]")
+        return []
+
+    console.print(
+        f"\n  [dim]Evolved cross-eval: {len(unique)} best-candidate outputs"
+        f" × {len(fitness_metrics)} metrics …[/dim]"
+    )
+
+    metric_fns: dict = {}
+    for mn in fitness_metrics:
+        try:
+            metric_fns[mn] = resolve_fitness_metric(mn, custom_fitness_metrics)
+        except ValueError:
+            metric_fns[mn] = None
+
+    for row in unique.values():
+        ex_obj   = types.SimpleNamespace(
+            task_input=row["example_input"],
+            expected_behavior=row["example_expected"],
+        )
+        pred_obj = types.SimpleNamespace(output=row["candidate_output"])
+        for mn, fn in metric_fns.items():
+            if fn is None:
+                row["scores"][mn] = None
+                continue
+            try:
+                result = fn(ex_obj, pred_obj)
+                row["scores"][mn] = float(result.score) if hasattr(result, "score") else float(result)
+            except Exception:  # noqa: BLE001
+                row["scores"][mn] = None
+
+    rows = list(unique.values())
+    console.print(f"  [dim]Evolved cross-eval complete: {len(rows)} rows[/dim]")
+    return rows
+
+
 # ── Helper: build skill metadata dict ────────────────────────────────────────
 
 def _build_skill_metadata(shared_evolution_object: SharedEvolutionObjects) -> dict:
@@ -376,10 +561,13 @@ def run_step(
             "calls":               call_log,
         }
 
-    # ── Cross-metric evaluation pass ───────────────────────────────────────
-    # Score every unique (example, output) pair from ALL metric runs against
-    # ALL metrics, producing the oracle training table.
+    # ── Cross-metric evaluation passes ────────────────────────────────────
+    # (1) All candidates — general oracle training table
     cross_eval = _run_cross_eval(matrix, fitness_metrics, custom_fitness_metrics, console)
+    # (2) Baseline skill only — 3-D matrix baseline layer
+    baseline_cross_eval = _run_baseline_cross_eval(matrix, fitness_metrics, custom_fitness_metrics, console)
+    # (3) Best (evolved) candidate per metric — 3-D matrix evolved layer
+    evolved_cross_eval = _run_evolved_cross_eval(matrix, fitness_metrics, custom_fitness_metrics, console)
 
     # ── Summary metrics for DemoTrainings integration ─────────────────────
     evolved_scores  = [v["evolved_score"]  for v in matrix.values() if v.get("evolved_score")  is not None]
@@ -390,28 +578,36 @@ def run_step(
     mean_baseline = sum(baseline_scores) / len(baseline_scores) if baseline_scores else 0.0
 
     summary = {
-        "run_id":          run_id,
-        "skill_metadata":  skill_metadata,
-        "evolved_score":   mean_evolved,
-        "baseline_score":  mean_baseline,
-        "improvement":     mean_evolved - mean_baseline,
-        "accepted":        any_accepted,
-        "matrix":          matrix,
-        "cross_eval":      cross_eval,
-        "fitness_metrics": fitness_metrics,
+        "run_id":               run_id,
+        "skill_metadata":       skill_metadata,
+        "evolved_score":        mean_evolved,
+        "baseline_score":       mean_baseline,
+        "improvement":          mean_evolved - mean_baseline,
+        "accepted":             any_accepted,
+        "matrix":               matrix,
+        "cross_eval":           cross_eval,
+        "baseline_cross_eval":  baseline_cross_eval,
+        "evolved_cross_eval":   evolved_cross_eval,
+        "fitness_metrics":      fitness_metrics,
     }
 
     total_calls = sum(len(v["calls"]) for v in matrix.values())
     console.print(f"\n[bold cyan]*** Demo Step (Matrix): GEPA Scoring Matrix Finished ***[/bold cyan]")
-    console.print(f"  Run ID           : {run_id}")
-    console.print(f"  Metrics run      : {len(matrix)}")
-    console.print(f"  Mean evolved     : {mean_evolved:.4f}")
-    console.print(f"  Total calls logged: {total_calls}")
-    console.print(f"  Cross-eval rows  : {len(cross_eval)}")
+    console.print(f"  Run ID              : {run_id}")
+    console.print(f"  Metrics run         : {len(matrix)}")
+    console.print(f"  Mean evolved        : {mean_evolved:.4f}")
+    console.print(f"  Total calls logged  : {total_calls}")
+    console.print(f"  Cross-eval rows     : {len(cross_eval)}")
+    console.print(f"  Baseline cross-eval : {len(baseline_cross_eval)} rows")
+    console.print(f"  Evolved cross-eval  : {len(evolved_cross_eval)} rows")
     for mn, mv in matrix.items():
-        n_calls = len(mv.get("calls", []))
-        n_cands = mv.get("n_candidates", "?")
-        batch   = mv.get("n_examples_per_candidate", "?")
-        console.print(f"    {mn:<20} {n_calls:>4} calls  ({n_cands} candidates × {batch} examples/candidate)")
+        n_calls  = len(mv.get("calls", []))
+        n_cands  = mv.get("n_candidates", "?")
+        batch    = mv.get("n_examples_per_candidate", "?")
+        best_idx = mv.get("best_candidate_idx", "?")
+        console.print(
+            f"    {mn:<20} {n_calls:>4} calls  "
+            f"({n_cands} candidates × {batch} examples/candidate  best_idx={best_idx})"
+        )
 
     return summary

@@ -238,23 +238,103 @@ def _print_summary(labels: pd.DataFrame, cross_eval: pd.DataFrame, oracle_dir: P
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+# ── Build 3-D matrix tables ───────────────────────────────────────────────
+
+def _build_cross_eval_matrix(files: list[Path], key: str) -> pd.DataFrame:
+    """Generic loader for ``baseline_cross_eval`` or ``evolved_cross_eval``.
+
+    Produces one row per (skill, example).  Score columns: ``score_<metric>``.
+    Row-normalised columns: ``norm_<metric>`` (all norm_ columns sum to 1 per row).
+    """
+    rows = []
+    for path in files:
+        try:
+            data = _load(path)
+        except Exception:
+            continue
+
+        run_id      = data.get("run_id", path.stem)
+        skill_name  = data.get("skill_name", "")
+        all_metrics = data.get("fitness_metrics") or []
+
+        for row in data.get(key) or []:
+            scores = row.get("scores") or {}
+            entry: dict = {
+                "run_id":           run_id,
+                "skill_name":       skill_name,
+                "example_id":       row.get("example_id", ""),
+                "example_input":    row.get("example_input", ""),
+                "example_expected": (row.get("example_expected") or "")[:300],
+                "candidate_output": (row.get("candidate_output") or "")[:300],
+            }
+            if key == "evolved_cross_eval":
+                entry["source_metric"] = row.get("source_metric", "")
+            for m in all_metrics:
+                entry[f"score_{m}"] = scores.get(m)
+            rows.append(entry)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # Row-normalise across metrics so norm_<m> values sum to 1 per row.
+    score_cols = [c for c in df.columns if c.startswith("score_")]
+    if score_cols:
+        row_sums = df[score_cols].clip(lower=0).sum(axis=1).replace(0, float("nan"))
+        for col in score_cols:
+            metric = col[len("score_"):]
+            df[f"norm_{metric}"] = df[col].clip(lower=0) / row_sums
+
+    return df
+
+
+def build_baseline_matrix(files: list[Path]) -> pd.DataFrame:
+    """3-D matrix: baseline skill × example × metric → score + norm score."""
+    return _build_cross_eval_matrix(files, "baseline_cross_eval")
+
+
+def build_evolved_matrix(files: list[Path]) -> pd.DataFrame:
+    """3-D matrix: evolved skill × example × metric → score + norm score."""
+    return _build_cross_eval_matrix(files, "evolved_cross_eval")
+
+
+# ── Main ─────────────────────────────────────────────────────────────────
+
 def build(oracle_dir: Path, dry_run: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load all matrix files and return (oracle_labels_df, cross_eval_df)."""
     print(f"\nScanning: {oracle_dir}")
     files = _find_matrix_files(oracle_dir)
     print(f"Found {len(files)} matrix file(s):\n  " + "\n  ".join(f.name for f in files))
 
-    labels    = _build_oracle_labels(files)
-    cross_eval = _build_oracle_cross_eval(files)
+    labels       = _build_oracle_labels(files)
+    cross_eval   = _build_oracle_cross_eval(files)
+    baseline_mat = build_baseline_matrix(files)
+    evolved_mat  = build_evolved_matrix(files)
 
     _print_summary(labels, cross_eval, oracle_dir)
 
+    print(f"\n── 3-D matrix tables ──────────────────────────────────────────────────")
+    print(f"  baseline_cross_eval : {len(baseline_mat)} rows  "
+          f"({baseline_mat['skill_name'].nunique() if not baseline_mat.empty else 0} skill(s))")
+    print(f"  evolved_cross_eval  : {len(evolved_mat)} rows  "
+          f"({evolved_mat['skill_name'].nunique() if not evolved_mat.empty else 0} skill(s))")
+
     if not dry_run and not labels.empty:
-        labels_path    = oracle_dir / "oracle_labels.csv"
-        cross_eval_path = oracle_dir / "oracle_cross_eval.csv"
+        labels_path       = oracle_dir / "oracle_labels.csv"
+        cross_eval_path   = oracle_dir / "oracle_cross_eval.csv"
+        baseline_mat_path = oracle_dir / "oracle_baseline_matrix.csv"
+        evolved_mat_path  = oracle_dir / "oracle_evolved_matrix.csv"
+
         labels.to_csv(labels_path, index=False)
         cross_eval.to_csv(cross_eval_path, index=False)
-        print(f"\n  Saved: {labels_path}")
+        if not baseline_mat.empty:
+            baseline_mat.to_csv(baseline_mat_path, index=False)
+            print(f"  Saved: {baseline_mat_path}")
+        if not evolved_mat.empty:
+            evolved_mat.to_csv(evolved_mat_path, index=False)
+            print(f"  Saved: {evolved_mat_path}")
+        print(f"  Saved: {labels_path}")
         print(f"  Saved: {cross_eval_path}")
 
     return labels, cross_eval

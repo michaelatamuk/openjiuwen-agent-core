@@ -69,6 +69,8 @@ def run_step(
         },
         "matrix": matrix_summary.get("matrix", {}),
         "cross_eval": matrix_summary.get("cross_eval", []),
+        "baseline_cross_eval": matrix_summary.get("baseline_cross_eval", []),
+        "evolved_cross_eval": matrix_summary.get("evolved_cross_eval", []),
     }
 
     try:
@@ -80,11 +82,15 @@ def run_step(
         console.print(f"[red]Failed to save scoring matrix: {exc}[/red]")
         raise
 
-    total_calls = sum(len(v.get("calls", [])) for v in payload["matrix"].values())
-    n_cross = len(payload.get("cross_eval", []))
+    total_calls   = sum(len(v.get("calls", [])) for v in payload["matrix"].values())
+    n_cross       = len(payload.get("cross_eval", []))
+    n_baseline_ce = len(payload.get("baseline_cross_eval", []))
+    n_evolved_ce  = len(payload.get("evolved_cross_eval", []))
     console.print(f"\n  [green]✓ Scoring matrix saved:[/green] {out_path}")
-    console.print(f"    {len(payload['matrix'])} metric(s)  ·  {total_calls} calls logged"
-                  f"  ·  {n_cross} cross-eval rows")
+    console.print(
+        f"    {len(payload['matrix'])} metric(s)  ·  {total_calls} calls"
+        f"  ·  cross_eval={n_cross}  baseline_ce={n_baseline_ce}  evolved_ce={n_evolved_ce}"
+    )
 
     analyze(out_path)
 
