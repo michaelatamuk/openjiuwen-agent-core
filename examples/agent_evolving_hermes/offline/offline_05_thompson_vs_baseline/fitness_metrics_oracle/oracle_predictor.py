@@ -16,7 +16,7 @@ class OraclePredictor:
     """
 
     def __init__(self, pipeline: Any, metrics_seen: list[str], feature_meta: dict) -> None:
-        self._pipeline     = pipeline
+        self._pipeline = pipeline
         self._metrics_seen = metrics_seen
         self._feature_meta = feature_meta  # diagnostics / provenance
 

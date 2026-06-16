@@ -1,5 +1,13 @@
 {
     "scenarios": [
+        "paper-review",
+        "contract-review",
+        "rtos-review",
+        "ml-review",
+        "api-security",
+        "code-review",
+        "pokemon-player",
+        "blades-in-the-dark",
         "smarthub-support"
     ],
     "_scenarios": [
