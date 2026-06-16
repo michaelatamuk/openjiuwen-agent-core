@@ -43,6 +43,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
         verbose=bool(data.get("verbose", False)),
         print_skill_diff=bool(data.get("print_skill_diff", False)),
         fitness_metrics=list(data.get("fitness_metrics", ["bag_of_words"])),
+        oracle_data_dir=data.get("oracle_data_dir"),
     )
 
     print(f"{'═' * 70}")
@@ -53,6 +54,7 @@ def load_config(config_path: Path | None = None) -> DemoConfig:
     print(f"Fitness metrics   : {config.fitness_metrics}")
     print(f"Verbose           : {config.verbose}")
     print(f"Print skill diff  : {config.print_skill_diff}")
+    print(f"Oracle data dir   : {config.oracle_data_dir or '(disabled)'}")
     print()
 
     os.environ.setdefault("DEEPSEEK_API_KEY", config.api_key)
