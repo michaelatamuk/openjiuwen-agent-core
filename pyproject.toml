@@ -100,6 +100,12 @@ mobile-gui = [
     "pillow>=10.0.0",
 ]
 
+oracle = [
+    # Install: pip install 'openjiuwen[oracle]'  (or: pip install scikit-learn)
+    # Required by examples/agent_evolving_hermes/offline/offline_05_thompson_vs_baseline/train_oracle.py
+    "scikit-learn>=1.4",
+]
+
 online-rl = [
     "fastapi>=0.100",
     "uvicorn[standard]",
