@@ -51,8 +51,8 @@ Benchmark scenarios (from skill-improvement papers)
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -69,10 +69,16 @@ class Scenario:
     skill_frontmatter:
         Frontmatter content between the ``---`` delimiters (YAML key-value pairs).
     golden_examples:
-        List of golden example dicts.  Each dict must have at least
-        ``task_input``, ``expected_behavior``, ``difficulty``, and ``source``.
+        Static list of golden example dicts (always available, no network needed).
+        Each dict must have ``task_input``, ``expected_behavior``, ``difficulty``,
+        and ``source``.
     description:
         One-line human-readable description shown in the runner banner.
+    loader:
+        Optional callable ``(n: int, seed: int) -> List[Dict]`` that fetches
+        examples from the original HuggingFace benchmark dataset.  Only present
+        for benchmark scenarios (gsm8k, hotpotqa, pubmedqa, aquarat).
+        Call ``load_examples(n, seed)`` rather than invoking this directly.
     """
 
     name: str
@@ -80,8 +86,41 @@ class Scenario:
     skill_frontmatter: str
     golden_examples: List[Dict[str, Any]]
     description: str = ""
+    loader: Optional[Callable[..., List[Dict[str, Any]]]] = field(
+        default=None, repr=False
+    )
 
     # ── Derived helpers ────────────────────────────────────────────────────────
+
+    def load_examples(
+        self, n: int = 50, seed: int = 42
+    ) -> List[Dict[str, Any]]:
+        """Return examples for this scenario.
+
+        For benchmark scenarios (gsm8k, hotpotqa, etc.) this fetches ``n``
+        examples from the HuggingFace dataset when a ``loader`` is registered.
+        Falls back to the static ``golden_examples`` list when the loader is
+        absent or raises (e.g. no network access).
+
+        Parameters
+        ----------
+        n:
+            Number of examples to load from HuggingFace.  Ignored when no
+            loader is registered.
+        seed:
+            Random seed for reproducible sampling.
+        """
+        if self.loader is None:
+            return self.golden_examples
+        try:
+            return self.loader(n=n, seed=seed)
+        except Exception as exc:
+            print(
+                f"  [WARN] HuggingFace loader for '{self.name}' failed "
+                f"({exc}); falling back to {len(self.golden_examples)} "
+                "static examples."
+            )
+            return self.golden_examples
 
     def example_counts(self) -> Dict[str, int]:
         """Return a dict mapping difficulty label → count."""
@@ -183,6 +222,14 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _AQ_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.aquarat.golden_examples.all import \
         GOLDEN_EXAMPLES as _AQ_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.gsm8k.golden_examples.hf_loader import \
+        load as _GS_LOADER
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.hotpotqa.golden_examples.hf_loader import \
+        load as _HP_LOADER
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pubmedqa.golden_examples.hf_loader import \
+        load as _PM_LOADER
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.aquarat.golden_examples.hf_loader import \
+        load as _AQ_LOADER
 
     return {
         "code-review": Scenario(
@@ -254,6 +301,7 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_GS_FM,
             golden_examples=_GS_EXAMPLES,
             description="GSM8K grade-school math — step-by-step reasoning chain (OPRO, DSPy benchmark)",
+            loader=_GS_LOADER,
         ),
         "hotpotqa": Scenario(
             name="hotpotqa",
@@ -261,6 +309,7 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_HP_FM,
             golden_examples=_HP_EXAMPLES,
             description="HotPotQA multi-hop QA — chain-of-thought over two supporting facts (DSPy benchmark)",
+            loader=_HP_LOADER,
         ),
         "pubmedqa": Scenario(
             name="pubmedqa",
@@ -268,6 +317,7 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_PM_FM,
             golden_examples=_PM_EXAMPLES,
             description="PubMedQA biomedical QA — yes/no/maybe verdict with evidence (SkillGen benchmark)",
+            loader=_PM_LOADER,
         ),
         "aquarat": Scenario(
             name="aquarat",
@@ -275,6 +325,7 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_AQ_FM,
             golden_examples=_AQ_EXAMPLES,
             description="AQuA-RAT algebra word problems — full working + correct option letter (OPRO benchmark)",
+            loader=_AQ_LOADER,
         ),
     }
 
