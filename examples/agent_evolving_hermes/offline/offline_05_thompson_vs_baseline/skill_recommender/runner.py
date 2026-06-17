@@ -77,16 +77,6 @@ from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skil
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.runner_query import \
     _run_query
 
-# ── path bootstrap (allows running as a plain script) ─────────────────────────
-_HERE         = Path(__file__).resolve().parent
-_PROJECT_ROOT = _HERE.parent.parent.parent.parent.parent  # michael-agent-core/
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.recommender import (  # noqa: E402
-    DEFAULT_ORACLE_DIR,
-)
-
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -96,7 +86,7 @@ def main() -> None:
     if args.demo:
         _run_demo()
     elif args.benchmarks is not None:
-        _run_benchmarks(args, DEFAULT_ORACLE_DIR)
+        _run_benchmarks(args)
     else:
         _run_query(args)
 
