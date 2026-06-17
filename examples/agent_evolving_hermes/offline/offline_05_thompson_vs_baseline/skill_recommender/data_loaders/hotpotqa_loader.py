@@ -45,7 +45,7 @@ import json
 import re
 from pathlib import Path
 
-from ._scoring import FITNESS_METRICS, compute_scores
+from .._scoring import FITNESS_METRICS, compute_scores
 
 SKILL_NAME = "multi-hop-qa"
 
@@ -93,20 +93,16 @@ def _build_payload(rows: list[dict]) -> dict:
         question = row["question"]
         expected = row["answer"]
         output   = _baseline_output(question)
-        cross_eval.append({
-            "example_id":       f"hotpotqa_{i:04d}",
-            "example_input":    question,
-            "example_expected": expected,
-            "candidate_output": output,
-            "scores":           compute_scores(output, expected),
-        })
-    return {
-        "run_id":              "hotpotqa_validation",
-        "skill_name":          SKILL_NAME,
-        "fitness_metrics":     FITNESS_METRICS,
-        "baseline_cross_eval": cross_eval,
-        "evolved_cross_eval":  [],
-    }
+        cross_eval.append({"example_id":       f"hotpotqa_{i:04d}",
+                           "example_input":    question,
+                           "example_expected": expected,
+                           "candidate_output": output,
+                           "scores":           compute_scores(output, expected),})
+    return {"run_id":              "hotpotqa_validation",
+            "skill_name":          SKILL_NAME,
+            "fitness_metrics":     FITNESS_METRICS,
+            "baseline_cross_eval": cross_eval,
+            "evolved_cross_eval":  []}
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -114,11 +110,7 @@ def _build_payload(rows: list[dict]) -> dict:
 _DEFAULT_BUFFER = 500  # streaming buffer size for random sampling
 
 
-def fetch_rows(
-    n: int = 50,
-    seed: int = 42,
-    buffer_size: int = _DEFAULT_BUFFER,
-) -> list[dict]:
+def fetch_rows(n: int = 50, seed: int = 42, buffer_size: int = _DEFAULT_BUFFER) -> list[dict]:
     """Return *n* randomly-sampled HotPotQA validation rows (streaming).
 
     Each row is a dict with keys ``question``, ``answer``, and ``level``
@@ -166,11 +158,7 @@ def fetch_rows(
     ]
 
 
-def load_hotpotqa_to_oracle(
-    oracle_dir: Path,
-    n_examples: int = 50,
-    overwrite: bool = False,
-) -> Path:
+def load_hotpotqa_to_oracle(oracle_dir: Path, n_examples: int = 50, overwrite: bool = False) -> Path:
     """Download HotPotQA and write a scoring matrix JSON into *oracle_dir*.
 
     Parameters

@@ -27,7 +27,7 @@ def load(n: int = 50, seed: int = 42) -> List[Dict[str, Any]]:
     seed:
         Random seed for reproducible sampling.
     """
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.aquarat_loader import (
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.aquarat_loader import (
         fetch_rows,
     )
 

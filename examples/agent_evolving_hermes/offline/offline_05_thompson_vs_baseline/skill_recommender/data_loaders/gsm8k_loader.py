@@ -39,7 +39,7 @@ import re
 from pathlib import Path
 from typing import Sequence
 
-from ._scoring import FITNESS_METRICS, compute_scores
+from .._scoring import FITNESS_METRICS, compute_scores
 
 SKILL_NAME = "math-word-problems"
 

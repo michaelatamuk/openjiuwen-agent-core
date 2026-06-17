@@ -47,11 +47,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 _PKG = "examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender"
 
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.bbh_loader      import load_bbh_to_oracle, DEFAULT_TASKS as BBH_DEFAULT_TASKS  # noqa: E402
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.gsm8k_loader    import load_gsm8k_to_oracle     # noqa: E402
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.hotpotqa_loader import load_hotpotqa_to_oracle   # noqa: E402
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.pubmedqa_loader import load_pubmedqa_to_oracle   # noqa: E402
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.aquarat_loader  import load_aquarat_to_oracle    # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.bbh_loader import load_bbh_to_oracle, DEFAULT_TASKS as BBH_DEFAULT_TASKS  # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.gsm8k_loader import load_gsm8k_to_oracle     # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.hotpotqa_loader import load_hotpotqa_to_oracle   # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.pubmedqa_loader import load_pubmedqa_to_oracle   # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.aquarat_loader import load_aquarat_to_oracle    # noqa: E402
 from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.recommender     import build_recommender         # noqa: E402
 
 SEP  = "─" * 72

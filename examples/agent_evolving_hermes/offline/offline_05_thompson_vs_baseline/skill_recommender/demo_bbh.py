@@ -36,7 +36,7 @@ _PROJECT_ROOT = _HERE.parent.parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.bbh_loader import (  # noqa: E402
+from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.bbh_loader import (  # noqa: E402
     ALL_TASKS,
     DEFAULT_TASKS,
     load_bbh_to_oracle,

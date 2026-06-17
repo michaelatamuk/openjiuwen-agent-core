@@ -44,7 +44,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ._scoring import FITNESS_METRICS, compute_scores
+from .._scoring import FITNESS_METRICS, compute_scores
 
 SKILL_NAME = "algebra-reasoning"
 _BASELINE  = "A"
