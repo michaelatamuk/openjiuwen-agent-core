@@ -21,8 +21,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-
-DEFAULT_ORACLE_DIR = Path("~/.openjiuwen/oracle").expanduser()
+from .runner_args import DEFAULT_ORACLE_DIR
 
 
 # ── Low-level loader (avoids circular import with oracle_dataset_builder) ─────

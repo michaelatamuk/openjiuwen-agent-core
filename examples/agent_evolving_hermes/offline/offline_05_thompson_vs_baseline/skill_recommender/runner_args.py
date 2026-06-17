@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.runner_benchmarks import \
-    ALL_BENCHMARKS, _run_benchmarks
+from .runner_benchmarks import ALL_BENCHMARKS
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────

@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-import argparse
-import contextlib
-import json
-import sys
-import tempfile
-from pathlib import Path
-
-from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.recommender import (  # noqa: E402
-    build_recommender,
-    SkillRecommender,
-)
+from .recommender import SkillRecommender
 
 
 SEP  = "─" * 72

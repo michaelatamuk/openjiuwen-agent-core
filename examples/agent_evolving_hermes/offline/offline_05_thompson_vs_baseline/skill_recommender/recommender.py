@@ -36,13 +36,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 
 from .embedder import Embedder, Backend
 from .matrix_store import load_matrix, norm_columns, metric_columns
-
-DEFAULT_ORACLE_DIR = Path("~/.openjiuwen/oracle").expanduser()
+from .runner_args import DEFAULT_ORACLE_DIR
 
 
 class SkillRecommender:
