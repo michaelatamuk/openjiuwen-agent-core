@@ -4,6 +4,9 @@
 Dataset : qiaojin/PubMedQA  (pqa_labeled config, train split — 1,000 examples)
 Paper   : SkillGen arXiv:2605.10999
 
+Dataset fetching is delegated to ``skill_recommender.pubmedqa_loader.fetch_rows``
+to avoid duplicating HuggingFace loading logic.
+
 ``task_input`` is built by concatenating the abstract sentences (the
 ``context.contexts`` list) followed by the research question.
 
@@ -13,7 +16,6 @@ skill is expected to produce: verdict first, then evidence.
 """
 from __future__ import annotations
 
-import random
 from typing import Any, Dict, List
 
 
@@ -27,16 +29,13 @@ def load(n: int = 50, seed: int = 42) -> List[Dict[str, Any]]:
     seed:
         Random seed for reproducible sampling.
     """
-    from datasets import load_dataset  # type: ignore[import]
-
-    ds = load_dataset("qiaojin/PubMedQA", "pqa_labeled", split="train")
-    ds = ds.shuffle(seed=seed)
-    sample = ds.select(range(min(n, len(ds))))
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.pubmedqa_loader import (
+        fetch_rows,
+    )
 
     examples: List[Dict[str, Any]] = []
-    for row in sample:
-        context_sentences = row["context"]["contexts"]
-        context_text = "\n".join(context_sentences)
+    for row in fetch_rows(n=n, seed=seed):
+        context_text = "\n".join(row["context"]["contexts"])
         task_input = f"Context:\n{context_text}\n\nQuestion: {row['question']}"
 
         verdict = row["final_decision"]
