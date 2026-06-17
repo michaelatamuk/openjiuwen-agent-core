@@ -111,8 +111,7 @@ def _run_demo() -> None:
                 json.dump(entry, fh, indent=2, ensure_ascii=False)
 
         print(f"\n  Demo matrix written to: {oracle_dir}")
-        rec = build_recommender(oracle_dir=oracle_dir, variant="baseline",
-                                embedder_method="tfidf")
+        rec = build_recommender(oracle_dir=oracle_dir, variant="baseline", embedder_method="tfidf")
         print(f"  Loaded  : {rec.n_examples} rows · "
               f"{len(rec.skills)} skill(s) · {len(rec.metrics)} metric(s)")
         print(f"  Skills  : {rec.skills}")

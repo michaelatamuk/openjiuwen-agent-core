@@ -32,13 +32,11 @@ ALL_BENCHMARKS      = ["bbh", "gsm8k", "hotpotqa", "pubmedqa", "aquarat"]
 
 def _benchmark_loaders() -> dict:
     """Return a dict mapping benchmark name → oracle-loader callable."""
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.bbh_loader import (  # noqa: E402
-        load_bbh_to_oracle, DEFAULT_TASKS as _BBH_DEFAULT,
-    )
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.gsm8k_loader import load_gsm8k_to_oracle        # noqa: E402
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.hotpotqa_loader import load_hotpotqa_to_oracle  # noqa: E402
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.pubmedqa_loader import load_pubmedqa_to_oracle  # noqa: E402
-    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.data_loaders.aquarat_loader import load_aquarat_to_oracle    # noqa: E402
+    from .data_loaders.bbh_loader import load_bbh_to_oracle, DEFAULT_TASKS as _BBH_DEFAULT
+    from .data_loaders.gsm8k_loader import load_gsm8k_to_oracle        # noqa: E402
+    from .data_loaders.hotpotqa_loader import load_hotpotqa_to_oracle  # noqa: E402
+    from .data_loaders.pubmedqa_loader import load_pubmedqa_to_oracle  # noqa: E402
+    from .data_loaders.aquarat_loader import load_aquarat_to_oracle    # noqa: E402
 
     return {
         "bbh":      lambda d, n, ow: load_bbh_to_oracle(d, tasks=_BBH_DEFAULT, n_examples=n, overwrite=ow),

@@ -14,7 +14,7 @@ def _run_query(args: argparse.Namespace) -> None:
     cache_path = Path(args.cache_embedder).expanduser() if args.cache_embedder else None
 
     try:
-        rec = build_recommender(oracle_dir=oracle_dir, variant=args.variant,
+        reccomender = build_recommender(oracle_dir=oracle_dir, variant=args.variant,
                                 embedder_method=args.embedder)
     except FileNotFoundError as exc:
         sys.exit(
@@ -29,22 +29,22 @@ def _run_query(args: argparse.Namespace) -> None:
         )
 
     if cache_path is not None:
-        from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.skill_recommender.embedder import Embedder  # noqa: E402
+        from .embedder import Embedder
         if cache_path.exists():
             try:
-                rec._embedder = Embedder.load(cache_path)
+                reccomender._embedder = Embedder.load(cache_path)
                 print(f"  Embedder cache   : loaded from {cache_path}")
             except Exception as exc:
                 print(f"  [WARN] Could not load embedder cache ({exc}); using fresh model.")
         else:
-            rec._embedder.save(cache_path)
+            reccomender._embedder.save(cache_path)
             print(f"  Embedder cache   : saved to {cache_path}")
 
-    print(f"  Loaded matrix: {rec.n_examples} rows · {len(rec.skills)} skill(s) · "
-          f"{len(rec.metrics)} metric(s)")
+    print(f"  Loaded matrix: {reccomender.n_examples} rows · {len(reccomender.skills)} skill(s) · "
+          f"{len(reccomender.metrics)} metric(s)")
 
     if args.list_skills:
-        _print_skills(rec)
+        _print_skills(reccomender)
         return
 
     if args.from_file is not None:
@@ -67,7 +67,9 @@ def _run_query(args: argparse.Namespace) -> None:
     for query in queries:
         if not query:
             continue
-        results = rec.recommend(query=query, sim_threshold=args.sim_threshold,
-                                score_threshold=args.score_threshold,
-                                min_examples=args.min_examples, top_k=args.top_k)
+        results = reccomender.recommend(query=query,
+                                        sim_threshold=args.sim_threshold,
+                                        score_threshold=args.score_threshold,
+                                        min_examples=args.min_examples,
+                                        top_k=args.top_k)
         _print_query_results(results, query, args.variant)
