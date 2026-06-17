@@ -37,6 +37,17 @@ Available scenarios
                           ports 8443/8080, XR-500 DMZ fix, Gen 2/3 cross-flash risk)
                         ★ EXECUTIVE DEMO SCENARIO — before/after answer delta is immediately
                           readable by non-technical audiences; no domain expertise required
+
+Benchmark scenarios (from skill-improvement papers)
+----------------------------------------------------
+    gsm8k             — Grade-school math word problems with step-by-step reasoning chain
+                        ★ Low baseline: ~0.10-0.20  (OPRO arXiv:2309.03409, DSPy arXiv:2310.03714)
+    hotpotqa          — Multi-hop QA requiring two supporting facts to answer correctly
+                        ★ Low baseline: ~0.10-0.25  (DSPy arXiv:2310.03714)
+    pubmedqa          — Biomedical yes/no/maybe with concise evidence sentence
+                        ★ Low baseline: ~0.10-0.25  (SkillGen arXiv:2605.10999)
+    aquarat           — Algebra word problems with full working + lettered option selection
+                        ★ Low baseline: ~0.05-0.15  (OPRO arXiv:2309.03409)
 """
 from __future__ import annotations
 
@@ -148,6 +159,30 @@ def _load_scenarios() -> Dict[str, Scenario]:
         SKILL_FRONTMATTER as _SH_FM
     from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.smarthub_support.golden_examples.all import \
         GOLDEN_EXAMPLES as _SH_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.gsm8k.skill.body import \
+        SKILL_BODY as _GS_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.gsm8k.skill.frontmatter import \
+        SKILL_FRONTMATTER as _GS_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.gsm8k.golden_examples.all import \
+        GOLDEN_EXAMPLES as _GS_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.hotpotqa.skill.body import \
+        SKILL_BODY as _HP_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.hotpotqa.skill.frontmatter import \
+        SKILL_FRONTMATTER as _HP_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.hotpotqa.golden_examples.all import \
+        GOLDEN_EXAMPLES as _HP_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pubmedqa.skill.body import \
+        SKILL_BODY as _PM_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pubmedqa.skill.frontmatter import \
+        SKILL_FRONTMATTER as _PM_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.pubmedqa.golden_examples.all import \
+        GOLDEN_EXAMPLES as _PM_EXAMPLES
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.aquarat.skill.body import \
+        SKILL_BODY as _AQ_BODY
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.aquarat.skill.frontmatter import \
+        SKILL_FRONTMATTER as _AQ_FM
+    from examples.agent_evolving_hermes.offline.offline_05_thompson_vs_baseline.scenarios.aquarat.golden_examples.all import \
+        GOLDEN_EXAMPLES as _AQ_EXAMPLES
 
     return {
         "code-review": Scenario(
@@ -212,6 +247,34 @@ def _load_scenarios() -> Dict[str, Scenario]:
             skill_frontmatter=_SH_FM,
             golden_examples=_SH_EXAMPLES,
             description="SmartHub customer support — generic baseline vs product-specific knowledge (exec demo scenario)",
+        ),
+        "gsm8k": Scenario(
+            name="gsm8k",
+            skill_body=_GS_BODY,
+            skill_frontmatter=_GS_FM,
+            golden_examples=_GS_EXAMPLES,
+            description="GSM8K grade-school math — step-by-step reasoning chain (OPRO, DSPy benchmark)",
+        ),
+        "hotpotqa": Scenario(
+            name="hotpotqa",
+            skill_body=_HP_BODY,
+            skill_frontmatter=_HP_FM,
+            golden_examples=_HP_EXAMPLES,
+            description="HotPotQA multi-hop QA — chain-of-thought over two supporting facts (DSPy benchmark)",
+        ),
+        "pubmedqa": Scenario(
+            name="pubmedqa",
+            skill_body=_PM_BODY,
+            skill_frontmatter=_PM_FM,
+            golden_examples=_PM_EXAMPLES,
+            description="PubMedQA biomedical QA — yes/no/maybe verdict with evidence (SkillGen benchmark)",
+        ),
+        "aquarat": Scenario(
+            name="aquarat",
+            skill_body=_AQ_BODY,
+            skill_frontmatter=_AQ_FM,
+            golden_examples=_AQ_EXAMPLES,
+            description="AQuA-RAT algebra word problems — full working + correct option letter (OPRO benchmark)",
         ),
     }
 
