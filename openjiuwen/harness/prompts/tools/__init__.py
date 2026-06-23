@@ -57,6 +57,9 @@ from openjiuwen.harness.prompts.tools.filesystem import (
 from openjiuwen.harness.prompts.tools.list_skill import (
     ListSkillMetadataProvider,
 )
+from openjiuwen.harness.prompts.tools.recommend_skill import (
+    RecommendSkillMetadataProvider,
+)
 from openjiuwen.harness.prompts.tools.load_tools import (
     LoadToolsMetadataProvider,
 )
@@ -149,6 +152,7 @@ _PROVIDERS: List[ToolMetadataProvider] = [
     ListDirMetadataProvider(),
     GrepMetadataProvider(),
     ListSkillMetadataProvider(),
+    RecommendSkillMetadataProvider(),
     SearchToolsMetadataProvider(),
     LoadToolsMetadataProvider(),
     SessionsListMetadataProvider(),

@@ -15,7 +15,7 @@ from openjiuwen.harness.tools.filesystem import (
     ReadFileTool,
     WriteFileTool,
 )
-from openjiuwen.harness.tools.skills import ListSkillTool, SkillTool
+from openjiuwen.harness.tools.skills import ListSkillTool, RecommendSkillTool, SkillTool
 from openjiuwen.harness.tools.tool_discovery import LoadToolsTool, SearchToolsTool
 from openjiuwen.harness.tools.shell import BashTool, PowerShellTool
 from openjiuwen.harness.tools.todo import (
@@ -94,6 +94,7 @@ __all__ = [
     "ListSkillTool",
     "LoadToolsTool",
     "ReadFileTool",
+    "RecommendSkillTool",
     "SearchToolsTool",
     "SkillTool",
     "TodoCreateTool",
