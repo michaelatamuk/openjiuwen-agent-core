@@ -113,6 +113,28 @@ SKILL_RAIL_NO_SKILL_PROMPT: Dict[str, str] = {
     "en": SKILL_RAIL_NO_SKILL_PROMPT_EN,
 }
 
+# ---------------------------------------------------------------------------
+# Recommendation mode prompt (bilingual)
+# ---------------------------------------------------------------------------
+SKILL_RAIL_RECOMMENDATION_MODE_PROMPT_CN = """# 技能
+
+需要时调用 recommend_skill(query=...) 获取按相关性排序的技能列表，\
+再用 read_file 读取最相关技能的 SKILL.md 后执行。\
+如果 recommend_skill 未返回匹配结果，说明当前没有匹配的技能。
+"""
+
+SKILL_RAIL_RECOMMENDATION_MODE_PROMPT_EN = """# Skills
+
+When needed, call recommend_skill(query=...) to get a ranked list of relevant skills, \
+then read the top result's SKILL.md with read_file before executing.
+If recommend_skill returns no results, no matching skill is available for this task.
+"""
+
+SKILL_RAIL_RECOMMENDATION_MODE_PROMPT: Dict[str, str] = {
+    "cn": SKILL_RAIL_RECOMMENDATION_MODE_PROMPT_CN,
+    "en": SKILL_RAIL_RECOMMENDATION_MODE_PROMPT_EN,
+}
+
 
 # ---------------------------------------------------------------------------
 # Helper functions (same signatures, now accept language)
@@ -152,6 +174,13 @@ def build_auto_list_mode_skill_prompt(language: str = "cn") -> str:
     return SKILL_RAIL_AUTO_LIST_MODE_PROMPT.get(language, SKILL_RAIL_AUTO_LIST_MODE_PROMPT_CN)
 
 
+def build_recommendation_mode_skill_prompt(language: str = "cn") -> str:
+    """Build prompt for recommendation mode."""
+    return SKILL_RAIL_RECOMMENDATION_MODE_PROMPT.get(
+        language, SKILL_RAIL_RECOMMENDATION_MODE_PROMPT_CN
+    )
+
+
 def get_list_skill_system_prompt(language: str = "cn") -> str:
     """Get the list_skill system prompt for the given language."""
     return SKILL_RAIL_LIST_SKILL_SYSTEM_PROMPT.get(language, SKILL_RAIL_LIST_SKILL_SYSTEM_PROMPT_CN)
@@ -167,7 +196,7 @@ def build_skills_section(
     Args:
         skill_lines: Pre-rendered skill lines (only used in 'all' mode).
         language: 'cn' or 'en'.
-        mode: 'all' or 'auto_list'.
+        mode: 'all', 'auto_list', or 'recommendation'.
 
     Returns:
         A PromptSection instance, or None if mode is unrecognised.
@@ -178,6 +207,8 @@ def build_skills_section(
         content = build_all_mode_skill_prompt(skill_lines, language)
     elif mode == "auto_list":
         content = build_auto_list_mode_skill_prompt(language)
+    elif mode == "recommendation":
+        content = build_recommendation_mode_skill_prompt(language)
     else:
         return None
 

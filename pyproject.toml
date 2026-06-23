@@ -101,9 +101,12 @@ mobile-gui = [
 ]
 
 oracle = [
-    # Install: pip install 'openjiuwen[oracle]'  (or: pip install scikit-learn)
-    # Required by examples/agent_evolving_hermes/offline/offline_05_thompson_vs_baseline/train_oracle.py
+    # Install: pip install 'openjiuwen[oracle]'  (or: pip install scikit-learn pandas)
+    # Required by:
+    #   - examples/agent_evolving_hermes/offline/offline_05_thompson_vs_baseline/train_oracle.py
+    #   - openjiuwen.harness.tools.skills.recommend_skill (recommendation skill_mode)
     "scikit-learn>=1.4",
+    "pandas",
 ]
 
 online-rl = [
