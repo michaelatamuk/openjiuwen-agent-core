@@ -73,7 +73,7 @@ def _build_context_with_worktree_manager(manager: Any) -> BuildContext:
 def test_schema_path_returns_structured_and_free_path_returns_text(tmp_path):
     """Schema agent() -> structured_output capture; no-schema agent() -> free text."""
     script = _write(tmp_path, _SCRIPT)
-    backend = _FakeWorkerBackend(model=None, team_backend=None)
+    backend = _FakeWorkerBackend(model=None)
     events: list = []
 
     result = asyncio.run(run_workflow(str(script), backend=backend, progress_sink=events.append))
@@ -104,7 +104,7 @@ def test_missing_submit_makes_agent_return_none(tmp_path):
             return ""  # never fills structured_output
 
     script = _write(tmp_path, _SCRIPT)
-    backend = _SilentWorker(model=None, team_backend=None)
+    backend = _SilentWorker(model=None)
     result = asyncio.run(run_workflow(str(script), backend=backend))
     assert result["a"] is None  # structured call gave up after retries
     assert result["b"] == ""  # free-text call returns the empty final message
@@ -122,8 +122,8 @@ from swarmflow import agent
 META = {"name": "route", "description": "model routing", "phases": []}
 
 async def run(args):
-    a = await agent("task a", label="a", model="fast")
-    b = await agent("task b", label="b", model="unknown")
+    a = await agent("task a", label="a", options={"model": "fast"})
+    b = await agent("task b", label="b", options={"model": "unknown"})
     c = await agent("task c", label="c")
     return [a, b, c]
 '''
@@ -136,7 +136,6 @@ async def run(args):
 
     backend = _RecordingBackend(
         model="leader-model",
-        team_backend=None,
         model_resolver=lambda name: "fast-cfg" if name == "fast" else None,
     )
     result = asyncio.run(run_workflow(_write(tmp_path, script), backend=backend))
@@ -155,7 +154,7 @@ from swarmflow import agent
 META = {"name": "iso", "description": "isolation routing", "phases": []}
 
 async def run(args):
-    return await agent("task", label="w", isolation="worktree")
+    return await agent("task", label="w", options={"isolation": "worktree"})
 '''
     seen: list[dict] = []
 
@@ -178,7 +177,7 @@ from swarmflow import agent
 META = {"name": "bad-iso", "description": "bad isolation", "phases": []}
 
 async def run(args):
-    return await agent("task", label="w", isolation="container")
+    return await agent("task", label="w", options={"isolation": "container"})
 '''
     import pytest
     from openjiuwen.agent_teams.workflow.engine.errors import WorkflowError
@@ -192,7 +191,7 @@ def test_worktree_isolation_requires_host_worktree_manager():
     import pytest
     from openjiuwen.agent_teams.workflow.engine.errors import BackendError
 
-    backend = TeamWorkerBackend(model=None, team_backend=None)
+    backend = TeamWorkerBackend(model=None)
 
     with pytest.raises(BackendError, match="host-provided worktree manager"):
         asyncio.run(backend.run("write code", {"label": "sum", "isolation": "worktree"}, None))
@@ -224,6 +223,9 @@ def test_execute_worker_derives_teammate_spec_without_team_tools(tmp_path, monke
         async def run_once(self, content, **kw):
             return {"output": "ok", "result_type": "answer"}
 
+        def add_rail(self, rail):
+            return None
+
         async def dispose(self):
             return None
 
@@ -236,7 +238,7 @@ def test_execute_worker_derives_teammate_spec_without_team_tools(tmp_path, monke
 
     monkeypatch.setattr(th_mod.TeamHarness, "build", _fake_build)
 
-    backend = TeamWorkerBackend(model=None, team_backend=None, worker_base_spec=base)
+    backend = TeamWorkerBackend(model=None, worker_base_spec=base)
     schema = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
 
     # Free path: no structured_output tool, base capabilities preserved.
@@ -281,6 +283,9 @@ def test_execute_worker_derives_build_context_from_leader_base(monkeypatch):
         async def run_once(self, content, **kw):
             return {"output": "ok", "result_type": "answer"}
 
+        def add_rail(self, rail):
+            return None
+
         async def dispose(self):
             return None
 
@@ -292,7 +297,6 @@ def test_execute_worker_derives_build_context_from_leader_base(monkeypatch):
 
     backend = TeamWorkerBackend(
         model=None,
-        team_backend=None,
         worker_base_spec=base,
         build_context=leader_ctx,
         language="en",
@@ -365,7 +369,6 @@ def test_worktree_isolation_sets_worker_workspace_and_removes_clean_worktree(tmp
 
     backend = TeamWorkerBackend(
         model=None,
-        team_backend=None,
         team_name="code-team",
         worker_base_spec=DeepAgentSpec(tools=[]),
         build_context=_build_context_with_worktree_manager(manager),
@@ -395,7 +398,7 @@ from swarmflow import agent
 META = {"name": "iso-meta", "description": "worktree isolation", "phases": []}
 
 async def run(args):
-    return await agent("write code", label="sum", isolation="worktree")
+    return await agent("write code", label="sum", options={"isolation": "worktree"})
 '''
     worktree_path = tmp_path / "worker-wt"
     worktree_path.mkdir()
@@ -437,7 +440,6 @@ async def run(args):
 
     backend = TeamWorkerBackend(
         model=None,
-        team_backend=None,
         team_name="code-team",
         worker_base_spec=DeepAgentSpec(tools=[]),
         build_context=_build_context_with_worktree_manager(manager),
