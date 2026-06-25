@@ -238,7 +238,7 @@ class RecommendSkillTool(Tool):
             return False
         if not self._oracle_dir.exists():
             return False
-        return any(self._oracle_dir.glob("scoring_matrix_*.json"))
+        return any(self._oracle_dir.glob("scoring_matrix_skill_*.json"))
 
     def _get_recommender(self):
         """Return a cached SkillRecommender, rebuilding if the skill set changed."""

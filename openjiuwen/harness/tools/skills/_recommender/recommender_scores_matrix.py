@@ -36,7 +36,7 @@ import pandas as pd
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
 def _find_files(oracle_dir: Path) -> list[Path]:
-    return sorted(oracle_dir.glob("scoring_matrix_*.json"))
+    return sorted(oracle_dir.glob("scoring_matrix_skill_*.json"))
 
 
 def _is_gepa_format(data: dict) -> bool:
