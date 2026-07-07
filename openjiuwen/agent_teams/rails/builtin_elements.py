@@ -131,6 +131,27 @@ class WorktreeInput(ConstructionInput):
     )
 
 
+class SysOperationInput(ConstructionInput):
+    """Construction inputs for system-operation tools."""
+
+    with_code_tool: bool = param_field(
+        default=False,
+        description="Whether to include the code execution tool.",
+    )
+    read_only: bool = param_field(
+        default=False,
+        description="Whether to expose only read/search/list tools.",
+    )
+    enable_read_image_multimodal: bool | None = param_field(
+        default=None,
+        description="Override image multimodal reads for read_file.",
+    )
+    bash_deny_patterns: list[str] = param_field(
+        default_factory=list,
+        description="Regex patterns denied by BashTool before shell execution.",
+    )
+
+
 def _build_worktree_rail(params: dict[str, Any], context: Any) -> WorktreeRail:
     """Build a WorktreeRail from a serializable worktree config block.
 
@@ -331,9 +352,10 @@ def _build_audio_tool_group(params: dict[str, Any], context: Any) -> list[Any]:
 def _build_observability_rail(params: dict[str, Any], context: Any) -> Any:
     """Build an ObservabilityRail when observability is initialized.
 
-    Returns ``None`` when observability is not initialized, making this a
-    safe unconditional addition to any spec's ``rails`` list — the provider
-    handles the on/off logic itself.
+    Delegates to ``maybe_observability_rail`` so the "is observability on"
+    guard lives in one place. Returns ``None`` when observability is not
+    initialized, making this a safe unconditional addition to any spec's
+    ``rails`` list — the provider handles the on/off logic itself.
 
     Args:
         params: Spec params (unused).
@@ -342,12 +364,8 @@ def _build_observability_rail(params: dict[str, Any], context: Any) -> Any:
     Returns:
         An ``ObservabilityRail``, or ``None`` when observability is disabled.
     """
-    from openjiuwen.agent_teams.observability.setup import is_initialized
-
-    if not is_initialized():
-        return None
-    from openjiuwen.agent_teams.observability import ObservabilityRail
-    return ObservabilityRail()
+    from openjiuwen.agent_teams.observability.rail import maybe_observability_rail
+    return maybe_observability_rail()
 
 
 harness_element(

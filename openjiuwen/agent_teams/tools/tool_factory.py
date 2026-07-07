@@ -16,7 +16,6 @@ from openjiuwen.agent_teams.tools.tool_async import (
 from openjiuwen.agent_teams.tools.tool_member import (
     ApprovePlanTool,
     ApproveToolCallTool,
-    ListMembersTool,
     ShutdownMemberTool,
     SpawnBridgeAgentTool,
     SpawnExternalCliTool,
@@ -64,6 +63,7 @@ def create_team_tools(
     swarmflow_model_resolver: Callable[[str], Any] | None = None,
     swarmflow_worker_base_spec: Any = None,
     swarmflow_human_base_spec: Any = None,
+    concurrency_governor: Any = None,
     team_permissions_enabled: bool = False,
 ) -> list[Tool]:
     """Create role-appropriate tool instances filtered by permission sets.
@@ -119,7 +119,6 @@ def create_team_tools(
         "shutdown_member": ShutdownMemberTool(agent_team, t),
         "approve_plan": ApprovePlanTool(agent_team, t),
         "approve_tool": ApproveToolCallTool(agent_team, t),
-        "list_members": ListMembersTool(agent_team, t),
         # Task management
         "create_task": TaskCreateTool(agent_team, t),
         "update_task": UpdateTaskTool(agent_team, t),
@@ -142,6 +141,7 @@ def create_team_tools(
             model_resolver=swarmflow_model_resolver,
             worker_base_spec=swarmflow_worker_base_spec,
             human_base_spec=swarmflow_human_base_spec,
+            concurrency_governor=concurrency_governor,
             t=t,
             language=lang,
         ),
