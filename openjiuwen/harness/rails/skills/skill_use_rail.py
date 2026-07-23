@@ -16,8 +16,6 @@ from openjiuwen.core.single_agent.rail.base import AgentCallbackContext
 from openjiuwen.core.single_agent.skills.skill_manager import Skill
 from openjiuwen.harness.prompts.sections import SectionName
 from openjiuwen.harness.prompts.sections.skills import (
-    build_all_mode_skill_prompt,
-    build_recommendation_mode_skill_prompt,
     build_skill_line,
     build_skill_lines,
     build_skills_section,
@@ -66,7 +64,7 @@ class SkillUseRail(DeepAgentRail):
                 - "recommendation": add recommend_skill tool backed by an offline scoring matrix
             list_skill_model: Optional model used by list_skill tool.
             oracle_dir: Directory with ``scoring_matrix_*.json`` files (recommendation mode only).
-                        Defaults to ``~/.openjiuwen/oracle`` when None.
+                        When None the recommender is not configured and falls back to returning all skills.
             enable_cache: Whether to cache loaded skills across invokes.
             include_tools: Whether to register read_file / code / bash tools.
             enabled_skills: Optional allow-list of skill names. Supports str or List[str].
@@ -682,22 +680,6 @@ class SkillUseRail(DeepAgentRail):
                 lines.append(f"[Skill: {skill.name}]")
                 lines.append(self._evolution_texts[skill.name].strip())
         return "\n".join(lines)
-
-    def _build_all_mode_prompt(self) -> str:
-        """Build skill prompt for all mode."""
-        body_lines: List[str] = []
-
-        for idx, skill in enumerate(self.skills):
-            body_lines.append(
-                build_skill_line(
-                    index=idx,
-                    skill_name=skill.name,
-                    description=self._get_skill_description(skill),
-                    # skill_md_path=str(self._skill_md_path(skill)), # No longer needed with SkillTool
-                )
-            )
-
-        return build_all_mode_skill_prompt(build_skill_lines(body_lines), language=self.system_prompt_builder.language)
 
     @staticmethod
     def _normalize_name_list(raw: Optional[Union[str, List[str]]]) -> List[str]:

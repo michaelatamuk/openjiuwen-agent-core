@@ -27,10 +27,12 @@ Loaded data is returned as a flat pandas DataFrame:
 from __future__ import annotations
 
 import json
-import sys
+import logging
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 # ── Low-level helpers ─────────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ def _load_one(path: Path, key: str) -> list[dict]:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except Exception as exc:
-        print(f"  [WARN] Cannot read {path.name}: {exc}", file=sys.stderr)
+        logger.warning("[recommender_scores_matrix] Cannot read %s: %s", path.name, exc)
         return []
 
     if _is_gepa_format(data):
