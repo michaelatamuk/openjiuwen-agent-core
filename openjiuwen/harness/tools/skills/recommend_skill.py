@@ -7,9 +7,10 @@ No LLM call is made; relevance is computed via TF-IDF cosine similarity against
 a pre-built scoring matrix (scoring_matrix_*.json files in the oracle dir).
 
 The oracle_dir must be provided explicitly.  When running inside JiuwenSwarm it
-is resolved by ``_recommendation_oracle_dir()`` in config_specs.py, which
-defaults to ``~/.jiuwenswarm/agent/workspace/oracle`` (respecting
-JIUWENSWARM_DATA_DIR).  Passing ``oracle_dir=None`` means "not configured".
+is resolved by ``_oracle_dir()`` in config_specs.py, which reads
+``react.oracle_dir`` from config.yaml or the ``JIUWENSWARM_ORACLE_DIR`` env var.
+There is no default path — if both are absent oracle_dir is None.
+Passing ``oracle_dir=None`` means "not configured".
 
 Graceful fallbacks:
   - oracle_dir is None (not configured)        → return all skills, mode="fallback_no_oracle_dir"
@@ -238,7 +239,7 @@ class RecommendSkillTool(Tool):
             return False
         if not self._oracle_dir.exists():
             return False
-        return any(self._oracle_dir.glob("scoring_matrix_skill_*.json"))
+        return any(self._oracle_dir.glob("scoring_matrix_*.json"))
 
     def _get_recommender(self):
         """Return a cached SkillRecommender, rebuilding if the skill set changed."""

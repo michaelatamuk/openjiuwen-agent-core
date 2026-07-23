@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ── Low-level helpers ─────────────────────────────────────────────────────────
 
 def _find_files(oracle_dir: Path) -> list[Path]:
-    return sorted(oracle_dir.glob("scoring_matrix_skill_*.json"))
+    return sorted(oracle_dir.glob("scoring_matrix_*.json"))
 
 
 def _is_gepa_format(data: dict) -> bool:
