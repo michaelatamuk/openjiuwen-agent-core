@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import pytest
 
 from openjiuwen.core.context_engine.processor.compressor.dialogue_compressor import (
@@ -129,14 +129,40 @@ async def test_init_processors_merge(tmp_path: Path):
         (
             True,
             None,
-            ["MessageSummaryOffloader", "DialogueCompressor", "CurrentRoundCompressor", "RoundLevelCompressor"],
+            [
+                "MessageSummaryOffloader",
+                "ReasoningToolLoopCompactProcessor",
+                "DialogueCompressor",
+                "CurrentRoundCompressor",
+                "RoundLevelCompressor",
+            ],
         ),
         (True, [("d", DialogueCompressorConfig(messages_threshold=99))],
-         ["MessageSummaryOffloader", "DialogueCompressor", "CurrentRoundCompressor", "RoundLevelCompressor", "d"]),
+         [
+             "MessageSummaryOffloader",
+             "ReasoningToolLoopCompactProcessor",
+             "DialogueCompressor",
+             "CurrentRoundCompressor",
+             "RoundLevelCompressor",
+             "d",
+         ]),
         (True, [("c", DialogueCompressorConfig(messages_to_keep=5))],
-         ["MessageSummaryOffloader", "DialogueCompressor", "CurrentRoundCompressor", "RoundLevelCompressor", "c"]),
+         [
+             "MessageSummaryOffloader",
+             "ReasoningToolLoopCompactProcessor",
+             "DialogueCompressor",
+             "CurrentRoundCompressor",
+             "RoundLevelCompressor",
+             "c",
+         ]),
         (True, [("DialogueCompressor", DialogueCompressorConfig(messages_threshold=99))],
-         ["MessageSummaryOffloader", "DialogueCompressor", "CurrentRoundCompressor", "RoundLevelCompressor"]),
+         [
+             "MessageSummaryOffloader",
+             "ReasoningToolLoopCompactProcessor",
+             "DialogueCompressor",
+             "CurrentRoundCompressor",
+             "RoundLevelCompressor",
+         ]),
     ]
     for preset, processors, expected_keys in cases:
         sys_operation = _make_sys_operation(tmp_path)
@@ -196,6 +222,27 @@ async def test_init_preset_defaults(tmp_path: Path):
     assert round_lvl.target_total_tokens == 160000
     assert round_lvl.keep_recent_messages == 6
 
+
+@pytest.mark.asyncio
+async def test_init_logs_processor_config_module_paths(tmp_path: Path):
+    sys_operation = _make_sys_operation(tmp_path)
+    workspace = Workspace(root_path=str(tmp_path))
+    agent = _make_agent(sys_operation, workspace)
+    rail = ContextProcessorRail(preset=True)
+
+    with patch(
+        "openjiuwen.harness.rails.context_engineer.context_processor_rail.logger.info"
+    ) as info:
+        await agent.register_rail(rail)
+        await agent.ensure_initialized()
+
+    messages = [call.args[0] % call.args[1:] for call in info.call_args_list]
+    message = next(message for message in messages if message.startswith("context processors initialized:"))
+    assert (
+        "MessageSummaryOffloader="
+        "openjiuwen.core.context_engine.processor.offloader.message_summary_offloader."
+        "MessageSummaryOffloaderConfig"
+    ) in message
 
 
 # =============================================================================
@@ -1238,5 +1285,4 @@ async def test_before_model_call_injects_offload_section(tmp_path: Path):
     await rail.before_model_call(ctx)
 
     assert mock_builder.has_section("offload")
-
 
