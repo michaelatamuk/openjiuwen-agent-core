@@ -32,6 +32,7 @@ from typing import (
 )
 from pydantic import BaseModel
 
+from openjiuwen.core.foundation.kv_cache import KVCacheAffinityConfig
 from openjiuwen.core.foundation.llm import (
     Model,
     ModelClientConfig,
@@ -456,8 +457,14 @@ class DeepAgentSpec(BaseModel):
     enable_task_loop: bool = True
     enable_async_subagent: bool = False
     add_general_purpose_agent: bool = False
+    enable_security_rail: bool = True
+    enable_tool_resilience_rail: bool = True
     max_iterations: int = 15
     workspace: Optional[WorkspaceSpec] = None
+    cwd: Optional[str] = None
+    """Shell working directory / relative-path base. Defaults to the workspace root."""
+    project_root: Optional[str] = None
+    """Project identity anchor. Defaults to ``cwd``."""
     skills: Optional[list[str]] = None
     enable_skill_discovery: bool = False
     sys_operation: Optional[SysOperationSpec] = None
@@ -465,6 +472,18 @@ class DeepAgentSpec(BaseModel):
     prompt_mode: Optional[str] = None
     vision_model: Optional[VisionModelSpec] = None
     audio_model: Optional[AudioModelSpec] = None
+    enable_read_image_multimodal: Optional[bool] = None
+    """Whether read_file may attach images natively.
+
+    ``None`` leaves it to the runtime probe; set it explicitly to skip that
+    probe entirely (an agent that never reads images should say ``False``).
+    """
+    enable_sys_operation: bool = True
+    """Whether this agent gets a sys_operation (filesystem / shell / code).
+
+    ``False`` skips resolving one, so none of its tool resources are registered.
+    Only meaningful for an agent that declares no such tools to begin with.
+    """
     enable_task_planning: bool = False
     restrict_to_sandbox: bool = False
     auto_create_workspace: bool = True
@@ -472,6 +491,7 @@ class DeepAgentSpec(BaseModel):
     progressive_tool: Optional[ProgressiveToolSpec] = None
     approval_required_tools: Optional[list[str]] = None
     context_engine_config: Optional[Any] = None
+    kv_cache_affinity_config: Optional[KVCacheAffinityConfig] = None
     """Context engine configuration forwarded to ``DeepAgentConfig``.
 
     When set, this is passed to ``resolve_deep_agent_parts()`` and ultimately to
@@ -577,8 +597,12 @@ class DeepAgentSpec(BaseModel):
             enable_task_loop=self.enable_task_loop,
             enable_async_subagent=self.enable_async_subagent,
             add_general_purpose_agent=self.add_general_purpose_agent,
+            enable_security_rail=self.enable_security_rail,
+            enable_tool_resilience_rail=self.enable_tool_resilience_rail,
             max_iterations=self.max_iterations,
             workspace=workspace,
+            cwd=self.cwd,
+            project_root=self.project_root,
             skills=self.skills,
             enable_skill_discovery=self.enable_skill_discovery,
             sys_operation=sys_operation,
@@ -586,11 +610,14 @@ class DeepAgentSpec(BaseModel):
             prompt_mode=self.prompt_mode,
             vision_model_config=vision_config,
             audio_model_config=audio_config,
+            enable_read_image_multimodal=self.enable_read_image_multimodal,
+            enable_sys_operation=self.enable_sys_operation,
             enable_task_planning=self.enable_task_planning,
             restrict_to_work_dir=self.restrict_to_sandbox,
             auto_create_workspace=self.auto_create_workspace,
             completion_timeout=self.completion_timeout,
             context_engine_config=self.context_engine_config,
+            kv_cache_affinity_config=self.kv_cache_affinity_config,
             **self._progressive_tool_kwargs(),
         )
 
