@@ -403,7 +403,7 @@ async def agent(
     async with gate.acquire():
         rt.spawn_count += 1
         call_result = await _call_backend(
-            rt, prompt, opts, json_schema, model_cls
+            rt, prompt, opts, json_schema, model_cls, agent_id=ks
         )
 
     if not call_result.succeeded:
@@ -435,8 +435,16 @@ async def agent(
     return call_result.result
 
 
-async def _call_backend(rt, prompt, opts, json_schema, model) -> _BackendCallResult:
-    """Run the single-shot ``agent()`` call (``backend.run``) with retries."""
+async def _call_backend(rt, prompt, opts, json_schema, model, agent_id=None) -> _BackendCallResult:
+    """Run the single-shot ``agent()`` call (``backend.run``) with retries.
+
+    ``agent_id`` is the deterministic call-path key computed in ``agent()`` and
+    used for the started/completed events. It is injected into a *copy* of
+    ``opts`` (never the journaled original) so the backend can tag live activity
+    events with the same id its worker node was created under.
+    """
+    if agent_id:
+        opts = {**opts, "agent_id": agent_id}
     return await _attempt_calls(
         rt, opts, json_schema, model,
         lambda: rt.backend.run(prompt, opts, json_schema),
