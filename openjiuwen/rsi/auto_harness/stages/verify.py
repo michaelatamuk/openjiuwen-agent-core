@@ -21,7 +21,7 @@ from openjiuwen.rsi.auto_harness.contexts import (
 from openjiuwen.rsi.auto_harness.infra.ci_gate_runner import (
     decode_stdout,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.controller import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.controller import (
     BestOfNController,
     BestOfNResult,
 )

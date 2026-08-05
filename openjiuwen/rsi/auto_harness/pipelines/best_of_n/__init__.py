@@ -2,17 +2,17 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 """Best-of-N — multi-attempt fix orchestration."""
 
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_scorer import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_scorer import (
     AttemptScore,
     AttemptScorer,
     ScoredAttempt,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_selector import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_selector import (
     AttemptSelector,
     BestOfNSelector,
     PassRateSelector,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.controller import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.controller import (
     BestOfNController,
     BestOfNResult,
 )

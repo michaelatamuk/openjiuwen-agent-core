@@ -18,12 +18,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_scorer import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_scorer import (
     AttemptScorer,
     AttemptScore,
     ScoredAttempt,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_selector import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_selector import (
     AttemptSelector,
     BestOfNSelector,
 )
