@@ -1,7 +1,6 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 
-import json
 import threading
 import time
 import uuid
@@ -13,10 +12,11 @@ from openjiuwen.core.common.exception.codes import StatusCode
 from openjiuwen.core.common.exception.errors import build_error
 from openjiuwen.core.common.logging import logger
 from openjiuwen.core.context_engine.base import ContextWindow
-from openjiuwen.core.foundation.llm import BaseMessage, ToolMessage, AssistantMessage
-
+from openjiuwen.core.context_engine.content_sanitize import sanitize_content_for_text
+from openjiuwen.core.foundation.llm import AssistantMessage, BaseMessage, ToolMessage
 
 CONTEXT_MESSAGE_ID_KEY = "context_message_id"
+CONTEXT_USAGE_STALE_KEY = "context_usage_stale"
 DEFAULT_CONTEXT_MAX_TOKENS = 200000
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_MODEL_CACHE_TTL_SECONDS = 3600
@@ -28,21 +28,36 @@ _OPENROUTER_PREFETCH_THREAD: Optional[threading.Thread] = None
 
 MODEL_DEFAULT_CONTEXT_WINDOW_TOKENS: Dict[str, int] = {
     # GLM
-    "glm-5.1": 200000,
-    "glm-5": 200000,
-    "glm-5-turbo": 200000,
-    "glm-4.7": 200000,
-    "glm-4.7-flash": 200000,
+    "glm-5.2": 1048576,
+    "glm-5.1": 204800,
+    "glm-5": 204800,
+    "glm-5-turbo": 202752,
+    "glm-4.7": 204800,
+    "glm-4.7-flash": 202752,
     "glm-4.7-flashx": 200000,
+    "glm-4.6": 204800,
+    "glm-4.5": 131072,
+    "glm-4.5-air": 131072,
     "glm-4-long": 1000000,
     "glm-4": 128000,
     "glm-4-9b-chat-1m": 1048576,
     # OpenAI GPT
+    "gpt-5.6-luna": 1050000,
+    "gpt-5.6-luna-pro": 1050000,
+    "gpt-5.6-sol": 1050000,
+    "gpt-5.6-sol-pro": 1050000,
+    "gpt-5.6-terra": 1050000,
+    "gpt-5.6-terra-pro": 1050000,
     "gpt-5.5": 1050000,
+    "gpt-5.5-pro": 1050000,
     "gpt-5.4": 1050000,
+    "gpt-5.4-pro": 1050000,
     "gpt-5.4-mini": 400000,
     "gpt-5.4-nano": 400000,
+    "gpt-5.2": 400000,
+    "gpt-5.1": 400000,
     "gpt-5": 400000,
+    "gpt-5-pro": 400000,
     "gpt-5-mini": 400000,
     "gpt-5-nano": 400000,
     "gpt-4.1": 1047576,
@@ -51,33 +66,65 @@ MODEL_DEFAULT_CONTEXT_WINDOW_TOKENS: Dict[str, int] = {
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
     "gpt-4-turbo": 128000,
-    "gpt-3.5-turbo": 16384,
+    "gpt-3.5-turbo": 16385,
+    # OpenAI o-series
+    "o1": 200000,
+    "o3": 200000,
+    "o3-mini": 200000,
+    "o3-pro": 200000,
+    "o4-mini": 200000,
     # DeepSeek
-    "deepseek-v4-pro": 1000000,
-    "deepseek-v4-flash": 1000000,
+    "deepseek-v4-pro": 1048576,
+    "deepseek-v4-flash": 1048576,
+    "deepseek-v3.2": 163840,
+    "deepseek-v3.1-terminus": 163840,
+    "deepseek-r1": 163840,
     "deepseek-v3": 128000,
-    "deepseek-chat": 65536,
+    "deepseek-chat": 163840,
     # Anthropic Claude
+    "claude-opus-5": 1000000,
+    "claude-opus-4-8": 1000000,
+    "claude-opus-4.8": 1000000,
     "claude-opus-4-7": 1000000,
+    "claude-opus-4.7": 1000000,
     "claude-opus-4-6": 1000000,
-    "claude-sonnet-4-6": 1000000,
-    "claude-haiku-4-5": 200000,
     "claude-opus-4.6": 1000000,
+    "claude-opus-4-5": 200000,
+    "claude-opus-4.5": 200000,
+    "claude-sonnet-5": 1000000,
+    "claude-sonnet-4-6": 1000000,
     "claude-sonnet-4.6": 1000000,
+    "claude-sonnet-4-5": 1000000,
+    "claude-sonnet-4.5": 1000000,
+    "claude-haiku-4-5": 200000,
     "claude-haiku-4.5": 200000,
     # Google Gemini
+    "gemini-3.6-flash": 1048576,
+    "gemini-3.5-flash": 1048576,
+    "gemini-3.5-flash-lite": 1048576,
+    "gemini-3.1-pro-preview": 1048576,
+    "gemini-3.1-flash-lite": 1048576,
     "gemini-3-pro-preview": 1048576,
     "gemini-3-flash-preview": 1048576,
     "gemini-2.5-pro": 1048576,
     "gemini-2.5-flash": 1048576,
+    "gemini-2.5-flash-lite": 1048576,
     # Meta Llama
-    "llama-4-maverick": 1000000,
-    "llama-4-scout": 10000000,
+    "llama-4-maverick": 1048576,
+    "llama-4-scout": 10000000,  # 10M context window (Meta official spec)
     # Qwen
-    "qwen3-max": 262144,
+    "qwen3.7-max": 1000000,
+    "qwen3.7-plus": 1000000,
+    "qwen3.7-flash": 1000000,
+    "qwen3.6-max-preview": 262144,
+    "qwen3.6-plus": 1000000,
+    "qwen3.6-flash": 1000000,
     "qwen3.5-plus": 1000000,
     "qwen3.5-flash": 1000000,
+    "qwen3-max": 262144,
+    "qwen3-max-thinking": 262144,
     "qwen3-coder-plus": 1000000,
+    "qwen3-coder-flash": 1000000,
     "qwen3-coder-next": 262144,
     "qwen-max": 262144,
     "qwen-plus": 1000000,
@@ -85,16 +132,29 @@ MODEL_DEFAULT_CONTEXT_WINDOW_TOKENS: Dict[str, int] = {
     "qwen-turbo": 8192,
     "qwen-long": 1000000,
     # Moonshot Kimi
+    "kimi-k3": 1048576,
+    "kimi-k2.7-code": 262144,
+    "kimi-k2.6": 262144,
     "kimi-k2.5": 262144,
+    "kimi-k2-thinking": 262144,
+    "kimi-k2-0905": 262144,
+    "kimi-k2": 131072,
     # MiniMax
+    "MiniMax-M3": 1048576,
     "MiniMax-M2.7": 204800,
     "MiniMax-M2.7-highspeed": 204800,
     "MiniMax-M2.5": 204800,
     "MiniMax-M2.5-highspeed": 204800,
+    "MiniMax-M2.1": 204800,
+    "MiniMax-M2": 204800,
+    "MiniMax-M1": 1000000,
     # xAI Grok
+    "grok-4.20": 2000000,
+    "grok-4.20-multi-agent": 2000000,
+    "grok-4.5": 500000,
     "grok-4.3": 1000000,
     "grok-4.3-latest": 1000000,
-    "grok-latest": 1000000,
+    "grok-latest": 500000,
 }
 
 
@@ -160,11 +220,9 @@ class ContextUtils:
             else:
                 alias_tokens[alias] = context_length
 
-        fetched_tokens.update({
-            alias: context_length
-            for alias, context_length in alias_tokens.items()
-            if alias not in ambiguous_aliases
-        })
+        fetched_tokens.update(
+            {alias: context_length for alias, context_length in alias_tokens.items() if alias not in ambiguous_aliases}
+        )
         return fetched_tokens
 
     @staticmethod
@@ -283,12 +341,11 @@ class ContextUtils:
                 if not isinstance(msg, BaseMessage):
                     raise build_error(
                         StatusCode.CONTEXT_MESSAGE_INVALID,
-                        error_msg="messages should be a BaseMessage or a list of BaseMessage"
+                        error_msg="messages should be a BaseMessage or a list of BaseMessage",
                     )
             return
         raise build_error(
-            StatusCode.CONTEXT_MESSAGE_INVALID,
-            error_msg="messages should be a BaseMessage or a list of BaseMessage"
+            StatusCode.CONTEXT_MESSAGE_INVALID, error_msg="messages should be a BaseMessage or a list of BaseMessage"
         )
 
     @staticmethod
@@ -301,6 +358,30 @@ class ContextUtils:
             if not metadata.get(CONTEXT_MESSAGE_ID_KEY):
                 metadata[CONTEXT_MESSAGE_ID_KEY] = uuid.uuid4().hex
         return messages
+
+    @staticmethod
+    def invalidate_usage_metadata(messages: List[BaseMessage]) -> None:
+        """Mark retained model usage as stale after existing context is rewritten."""
+        for message in messages:
+            if not isinstance(message, AssistantMessage) or message.usage_metadata is None:
+                continue
+            metadata = getattr(message, "metadata", None)
+            if not isinstance(metadata, dict):
+                metadata = {}
+                message.metadata = metadata
+            metadata[CONTEXT_USAGE_STALE_KEY] = True
+
+    @staticmethod
+    def has_valid_usage_metadata(message: BaseMessage) -> bool:
+        """Return whether an assistant usage record still describes its prefix."""
+        metadata = getattr(message, "metadata", None)
+        usage_is_stale = metadata.get(CONTEXT_USAGE_STALE_KEY, False) if isinstance(metadata, dict) else False
+        return (
+            isinstance(message, AssistantMessage)
+            and message.usage_metadata is not None
+            and message.usage_metadata.total_tokens > 0
+            and not bool(usage_is_stale)
+        )
 
     @staticmethod
     def validate_and_fix_context_window(context_window: ContextWindow) -> None:
@@ -359,20 +440,13 @@ class ContextUtils:
     def is_compression_processor(processor: Any) -> bool:
         processor_type = processor.processor_type().lower()
         module_name = processor.__class__.__module__.lower()
-        return (
-            "compressor" in processor_type
-            or "compact" in processor_type
-            or ".processor.compressor." in module_name
-        )
+        return "compressor" in processor_type or "compact" in processor_type or ".processor.compressor." in module_name
 
     @staticmethod
     def is_offload_processor(processor: Any) -> bool:
         processor_type = processor.processor_type().lower()
         module_name = processor.__class__.__module__.lower()
-        return (
-            "offload" in processor_type
-            or ".processor.offloader." in module_name
-        )
+        return "offload" in processor_type or ".processor.offloader." in module_name
 
     @staticmethod
     def find_last_ai_message_without_tool_call(
@@ -397,10 +471,10 @@ class ContextUtils:
 
     @staticmethod
     def replace_messages(
-            messages: List[BaseMessage],
-            target_messages: List[BaseMessage],
-            start_index: int,
-            end_index: int,
+        messages: List[BaseMessage],
+        target_messages: List[BaseMessage],
+        start_index: int,
+        end_index: int,
     ) -> List[BaseMessage]:
         """
         Return a **new** list where the slice
@@ -413,7 +487,7 @@ class ContextUtils:
         if start_index < 0 or end_index >= len(messages) or start_index > end_index:
             raise IndexError("Invalid start/end index")
 
-        return messages[:start_index] + target_messages + messages[end_index + 1:]
+        return messages[:start_index] + target_messages + messages[end_index + 1:]  # fmt: skip
 
     @staticmethod
     def find_all_dialogue_round(messages: List[BaseMessage]) -> List[List[Optional[int]]]:
@@ -452,11 +526,7 @@ class ContextUtils:
                 # Found assistant, check if it has tool_calls
                 msg = messages[i]
                 # tool_calls indicated by content type or metadata (adapt as needed)
-                has_tool_calls = (
-                    msg.role == "assistant"
-                    and hasattr(msg, "tool_calls")
-                    and msg.tool_calls
-                )
+                has_tool_calls = msg.role == "assistant" and hasattr(msg, "tool_calls") and msg.tool_calls
 
                 if not has_tool_calls:
                     # This assistant closes a round
@@ -493,10 +563,7 @@ class ContextUtils:
         return rounds
 
     @staticmethod
-    def find_last_n_dialogue_round(
-            messages: List[BaseMessage],
-            n: int
-    ) -> int:
+    def find_last_n_dialogue_round(messages: List[BaseMessage], n: int) -> int:
         """
         Find the starting index of the n-th conversation round from the end.
 
@@ -593,13 +660,13 @@ class ContextUtils:
 
     @staticmethod
     def estimate_tokens(content: Any) -> int:
-        """估计内容的 token 数，使用字符数 // 3 的粗略估算。"""
-        if isinstance(content, str):
-            return max(len(content) // 3, 1)
-        try:
-            return max(len(json.dumps(content, ensure_ascii=False)) // 3, 1)
-        except (TypeError, ValueError):
-            return max(len(str(content)) // 3, 1)
+        """估计内容的 token 数，使用字符数 // 4 的粗略估算。
+
+        ``// 4`` 与 ``TiktokenCounter`` 自身 fallback 一致，且更接近真实
+        token 量级，可与按真实 context window 标定的阈值对齐。
+        """
+        text = sanitize_content_for_text(content)
+        return max(len(text) // 4, 1)
 
     @staticmethod
     def estimate_message_tokens(message: BaseMessage) -> int:
