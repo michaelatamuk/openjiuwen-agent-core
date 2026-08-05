@@ -27,7 +27,7 @@ from openjiuwen.auto_harness.pipelines.best_of_n.attempt_selector import (
     AttemptSelector,
     BestOfNSelector,
 )
-from openjiuwen.auto_harness.infra.workspace_cloner import (
+from openjiuwen.rsi.auto_harness.infra.workspace_cloner import (
     ClonedWorkspace,
     WorkspaceCloner,
 )
