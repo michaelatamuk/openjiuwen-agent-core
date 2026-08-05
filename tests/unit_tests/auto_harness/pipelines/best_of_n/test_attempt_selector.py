@@ -7,11 +7,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_scorer import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_scorer import (
     AttemptScore,
     ScoredAttempt,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_selector import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_selector import (
     BestOfNSelector,
     PassRateSelector,
 )

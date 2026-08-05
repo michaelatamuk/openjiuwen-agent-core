@@ -27,10 +27,10 @@ from openjiuwen.rsi.auto_harness.experience.experience_store import (
 from openjiuwen.rsi.auto_harness.infra.ci_gate_runner import (
     CIGateRunner,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.attempt_scorer import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_scorer import (
     AttemptScorer,
 )
-from openjiuwen.auto_harness.pipelines.best_of_n.controller import (
+from openjiuwen.rsi.auto_harness.pipelines.best_of_n.controller import (
     BestOfNController,
 )
 from openjiuwen.rsi.auto_harness.infra.fix_loop import (
