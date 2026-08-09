@@ -1,6 +1,6 @@
-﻿# coding: utf-8
+# coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
-"""Workspace cloner ΓÇö creates N isolated copies of a workspace for parallel attempts."""
+"""Workspace cloner — creates N isolated copies of a workspace for parallel attempts."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class WorkspaceCloner:
                 ),
             )
             logger.debug(
-                "[WorkspaceCloner] Cloned %s ΓåÆ %s", original, clone_path,
+                "[WorkspaceCloner] Cloned %s → %s", original, clone_path,
             )
         return clones
 
@@ -146,7 +146,7 @@ class WorkspaceCloner:
                         cloned.path,
                     )
             logger.info(
-            "[WorkspaceCloner] Promoted %s ΓåÆ %s (backup=%s)",
+            "[WorkspaceCloner] Promoted %s → %s (backup=%s)",
             cloned.path,
             original,
             backup,
