@@ -24,7 +24,7 @@ from openjiuwen.harness.factory import create_deep_agent
 from openjiuwen.harness.prompts.builder import PromptSection, SystemPromptBuilder
 from openjiuwen.harness.prompts.prompt_attachment_manager import PromptAttachmentManager
 from openjiuwen.harness.rails.skills.skill_use_rail import SkillUseRail
-from openjiuwen.harness.tools import ListSkillTool, RecommendSkillTool
+from openjiuwen.harness.tools import ListSkillTool
 from openjiuwen.harness.tools.skills.skill_tool import SKILL_TOOL_MARKDOWN_IMAGES_HINT
 
 
@@ -83,18 +83,21 @@ def _write_skill(
     name: str,
     description: str,
     body: str = "",
+    *,
+    description_cn: str | None = None,
+    description_en: str | None = None,
 ) -> Path:
     """Create a minimal skill directory with SKILL.md."""
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_md = skill_dir / "SKILL.md"
-    skill_md.write_text(
-        "---\n"
-        f"description: {description}\n"
-        "---\n\n"
-        f"# {name}\n{body}",
-        encoding="utf-8",
-    )
+    frontmatter = ["---", f"description: {description}"]
+    if description_cn is not None:
+        frontmatter.append(f"description_cn: {description_cn}")
+    if description_en is not None:
+        frontmatter.append(f"description_en: {description_en}")
+    frontmatter.extend(["---", "", f"# {name}", body])
+    skill_md.write_text("\n".join(frontmatter), encoding="utf-8")
     return skill_dir
 
 
@@ -210,6 +213,53 @@ async def test_skill_rail_all_mode_injects_skill_prompt(tmp_path: Path):
     assert "Parse invoice pdf files" in content
     assert "Write xlsx reports" in content
     assert "list_skill" not in content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "description_cn", "description_en", "expected"),
+    [
+        ("cn", "中文技能描述", "English localized description", "中文技能描述"),
+        ("en", "中文技能描述", "English localized description", "English localized description"),
+        ("cn", None, None, "Default skill description"),
+    ],
+)
+async def test_skill_rail_uses_localized_description_with_default_fallback(
+    tmp_path: Path,
+    language: str,
+    description_cn: str | None,
+    description_en: str | None,
+    expected: str,
+):
+    """Skill descriptions should follow prompt language and fall back to description."""
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    _write_skill(
+        skills_root,
+        "localized-skill",
+        "Default skill description",
+        description_cn=description_cn,
+        description_en=description_en,
+    )
+
+    skill_rail = SkillUseRail(
+        skills_dir=str(skills_root),
+        skill_mode="all",
+        include_tools=False,
+    )
+    skill_rail.set_sys_operation(_make_sys_operation(tmp_path))
+    skill_rail.system_prompt_builder = SystemPromptBuilder(language=language)
+
+    ctx = AgentCallbackContext(
+        agent=None,
+        inputs=ModelCallInputs(tools=[]),
+        session=None,
+    )
+    await skill_rail.before_invoke(ctx)
+    await skill_rail.before_model_call(ctx)
+
+    content = skill_rail.system_prompt_builder.build()
+    assert expected in content
 
 
 @pytest.mark.asyncio
@@ -414,7 +464,7 @@ async def test_skill_rail_register_rail_auto_list_registers_list_skill_tool(tmp_
     }
 
     assert "read_file" in ability_names
-    assert "code" in ability_names
+    assert "code" not in ability_names
     assert "bash" in ability_names
     assert "list_skill" in ability_names
 
@@ -456,7 +506,7 @@ async def test_auto_list_prompt_is_injected_without_preselecting_skills(tmp_path
     assert "list_skill" in content
     assert "invoice-parser" not in content
     assert "read_file" in content
-    assert "code" in content
+    assert "code" not in content
     assert "bash" in content
 
 
@@ -759,7 +809,7 @@ async def test_skill_rail_combines_additions_removals_and_evolution_in_one_attac
     assert len(attachments) == 1
     content = attachments[0].content or ""
     assert "新增可用 Skill：" in content
-    assert "new-parser: Parse new files" in content
+    assert "0. `new-parser`：Parse new files" in content
     assert "已移除、当前不可用的 Skill：" in content
     assert "legacy-parser" in content
     assert "[Skill: invoice-parser]" in content
@@ -1018,146 +1068,3 @@ async def test_skill_rail_multi_dir_with_missing_dirs(tmp_path: Path):
     await skill_rail.before_invoke(ctx)
 
     assert _sorted_skill_names(skill_rail.skills) == ["skill-a", "skill-c"]
-
-
-# ---------------------------------------------------------------------------
-# SKILL_MODE_RECOMMENDATION tests
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_skill_rail_recommendation_mode_loads_skills(tmp_path: Path):
-    """SkillUseRail in recommendation mode loads skills from disk normally."""
-    skills_root = tmp_path / "skills"
-    _write_skill(skills_root, "invoice-parser", "Parse invoices")
-    _write_skill(skills_root, "xlsx-writer", "Write xlsx files")
-
-    sys_operation = _make_sys_operation(tmp_path)
-    rail = SkillUseRail(
-        skills_dir=str(skills_root),
-        skill_mode="recommendation",
-        include_tools=False,
-    )
-    rail.set_sys_operation(sys_operation)
-
-    ctx = AgentCallbackContext(agent=None, inputs=None, session=None)
-    await rail.before_invoke(ctx)
-
-    assert _sorted_skill_names(rail.skills) == ["invoice-parser", "xlsx-writer"]
-
-
-@pytest.mark.asyncio
-async def test_skill_rail_recommendation_mode_system_prompt(tmp_path: Path):
-    """SkillUseRail in recommendation mode injects recommend_skill hint into system prompt."""
-    skills_root = tmp_path / "skills"
-    _write_skill(skills_root, "invoice-parser", "Parse invoice pdf files")
-
-    sys_operation = _make_sys_operation(tmp_path)
-    rail = SkillUseRail(
-        skills_dir=str(skills_root),
-        skill_mode="recommendation",
-        include_tools=False,
-    )
-    rail.set_sys_operation(sys_operation)
-    rail.system_prompt_builder = SystemPromptBuilder()
-    rail.attachment_manager = None
-
-    ctx = AgentCallbackContext(agent=None, inputs=None, session=None)
-    await rail.before_invoke(ctx)
-    await rail.before_model_call(ctx)
-
-    section = rail.system_prompt_builder.get_section("skills")
-    assert section is not None
-    assert "recommend_skill" in section.render("cn")
-    assert "recommend_skill" in section.render("en")
-
-
-@pytest.mark.asyncio
-async def test_recommend_skill_tool_fallback_no_oracle_dir(tmp_path: Path):
-    """RecommendSkillTool returns all skills when oracle_dir is None."""
-    from openjiuwen.core.single_agent.skills.skill_manager import Skill
-
-    skills = [
-        Skill(name="skill-a", description="A", directory=tmp_path / "skill-a"),
-        Skill(name="skill-b", description="B", directory=tmp_path / "skill-b"),
-    ]
-    tool = RecommendSkillTool(get_skills=lambda: skills, oracle_dir=None)
-
-    result = await tool.invoke({"query": "process invoice"})
-    assert result.success is True
-    assert result.data["mode"] == "fallback_no_oracle_dir"
-    assert {s["name"] for s in result.data["skills"]} == {"skill-a", "skill-b"}
-
-
-@pytest.mark.asyncio
-async def test_recommend_skill_tool_fallback_no_matrix(tmp_path: Path):
-    """RecommendSkillTool returns all skills when oracle_dir exists but has no matrix files."""
-    from openjiuwen.core.single_agent.skills.skill_manager import Skill
-
-    oracle_dir = tmp_path / "oracle"
-    oracle_dir.mkdir()
-    skills = [Skill(name="skill-a", description="A", directory=tmp_path / "skill-a")]
-    tool = RecommendSkillTool(get_skills=lambda: skills, oracle_dir=oracle_dir)
-
-    result = await tool.invoke({"query": "process invoice"})
-    assert result.success is True
-    assert result.data["mode"] == "fallback_no_matrix"
-    assert result.data["skills"][0]["name"] == "skill-a"
-
-
-@pytest.mark.asyncio
-async def test_recommend_skill_tool_fallback_empty_query(tmp_path: Path):
-    """RecommendSkillTool returns all skills when query is empty."""
-    from openjiuwen.core.single_agent.skills.skill_manager import Skill
-
-    oracle_dir = tmp_path / "oracle"
-    oracle_dir.mkdir()
-    skills = [Skill(name="skill-a", description="A", directory=tmp_path / "skill-a")]
-    tool = RecommendSkillTool(get_skills=lambda: skills, oracle_dir=oracle_dir)
-
-    result = await tool.invoke({"query": ""})
-    assert result.success is True
-    assert result.data["mode"] == "fallback_no_query"
-
-
-@pytest.mark.asyncio
-async def test_recommend_skill_tool_with_matrix_returns_ranked_skills(tmp_path: Path):
-    """RecommendSkillTool returns ranked skills when a valid scoring matrix is present."""
-    pytest.importorskip("pandas")
-    pytest.importorskip("sklearn")
-
-    import json
-    from openjiuwen.core.single_agent.skills.skill_manager import Skill
-
-    oracle_dir = tmp_path / "oracle"
-    oracle_dir.mkdir()
-
-    matrix_data = {
-        "run_id": "test-run",
-        "skill_name": "invoice-parser",
-        "fitness_metrics": ["bag_of_words"],
-        "baseline_cross_eval": [
-            {
-                "example_id": "ex1",
-                "example_input": "Parse this invoice PDF and extract totals",
-                "example_expected": "total: 100",
-                "candidate_output": "total: 100",
-                "scores": {"bag_of_words": 1.0},
-            }
-        ],
-    }
-    (oracle_dir / "scoring_matrix_skill_invoice_parser.json").write_text(
-        json.dumps(matrix_data), encoding="utf-8"
-    )
-
-    skills_dir = tmp_path / "skills"
-    skills = [
-        Skill(name="invoice-parser", description="Parse invoices", directory=skills_dir / "invoice-parser"),
-        Skill(name="xlsx-writer", description="Write xlsx", directory=skills_dir / "xlsx-writer"),
-    ]
-    tool = RecommendSkillTool(get_skills=lambda: skills, oracle_dir=oracle_dir)
-
-    result = await tool.invoke({"query": "parse invoice PDF and extract totals"})
-    assert result.success is True
-    assert result.data["mode"] == "recommendation"
-    ranked_names = [s["name"] for s in result.data["skills"]]
-    assert "invoice-parser" in ranked_names

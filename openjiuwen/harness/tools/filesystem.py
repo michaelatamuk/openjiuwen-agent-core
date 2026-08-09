@@ -322,9 +322,8 @@ class MaxFileReadTokenExceededError(Exception):
 
     def __init__(self, token_count: int, max_tokens: int) -> None:
         super().__init__(
-            f"File content ({token_count} tokens) exceeds maximum allowed tokens ({max_tokens}). "
-            "Use offset and limit parameters to read specific portions of the file, "
-            "or search for specific content instead of reading the whole file."
+            f"Error: File content (estimated {token_count} tokens) exceeds maximum allowed tokens ({max_tokens}). "
+            "Use grep for specific content or read a smaller offset/limit range."
         )
         self.token_count = token_count
         self.max_tokens = max_tokens
@@ -630,9 +629,9 @@ class ReadFileTool(Tool):
             byte_len = len(content.encode("utf-8", errors="replace"))
             if byte_len > self.MAX_SIZE_BYTES:
                 raise RuntimeError(
-                    f"File content ({byte_len // 1024} KB) exceeds maximum allowed size "
+                    f"Error: File content ({byte_len // 1024} KB) exceeds maximum allowed size "
                     f"({self.MAX_SIZE_BYTES // 1024} KB). "
-                    "Use offset and limit parameters to read specific portions of the file."
+                    "Use grep for specific content or read a smaller offset/limit range."
                 )
 
         tokens = self._estimate_tokens(content)
@@ -647,9 +646,8 @@ class ReadFileTool(Tool):
                 return "Warning: the file exists but the contents are empty."
             else:
                 return (
-                    f"Warning: the file exists but is shorter than "
-                    f"the provided offset ({offset}). "
-                    f"The file has {len(content.splitlines())} lines."
+                    f"Error: The file exists but no content was returned at offset {offset}. "
+                    "Use a smaller offset or read from the beginning."
                 )
 
         return rendered
@@ -665,11 +663,9 @@ class ReadFileTool(Tool):
         byte_len = len(raw_text.encode("utf-8", errors="replace"))
         if byte_len > self.MAX_SIZE_BYTES:
             raise RuntimeError(
-                f"Notebook content ({byte_len // 1024} KB) exceeds maximum allowed size "
+                f"Error: Notebook content ({byte_len // 1024} KB) exceeds maximum allowed size "
                 f"({self.MAX_SIZE_BYTES // 1024} KB). "
-                "Use Bash with jq to inspect specific cells:\n"
-                f"  cat \"{file_path}\" | jq '.cells[:20]'        # First 20 cells\n"
-                f"  cat \"{file_path}\" | jq '.cells | length'    # Count total cells"
+                "Use grep to search for specific cell content instead of reading the whole notebook."
             )
 
         notebook = json.loads(raw_text)
@@ -765,20 +761,30 @@ class ReadFileTool(Tool):
             return "\n\n".join(parts).strip()
 
     @staticmethod
-    def _compress_image_bytes(raw: bytes, size: Tuple[int, int], quality: int) -> Optional[bytes]:
-        try:
-            from PIL import Image
-        except ImportError as exc:
-            logger.debug("Pillow is unavailable for image compression: %s", exc)
-            return None
+    def _estimate_base64_tokens(byte_length: int) -> int:
+        """Token estimate for base64-encoding `byte_length` bytes, without encoding.
 
+        Computes the exact base64.b64encode() output length (3 raw bytes -> 4
+        encoded chars, rounded up to a multiple of 4) from the byte count
+        alone, so budget checks don't need to pay for a real encode just to
+        measure size.
+        """
+        encoded_length = ((byte_length + 2) // 3) * 4
+        return max(1, int(encoded_length * 0.125))
+
+    @staticmethod
+    def _compress_image(img: Any, size: Tuple[int, int], quality: int) -> Optional[bytes]:
+        """Render an isolated, downsized JPEG copy of an already-decoded PIL image.
+
+        `img.convert("RGB")` returns a new image object, so `img` itself is
+        never mutated and stays reusable by other compression tiers.
+        """
         try:
-            with Image.open(io.BytesIO(raw)) as img:
-                out = io.BytesIO()
-                img = img.convert("RGB")
-                img.thumbnail(size)
-                img.save(out, format="JPEG", quality=quality)
-                return out.getvalue()
+            out = io.BytesIO()
+            tier = img.convert("RGB")
+            tier.thumbnail(size)
+            tier.save(out, format="JPEG", quality=quality)
+            return out.getvalue()
         except (OSError, ValueError) as exc:
             logger.debug("Failed to compress image bytes: %s", exc)
             return None
@@ -797,43 +803,45 @@ class ReadFileTool(Tool):
         _, ext = os.path.splitext(file_path.lower())
         image_type = ext.lstrip(".") or "png"
         dimensions: str | None = None
-
-        # Step 1: standard resize (thumbnail to 1536×1536).
         resized = raw
+
         try:
             from PIL import Image
         except ImportError as exc:
             logger.debug("Pillow is unavailable for image metadata extraction (%s): %s", file_path, exc)
         else:
             try:
+                # Decode once; every compression tier below works off this same
+                # image object (via .copy()/.convert(), which never mutate it).
                 with Image.open(io.BytesIO(raw)) as img:
                     detected_format = (img.format or "PNG").lower()
                     image_type = detected_format  # prefer format detected from buffer
                     dimensions = f"{img.width}x{img.height}"
-                    img.thumbnail((1536, 1536))
+
+                    # Tier 1: standard resize, same format as the source (thumbnail to 1536×1536).
+                    tier1 = img.copy()
+                    tier1.thumbnail((1536, 1536))
                     out = io.BytesIO()
-                    img.save(out, format=detected_format.upper())
+                    tier1.save(out, format=detected_format.upper())
                     candidate = out.getvalue()
                     if candidate and len(candidate) < len(raw):
                         resized = candidate
+
+                    # Tier 2/3: only pay for further compression if tier 1 still busts the budget.
+                    # Token budget check uses a byte-length estimate, not a real base64 encode.
+                    if self._estimate_base64_tokens(len(resized)) > self.MAX_TOKENS:
+                        compressed = self._compress_image(img, size=(800, 800), quality=40)
+                        if compressed and self._estimate_base64_tokens(len(compressed)) <= self.MAX_TOKENS:
+                            resized = compressed
+                            image_type = "jpeg"
+                        else:
+                            # Final fallback: 400×400 JPEG q=20 (mirrors TS Sharp fallback).
+                            fallback = self._compress_image(img, size=(400, 400), quality=20)
+                            if fallback:
+                                resized = fallback
+                                image_type = "jpeg"
             except (OSError, ValueError) as exc:
                 logger.debug("Failed to parse image metadata (%s): %s", file_path, exc)
-
-        # Step 2: token budget check — base64 byte count × 0.125 ≈ tokens.
-        estimated_tokens = max(1, int(len(base64.b64encode(resized)) * 0.125))
-        if estimated_tokens > self.MAX_TOKENS:
-            # Aggressive compression from the same buffer.
-            compressed = self._compress_image_bytes(raw, size=(800, 800), quality=40)
-
-            if compressed and int(len(base64.b64encode(compressed)) * 0.125) <= self.MAX_TOKENS:
-                resized = compressed
-                image_type = "jpeg"
-            else:
-                # Final fallback: 400×400 JPEG q=20 (mirrors TS Sharp fallback).
-                fallback = self._compress_image_bytes(raw, size=(400, 400), quality=20)
-                if fallback:
-                    resized = fallback
-                    image_type = "jpeg"
 
         mime_type = f"image/{image_type}"
         parts = [
@@ -954,10 +962,9 @@ class ReadFileTool(Tool):
             return ToolOutput(
                 success=False,
                 error=(
-                    f"File content ({size_bytes / 1024:.1f}KB) exceeds maximum allowed size "
+                    f"Error: File content ({size_bytes / 1024:.1f}KB) exceeds maximum allowed size "
                     f"({self.MAX_SIZE_BYTES // 1024}KB). "
-                    "Use offset and limit parameters to read specific portions of the file, "
-                    "or search for specific content instead of reading the whole file."
+                    "Use grep for specific content or read a smaller offset/limit range."
                 ),
             )
 
@@ -1115,7 +1122,7 @@ class WriteFileTool(Tool):
                         return ToolOutput(
                             success=False,
                             error=(
-                                f"File is too large ({stat.st_size // (1024 ** 3)} GiB). "
+                                f"Error: File is too large ({stat.st_size // (1024 ** 3)} GiB). "
                                 "Maximum allowed size is 1 GiB."
                             ),
                         )
@@ -1138,8 +1145,8 @@ class WriteFileTool(Tool):
                     if read_state is None or not is_logically_complete:
                         if read_state is None:
                             msg = (
-                                "File has not been read yet. "
-                                f"Call read_file on '{path}' first before writing to it."
+                                f"Error: File has not been read yet: {path}. "
+                                "Read it before attempting to write it."
                             )
                         else:
                             # Point the agent at the first unread line so it knows
@@ -1148,9 +1155,9 @@ class WriteFileTool(Tool):
                             # Lines read so far = sum of interval lengths in ranges.
                             lines_read = sum(e - s + 1 for s, e in (ranges or []))
                             msg = (
-                                f"File has not been fully read yet. "
+                                f"Error: File has not been fully read yet. "
                                 f"You have read {lines_read} of {read_state.total_lines} lines. "
-                                f"Continue with read_file (offset={resume_offset}) "
+                                f"Continue with read_file offset={resume_offset} before writing."
                                 f"until the whole file is covered, then write. "
                                 f"A full-file overwrite cannot use partial reads — "
                                 f"it would lose the unread content."
@@ -1167,7 +1174,7 @@ class WriteFileTool(Tool):
                             return ToolOutput(
                                 success=False,
                                 error=(
-                                    "File has been modified since read, either by the user or by a linter. "
+                                    f"Error: File has been modified since read: {path}. "
                                     "Read it again before attempting to write it."
                                 ),
                             )
@@ -1507,7 +1514,7 @@ class EditFileTool(Tool):
             hint = f" Similar paths: {similar}" if similar else ""
             return ToolOutput(
                 success=False,
-                error=f"File not found: '{file_path}'.{hint}",
+                error=f"Error: File not found: '{file_path}'.{hint}",
             )
 
         # ---- File size guard -----------------------------------------------------
@@ -1521,7 +1528,7 @@ class EditFileTool(Tool):
                 return ToolOutput(
                     success=False,
                     error=(
-                        f"File is too large ({_stat.st_size // (1024 ** 3)} GiB). "
+                        f"Error: File is too large ({_stat.st_size // (1024 ** 3)} GiB). "
                         "Maximum allowed size is 1 GiB."
                     ),
                 )
@@ -1545,8 +1552,8 @@ class EditFileTool(Tool):
             return ToolOutput(
                 success=False,
                 error=(
-                    f"File must be read before editing. "
-                    f"Call read_file on '{file_path}' first."
+                    f"Error: File must be read before editing: {file_path}. "
+                    "Read it before attempting to edit it."
                 ),
             )
 
@@ -1566,8 +1573,8 @@ class EditFileTool(Tool):
                 return ToolOutput(
                     success=False,
                     error=(
-                        f"'{file_path}' has been modified externally since it was last read. "
-                        "Re-read the file before editing."
+                        f"Error: File has been modified since read: {file_path}. "
+                        "Read it again before attempting to edit it."
                     ),
                 )
 
@@ -1597,7 +1604,10 @@ class EditFileTool(Tool):
             if variant is None:
                 return ToolOutput(
                     success=False,
-                    error=f"old_string not found in '{file_path}'.",
+                    error=(
+                        f"Error: old_string not found in '{file_path}'. "
+                        "Read the file and retry with the exact current text."
+                    ),
                 )
             match_str = variant
             new_str_clean = self._preserve_quote_style(old_str_clean, match_str, new_str_clean)
@@ -1608,9 +1618,9 @@ class EditFileTool(Tool):
             return ToolOutput(
                 success=False,
                 error=(
-                    f"old_string matches {count} times in '{file_path}'. "
+                    f"Error: old_string matches {count} times in '{file_path}'. "
                     "Provide more surrounding context to make it unique, "
-                    "or set replace_all=true to replace every occurrence."
+                    "or set replace_all=true only if replacing every occurrence is intended."
                 ),
             )
 
@@ -1784,9 +1794,9 @@ class ListDirTool(Tool):
         dirs_res = await self.operation.fs().list_directories(path)
 
         if files_res.code != StatusCode.SUCCESS.code:
-            return ToolOutput(success=False, error=f"列出文件失败: {files_res.message}")
+            return ToolOutput(success=False, error=f"Failed to list files: {files_res.message}")
         if dirs_res.code != StatusCode.SUCCESS.code:
-            return ToolOutput(success=False, error=f"列出目录失败: {dirs_res.message}")
+            return ToolOutput(success=False, error=f"Failed to list directories: {dirs_res.message}")
 
         files = [item.name for item in files_res.data.list_items] if files_res.data else []
         dirs = [item.name for item in dirs_res.data.list_items] if dirs_res.data else []

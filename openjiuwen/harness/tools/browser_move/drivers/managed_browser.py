@@ -13,7 +13,6 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
-from urllib.error import URLError
 from urllib.request import urlopen
 
 from ..playwright_runtime.profiles import BrowserProfile
@@ -189,29 +188,22 @@ class ManagedBrowserDriver:
 
     def _resolve_binary(self) -> str:
         explicit = (self.profile.browser_binary or "").strip()
-        explicit_error = ""
         if explicit:
             if _is_chrome_identifier(explicit):
                 candidate = Path(explicit).expanduser()
-                if candidate.exists():
+                if candidate.is_file():
                     return str(candidate)
                 resolved = shutil.which(explicit)
                 if resolved:
                     return resolved
-                explicit_error = f"Configured Chrome binary not found: {explicit}"
-            else:
-                explicit_error = (
-                    "Managed mode supports Chrome only. "
-                    "Set BROWSER_MANAGED_BINARY to a Chrome executable."
-                )
+                raise RuntimeError(f"Configured Chrome binary not found: {explicit}")
+            raise RuntimeError(
+                "Managed mode supports Chrome only. "
+                "Set BROWSER_MANAGED_BINARY to a Chrome executable."
+            )
 
         candidates = _candidate_chrome_binaries()
         if not candidates:
-            if explicit_error:
-                raise RuntimeError(
-                    f"Chrome needs to be installed. {explicit_error} "
-                    "No fallback Chrome binary was found on this machine."
-                )
             raise RuntimeError(
                 "Chrome needs to be installed. No Chrome binary was found on this machine."
             )
@@ -252,7 +244,7 @@ class ManagedBrowserDriver:
             return False
         return False
 
-    def start(self, timeout_s: float = 20.0, kill_existing: bool = False) -> str:
+    def start(self, timeout_s: float = 30.0, kill_existing: bool = False) -> str:
         if self._process is not None and self._process.poll() is None:
             if self._is_endpoint_ready():
                 return self.cdp_endpoint

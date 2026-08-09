@@ -293,6 +293,12 @@ class TeamBackend:
         # only the default ones.
         self._cleanup_paths: set[str] = set()
 
+        # Fork / checkpoint support
+        self._pending_forks: dict[str, dict] = {}    # member_name → {fork, since, source}
+        self._checkpoints: dict[str, int] = {}       # name → message_count
+        self._snapshot_length: Callable[[], int] | None = None
+        self._store_checkpoint_fn: Callable[[str, int], None] | None = None
+
         team_logger.info(f"AgentTeam manager initialized for {team_name}, member={member_name}")
 
     def register_cleanup_path(self, path: Optional[str]) -> None:
@@ -304,6 +310,80 @@ class TeamBackend:
         if not path:
             return
         self._cleanup_paths.add(str(Path(path).expanduser()))
+
+    # ------------------------------------------------------------------
+    # Fork / checkpoint support
+    # ------------------------------------------------------------------
+
+    def set_snapshot_length(self, fn) -> None:
+        """Register the callback that returns this member's message count."""
+        self._snapshot_length = fn
+
+    def set_store_checkpoint_fn(self, fn) -> None:
+        """Register the callback for persisting a named checkpoint."""
+        self._store_checkpoint_fn = fn
+
+    def mark_fork_on_spawn(
+        self,
+        member: str,
+        fork_value,
+        *,
+        fork_source: str | None = None,
+        compact: bool = False,
+    ) -> None:
+        self._pending_forks[member] = {
+            "fork": fork_value,
+            "since": None,
+            "source": fork_source,
+            "compact": compact,
+        }
+        team_logger.debug(
+            "[fork] mark_fork_on_spawn: member=%s fork=%s source=%s "
+            "compact=%s team_name=%s pending_keys=%s",
+            member, fork_value, fork_source, compact,
+            self.team_name, list(self._pending_forks.keys()),
+        )
+
+    def consume_fork_on_spawn(self, member: str) -> dict | None:
+        result = self._pending_forks.pop(member, None)
+        team_logger.debug(
+            "[fork] consume_fork_on_spawn: member=%s result=%s "
+            "remaining_pending=%s team_name=%s",
+            member, result, list(self._pending_forks.keys()),
+            self.team_name,
+        )
+        return result
+
+    def snapshot_context_length(self) -> int:
+        if self._snapshot_length is not None:
+            result = self._snapshot_length()
+            team_logger.debug(
+                "[fork] snapshot_context_length: member=%s len=%d",
+                self.member_name, result,
+            )
+            return result
+        team_logger.debug(
+            "[fork] snapshot_context_length: member=%s NO callback",
+            self.member_name,
+        )
+        return 0
+
+    def store_checkpoint(self, name: str, count: int) -> None:
+        team_logger.debug(
+            "[fork] store_checkpoint: member=%s name=%s count=%d "
+            "has_store_fn=%s",
+            self.member_name, name, count,
+            self._store_checkpoint_fn is not None,
+        )
+        if self._store_checkpoint_fn is not None:
+            self._store_checkpoint_fn(name, count)
+        else:
+            self._checkpoints[name] = count
+
+    def get_checkpoints(self) -> dict[str, int]:
+        return dict(self._checkpoints)
+
+    # ------------------------------------------------------------------
 
     async def _remove_cleanup_paths(self) -> None:
         """Remove every registered cleanup path with ``shutil.rmtree``.
@@ -389,6 +469,11 @@ class TeamBackend:
             return MemberOpResult.fail(f"Member {member_name} already exists in team {self.team_name}")
         if isolation is not None and isolation != "worktree":
             return MemberOpResult.fail("Invalid isolation: expected 'worktree' or None")
+
+        if not await self.db.team.team_exists(self.team_name):
+            return MemberOpResult.fail(
+                f"Team {self.team_name} does not exist; call build_team first"
+            )
 
         from openjiuwen.agent_teams.tools.member_options import build_member_options
 
@@ -676,6 +761,28 @@ class TeamBackend:
                 else f"Member {member_name} is shutting down"
             )
             return MemberOpResult.success()
+
+        # Guard: reject shutdown of a live human agent who still holds active
+        # tasks, unless force=True. Models sometimes confuse "cancel this
+        # human's task" with "shutdown the human" — without this guard the
+        # mistake silently succeeds and the tasks are orphaned.  Regular
+        # teammates are intentionally not gated here: their shutdown is a
+        # normal lifecycle operation and the leader already expects to
+        # manage any leftover tasks afterwards.
+        if not force and await self.is_live_human_agent(member_name):
+            active_statuses = {
+                TaskStatus.PLANNING.value,
+                TaskStatus.IN_PROGRESS.value,
+                TaskStatus.IN_REVIEW.value,
+            }
+            owned_tasks = await self.task_manager.get_tasks_by_assignee(member_name=member_name)
+            active_tasks = [t for t in owned_tasks if t.status in active_statuses]
+            if active_tasks:
+                task_ids = ", ".join(t.task_id for t in active_tasks)
+                return MemberOpResult.fail(
+                    t("team.shutdown_human_active_tasks",
+                      member_name=member_name, count=str(len(active_tasks)), task_ids=task_ids)
+                )
 
         # Validate state transition
         from openjiuwen.agent_teams.schema.status import (
@@ -1194,8 +1301,7 @@ class TeamBackend:
         self._enable_bridge = effective_enable_bridge
         effective_task_verification = (
             self._spec_enable_task_verification
-            if enable_task_verification is None
-            else enable_task_verification
+            and (enable_task_verification if enable_task_verification is not None else True)
         )
         self._enable_task_verification = effective_task_verification
 

@@ -74,6 +74,7 @@ def _backend(db, member_name: str, is_leader: bool, dispatch_mode: str = "autono
         db=db,
         messager=AsyncMock(spec=Messager),
         dispatch_mode=dispatch_mode,
+        enable_task_verification=True,
     )
 
 
@@ -148,7 +149,7 @@ async def test_variants_keep_card_identity(db, dispatch_mode):
 @pytest.mark.asyncio
 @pytest.mark.level0
 async def test_create_task_variant_classes_and_schema(db):
-    """Only the scheduled create_task exposes (and requires) ``assignee``."""
+    """Autonomous can pre-assign; scheduled requires owners and exposes review gates."""
     backend = _backend(db, LEADER_NAME, True)
     autonomous = _by_name(create_team_tools(role="leader", agent_team=backend), "create_task")
     scheduled = _by_name(
@@ -160,7 +161,8 @@ async def test_create_task_variant_classes_and_schema(db):
     def node(tool):
         return tool.card.input_params["properties"]["tasks"]["items"]
 
-    assert "assignee" not in node(autonomous)["properties"]
+    assert "assignee" in node(autonomous)["properties"]
+    assert "reviewer" not in node(autonomous)["properties"]
     assert "assignee" in node(scheduled)["properties"]
     assert "max_review_rounds" not in node(autonomous)["properties"]
     assert "max_review_rounds" in node(scheduled)["properties"]
@@ -168,7 +170,10 @@ async def test_create_task_variant_classes_and_schema(db):
     assert "assignee" in node(scheduled)["required"]
 
     # Parameter descriptions are shared: same locale key, same string.
-    assert node(autonomous)["properties"]["title"]["description"] == node(scheduled)["properties"]["title"]["description"]
+    assert (
+        node(autonomous)["properties"]["title"]["description"]
+        == node(scheduled)["properties"]["title"]["description"]
+    )
 
 
 @pytest.mark.asyncio
@@ -298,6 +303,10 @@ async def test_scheduled_create_task_rejects_unknown_or_missing_assignee(db):
     assert not unknown.success
     assert "not found" in unknown.error
 
+    leader = await create_task.invoke({"tasks": [{"title": "t", "content": "c", "assignee": LEADER_NAME}]})
+    assert not leader.success
+    assert "team leader" in leader.error
+
 
 @pytest.mark.asyncio
 @pytest.mark.level0
@@ -414,7 +423,7 @@ async def test_start_task_rejects_unassigned(db):
 @pytest.mark.asyncio
 @pytest.mark.level0
 async def test_autonomous_create_task_leaves_tasks_unassigned(db):
-    """The autonomous variant never writes an assignee — members claim instead."""
+    """The autonomous variant still leaves tasks unassigned when no owner is provided."""
     backend = _backend(db, LEADER_NAME, True)
     tools = create_team_tools(role="leader", agent_team=backend)
     create_task = _by_name(tools, "create_task")
@@ -425,6 +434,94 @@ async def test_autonomous_create_task_leaves_tasks_unassigned(db):
     task = await backend.task_manager.get("a1")
     assert task.status == TaskStatus.PENDING.value
     assert task.assignee is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_autonomous_create_task_can_preassign_existing_non_leader(db):
+    """Autonomous pre-assignment reserves a pending task for that member."""
+    backend = _backend(db, LEADER_NAME, True)
+    tools = create_team_tools(role="leader", agent_team=backend)
+    create_task = _by_name(tools, "create_task")
+
+    result = await create_task.invoke(
+        {"tasks": [{"task_id": "a2", "title": "assigned", "content": "c", "assignee": DEV_1}]}
+    )
+    assert result.success, result.error
+
+    task = await backend.task_manager.get("a2")
+    assert task.status == TaskStatus.PENDING.value
+    assert task.assignee == DEV_1
+    assert create_task.map_result(result).endswith(f"-> {DEV_1}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_autonomous_create_task_rejects_leader_or_unknown_assignee(db):
+    """Autonomous assignee is optional, but any provided owner must be valid."""
+    tools = create_team_tools(role="leader", agent_team=_backend(db, LEADER_NAME, True))
+    create_task = _by_name(tools, "create_task")
+
+    leader = await create_task.invoke({"tasks": [{"title": "t", "content": "c", "assignee": LEADER_NAME}]})
+    assert not leader.success
+    assert "team leader" in leader.error
+
+    unknown = await create_task.invoke({"tasks": [{"title": "t", "content": "c", "assignee": "ghost"}]})
+    assert not unknown.success
+    assert "not found" in unknown.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_autonomous_member_claims_task_preassigned_to_self(db):
+    """A pending task assigned at create time can be started by the owner."""
+    leader_backend = _backend(db, LEADER_NAME, True)
+    create_task = _by_name(create_team_tools(role="leader", agent_team=leader_backend), "create_task")
+    result = await create_task.invoke(
+        {"tasks": [{"task_id": "a3", "title": "assigned", "content": "c", "assignee": DEV_1}]}
+    )
+    assert result.success, result.error
+
+    member_manager = TeamTaskManager(team_name=TEAM_NAME, member_name=DEV_1, db=db, messager=AsyncMock(spec=Messager))
+    claim = await member_manager.claim("a3")
+    assert claim.ok, claim.reason
+
+    task = await leader_backend.task_manager.get("a3")
+    assert task.status == TaskStatus.IN_PROGRESS.value
+    assert task.assignee == DEV_1
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_update_task_completed_returns_guidance(db):
+    """Leader cannot complete a task directly; the tool explains the correct path."""
+    backend = _backend(db, LEADER_NAME, True)
+    create_task = _by_name(create_team_tools(role="leader", agent_team=backend), "create_task")
+    create = await create_task.invoke({"tasks": [{"task_id": "a4", "title": "x", "content": "c"}]})
+    assert create.success, create.error
+    update_task = _by_name(create_team_tools(role="leader", agent_team=backend), "update_task")
+
+    result = await update_task.invoke({"task_id": "a4", "status": "completed"})
+    assert not result.success
+    assert "cannot mark a task completed" in result.error
+    assert "non-leader member" in result.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_update_task_rejects_unknown_status(db):
+    """Bypassed schema validation still receives a clear invalid-status error."""
+    backend = _backend(db, LEADER_NAME, True)
+    create_task = _by_name(create_team_tools(role="leader", agent_team=backend), "create_task")
+    create = await create_task.invoke({"tasks": [{"task_id": "a5", "title": "x", "content": "c"}]})
+    assert create.success, create.error
+    update_task = _by_name(create_team_tools(role="leader", agent_team=backend), "update_task")
+
+    result = await update_task.invoke({"task_id": "a5", "status": "blocked"})
+    assert not result.success
+    assert "Invalid status" in result.error
+    assert "omit status" in result.error
+    assert "status='cancelled'" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -519,13 +616,13 @@ async def test_verify_task_registered_for_members_not_leader(db, role, dispatch_
 @pytest.mark.asyncio
 @pytest.mark.level0
 async def test_create_task_carries_reviewer(db):
-    """A leader-created task persists its reviewer list."""
-    backend = _backend(db, LEADER_NAME, True)
-    tools = create_team_tools(role="leader", agent_team=backend)
+    """A scheduled leader-created task persists its reviewer list."""
+    backend = _backend(db, LEADER_NAME, True, dispatch_mode="scheduled")
+    tools = create_team_tools(role="leader", agent_team=backend, dispatch_mode="scheduled")
     create_task = _by_name(tools, "create_task")
 
     result = await create_task.invoke(
-        {"tasks": [{"task_id": "r1", "title": "t", "content": "c", "reviewer": [DEV_2]}]}
+        {"tasks": [{"task_id": "r1", "title": "t", "content": "c", "assignee": DEV_1, "reviewer": [DEV_2]}]}
     )
     assert result.success, result.error
     task = await backend.task_manager.get("r1")
@@ -549,17 +646,16 @@ async def test_create_task_rejects_reviewer_equal_assignee(db):
 
 @pytest.mark.asyncio
 @pytest.mark.level0
-async def test_create_task_rejects_unknown_reviewer(db):
-    """A reviewer must be a real team member."""
-    backend = _backend(db, LEADER_NAME, True)
-    tools = create_team_tools(role="leader", agent_team=backend)
+async def test_create_task_allows_role_based_reviewer(db):
+    """Reviewer names in scheduled dispatch may be role labels — the scheduler handles them."""
+    backend = _backend(db, LEADER_NAME, True, dispatch_mode="scheduled")
+    tools = create_team_tools(role="leader", agent_team=backend, dispatch_mode="scheduled")
     create_task = _by_name(tools, "create_task")
 
     result = await create_task.invoke(
-        {"tasks": [{"task_id": "r1", "title": "t", "content": "c", "reviewer": ["ghost"]}]}
+        {"tasks": [{"task_id": "r1", "title": "t", "content": "c", "assignee": DEV_1, "reviewer": ["ghost"]}]}
     )
-    assert not result.success
-    assert "not found" in result.error
+    assert result.success
 
 
 @pytest.mark.asyncio
@@ -606,3 +702,96 @@ async def test_view_task_in_review_lists_reviewers_tasks(db):
     result = await view.invoke({"action": "in_review"})
     assert result.success
     assert [task["task_id"] for task in result.data["tasks"]] == ["v1"]
+
+
+# ---------------------------------------------------------------------------
+# Structured reviewer (F_73): object input + auto-numbering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_create_task_structured_reviewer(db):
+    """Scheduled create_task with structured reviewer objects persists type
+    and auto-generates reviewer_id."""
+    backend = _backend(db, LEADER_NAME, True, dispatch_mode="scheduled")
+    tools = create_team_tools(role="leader", agent_team=backend, dispatch_mode="scheduled")
+    create_task = _by_name(tools, "create_task")
+
+    result = await create_task.invoke({
+        "tasks": [{
+            "task_id": "sr1",
+            "title": "t",
+            "content": "c",
+            "assignee": DEV_1,
+            "reviewer": [
+                {"type": "verifier", "instruction": "check correctness"},
+                {"type": "inspector", "instruction": ""},
+                {"type": "challenger", "instruction": ""},
+            ],
+        }]
+    })
+    assert result.success, result.error
+    task = await backend.task_manager.get("sr1")
+    details = task.reviewer_details()
+    assert len(details) == 3
+
+    assert details[0]["type"] == "verifier"
+    assert details[0]["reviewer_id"] == "verifier_1"
+    assert details[0]["instruction"] == "check correctness"
+
+    assert details[1]["type"] == "inspector"
+    assert details[1]["reviewer_id"] == "inspector_1"
+
+    assert details[2]["type"] == "challenger"
+    assert details[2]["reviewer_id"] == "challenger_1"
+
+    # reviewers() returns flat name list for verify_task identity guard
+    assert task.reviewers() == ["verifier_1", "inspector_1", "challenger_1"]
+
+
+@pytest.mark.level0
+def test_reviewer_id_auto_numbering():
+    """_clean_reviewers assigns per-type sequential counters."""
+    from openjiuwen.agent_teams.tools.tool_task import _clean_reviewers
+
+    spec = {"reviewer": [
+        {"type": "verifier"},
+        {"type": "inspector"},
+        {"type": "verifier"},
+        {"type": "challenger"},
+        {"type": "inspector"},
+    ]}
+    result = _clean_reviewers(spec)
+    assert [d["reviewer_id"] for d in result] == [
+        "verifier_1",
+        "inspector_1",
+        "verifier_2",
+        "challenger_1",
+        "inspector_2",
+    ]
+
+
+@pytest.mark.level0
+def test_reviewer_id_preserves_existing():
+    """_clean_reviewers keeps a caller-supplied reviewer_id untouched."""
+    from openjiuwen.agent_teams.tools.tool_task import _clean_reviewers
+
+    spec = {"reviewer": [
+        {"type": "verifier", "reviewer_id": "custom-name"},
+    ]}
+    result = _clean_reviewers(spec)
+    assert result[0]["reviewer_id"] == "custom-name"
+
+
+@pytest.mark.level0
+def test_reviewer_id_old_format_compat():
+    """_clean_reviewers upgrades old string-list entries."""
+    from openjiuwen.agent_teams.tools.tool_task import _clean_reviewers
+
+    spec = {"reviewer": ["alice", {"type": "inspector"}]}
+    result = _clean_reviewers(spec)
+    assert result[0]["type"] == "verifier"
+    assert result[0]["reviewer_id"] == "alice"
+    assert result[1]["type"] == "inspector"
+    assert result[1]["reviewer_id"] == "inspector_1"

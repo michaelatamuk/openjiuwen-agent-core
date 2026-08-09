@@ -27,9 +27,13 @@ STRINGS: dict[str, str] = {
     ),
     "build_team.enable_task_verification": (
         "本团队实例是否要求任务校验。可选 true / false / 不传（继承 TeamAgentSpec 配置）。"
-        "开启后你在创建任务时应按自己的判断为任务指派 0~N 个 reviewer（关键交付必配、"
-        "琐碎任务可不配）；带 reviewer 的任务完成后进入验收，通过才算完成"
+        "开启后 teammate 完成任务将进入 IN_REVIEW 等验证者裁决；关闭则直接标记完成。"
+        "reviewer 分配不受此开关影响——无论开关值如何，你都应为关键交付任务指派 reviewer"
     ),
+    # ===== checkpoint ==========================================================
+    # checkpoint._desc lives in descs/cn/checkpoint.md
+    "checkpoint.name": "快照名（语义化 slug，如 code-ready）。后续 fork 通过此名引用",
+    "checkpoint.description": "可选描述，说明为何在此打快照",
     # ===== clean_team ==========================================================
     # clean_team._desc lives in descs/cn/clean_team.md
     # ===== spawn_teammate ======================================================
@@ -64,6 +68,21 @@ STRINGS: dict[str, str] = {
         "收窄该 teammate 的工具权限（只能收紧，不能放宽）。"
         "键为工具名，值为权限级别：'allow'、'ask' 或 'deny'。"
         "示例：{\"bash\": \"deny\", \"write_file\": \"ask\"}"
+    ),
+    "spawn_teammate.fork": (
+        "从已有成员继承上下文，跳过重复的文件读取和搜索。"
+        "true：继承调用者当前全部上下文。"
+        "字符串（如 'code-ready'）：从该名称的 checkpoint 快照继承上下文。"
+        "不传则新成员从空上下文启动。所有继承的消息中，SystemMessage 会被自动剥离——"
+        "源成员的角色身份不会泄漏给新成员"
+    ),
+    "spawn_teammate.fork_source": (
+        "上下文来源成员名。不填默认从 leader 取。填某 teammate 名（如 'understander'）"
+        "则从该成员取上下文。该成员必须已通过 spawn_teammate 拉起来，且为 in-process 模式"
+    ),
+    "spawn_teammate.compact": (
+        "启用上下文压缩。checkpoint 之前的旧消息压缩为摘要，"
+        "checkpoint 之后的分析全量保留。仅配合 checkpoint fork 使用"
     ),
     # ===== spawn_human_agent ===================================================
     # spawn_human_agent._desc lives in descs/cn/spawn_human_agent.md
@@ -173,19 +192,22 @@ STRINGS: dict[str, str] = {
     "create_task.task.task_id": "自定义任务 ID，便于依赖引用（不提供则自动生成）",
     "create_task.task.title": "任务标题，简明描述任务目标",
     "create_task.task.content": "任务详细内容，包含目标和验收标准",
-    # Only the scheduled create_task variant exposes this property; the
-    # description lives under the shared create_task.* key namespace so both
-    # variants read the same strings for the properties they have in common.
+    # Both create_task variants expose assignee. Autonomous treats it as
+    # optional; scheduled requires it.
     "create_task.task.assignee": (
-        "承担该任务的成员名称（必填）；该成员必须已存在。成员不自主认领，无主任务永远不会执行——"
-        "无依赖的任务由调度框架自动开工，有依赖的任务在依赖完成后自动转交承担者"
+        "承担该任务的成员名称；该成员必须已存在且不能是 leader。自主模式可选，未填写则进入公共认领池；"
+        "调度模式必填，成员不会自主认领"
     ),
     "create_task.task.depends_on": "前置依赖的任务 ID 列表；可引用本次调用中一起创建的任务或已有任务",
     "create_task.task.depended_by": "需要等待本任务完成的已有任务 ID 列表（反向依赖）；不得引用本次调用创建的任务——批内依赖一律用对方的 depends_on 表示",
     "create_task.task.reviewer": (
-        "该任务的验证者 member_name 列表（可选，可多个）；这些成员必须已存在且不能是 assignee 本人。"
-        "配了验证者的任务在 assignee 完成后进入 in_review 等验证，验证通过才 completed"
+        "该任务的验证者列表（可选，可多个），每一项为包含 type/instruction "
+        "的对象。type 可选值：verifier / inspector / challenger。"
+        "reviewer_id 由系统按类型自动编号，无需填写。"
     ),
+    "create_task.task.reviewer_type": "验证者类型：verifier / inspector / challenger",
+    "create_task.task.reviewer_id": "验证者标识名称（系统自动编号，无需手动填写）",
+    "create_task.task.reviewer_instruction": "验证侧重点的补充描述（verifier：验证方法指引；inspector：打分维度表；challenger：不需要）",
     "create_task.task.max_review_rounds": (
         "该任务验证返工的轮数上限（可选，整数 ≥1，需同时配 reviewer）；不传用团队默认值。"
         "验证不通过会打回重做开新一轮，超过上限后不再自动打回，而是升级给你处置"
@@ -209,9 +231,13 @@ STRINGS: dict[str, str] = {
     "update_task.content": "新任务内容",
     "update_task.assignee": "指派任务的目标 member_name（仅当任务当前无 assignee 时生效）。系统会向被指派成员发送通知",
     "update_task.reviewer": (
-        "设置该任务的验证者 member_name 列表（传空列表清除验证）；验证者必须已存在且不能是 assignee。"
-        "配了验证者后，assignee 完成任务会进入 in_review 等验证"
+        "设置该任务的验证者列表（传空列表清除验证），每一项为包含 type/instruction "
+        "的对象。type 可选值：verifier / inspector / challenger。"
+        "reviewer_id 由系统按类型自动编号，无需填写。"
     ),
+    "update_task.reviewer_id": "验证者标识名称（系统自动编号，无需手动填写）",
+    "update_task.reviewer_instruction": "验证侧重点的补充描述（verifier：验证方法指引；inspector：打分维度表；challenger：不需要）",
+    "update_task.reviewer_type": "验证者类型：verifier / inspector / challenger",
     "update_task.max_review_rounds": (
         "设置该任务验证返工的轮数上限（整数 ≥1，任务需已配或同时配 reviewer）。"
         "超过上限后验证失败不再自动打回，而是升级给你处置"
@@ -219,15 +245,15 @@ STRINGS: dict[str, str] = {
     "update_task.add_blocked_by": "要添加为新依赖的任务 ID 列表（本任务将被阻塞直到这些任务完成）",
     "update_task.error_human_agent_locked_cancel": (
         "任务 {task_id} 由仍在团队中的人类成员认领，不允许取消；请通过 send_message 与其协商。"
-        "若其确实无法继续，可先用 shutdown_member 让其退出团队，退出后该任务即可取消或改派"
+        "若其确实无法继续，可先用 shutdown_member(force=false) 让其退出团队，退出后该任务即可取消或改派"
     ),
     "update_task.error_human_agent_locked_reassign": (
         "任务 {task_id} 由仍在团队中的人类成员认领，不能改派给 {new_assignee}；该任务须由这位人类本人完成。"
-        "若其确实无法继续，可先用 shutdown_member 让其退出团队，退出后该任务即可改派"
+        "若其确实无法继续，可先用 shutdown_member(force=false) 让其退出团队，退出后该任务即可改派"
     ),
     "update_task.error_human_agent_locked_edit": (
         "任务 {task_id} 由仍在团队中的人类成员认领，不允许修改其标题/内容；请通过 send_message 与其协商。"
-        "若其确实无法继续，可先用 shutdown_member 让其退出团队，退出后该任务即可取消或改派"
+        "若其确实无法继续，可先用 shutdown_member(force=false) 让其退出团队，退出后该任务即可取消或改派"
     ),
     # ===== claim_task =========================================================
     # claim_task._desc lives in descs/cn/claim_task.md
@@ -240,7 +266,7 @@ STRINGS: dict[str, str] = {
     # ===== verify_task ========================================================
     # verify_task._desc lives in descs/cn/verify_task.md
     "verify_task.task_id": "要验证的任务 ID（必须是指派给你验证、当前处于 in_review 的任务）",
-    "verify_task.decision": "验证结论：'pass'（通过，任务转 completed）或 'fail'（打回，任务转回 in_progress 让 author 返工）",
+    "verify_task.decision": "验证结论：verifier/challenger 投 'pass'/'fail'；inspector 投 0~1 的浮点分数（如 '0.85'）",
     "verify_task.feedback": "验证反馈（打回时会定向发给 author 指导返工，通过时可选）",
     # ===== send_message ========================================================
     # send_message._desc lives in descs/cn/send_message.md
@@ -249,10 +275,13 @@ STRINGS: dict[str, str] = {
         '填成员名数组（如 ["m1","m2"]）多播——同一份内容分别发给每个成员，'
         "开销随接收人数线性增长，同等规模下比广播更贵，仅在必要时使用，"
         '禁止与 "*"/"user" 混用；'
-        '填 "user"（仅 teammate 用于回复用户）；填 "*" 广播到团队频道 channel，所有成员可见'
+        '填 "user"（仅 teammate 用于回复用户，leader 调用会被拒绝）；'
+        '填 "*" 广播到团队频道 channel，所有成员可见——一次广播会唤醒每一个成员各跑一轮 '
+        "LLM 交互，开销与团队规模成正比，仅用于全员必须知晓的公告，务必慎用"
     ),
     "send_message.content": "消息内容，应包含明确的行动指引或信息",
     "send_message.summary": "5-10 词摘要，用于消息预览和日志",
+    "send_message.error_leader_to_user": "Leader 不能 send_message 给 'user'。请直接用普通回复输出给用户。",
     "send_message.error_content_too_long": (
         "'content' 过长（{actual} 字符，上限 {limit}）：这个体量的内容是产物，不是消息。"
         "先用 write_file 把正文写到团队共享工作空间 .team/ 下的文件，再重发本消息，"

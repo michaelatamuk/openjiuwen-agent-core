@@ -9,10 +9,11 @@ Author: huenrui1@huawei.com
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
+import inspect
 import json
-import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Tuple, Union
@@ -68,6 +69,7 @@ from openjiuwen.core.single_agent.rail.base import (
     AgentCallbackContext,
     InvokeInputs,
     ModelCallInputs,
+    UserMessageInputs,
     rail,
 )
 from openjiuwen.core.single_agent.prompts.builder import (
@@ -81,6 +83,12 @@ _SKILLS_SECTION = "legacy_skills"
 _IDENTITY_SECTION_PRIORITY = 10
 _SKILLS_SECTION_PRIORITY = 90
 _IMAGE_INPUT_SCAN_MAX_DEPTH = 8
+# Above this, the per-stage breakdown of invoke preparation is reported at INFO
+# so a slow start shows up without having to enable debug logging. Preparation
+# loads interruption state and builds the prompt, which is normal work worth a
+# few hundred milliseconds; the bar sits above that so an INFO line means a
+# genuine stall. Kept in step with ``SLOW_RAIL_CHAIN_SECONDS``.
+SLOW_INVOKE_PREP_SECONDS = 1.0
 _IMAGE_INPUT_UNSUPPORTED_ERROR_CODES = (
     "invalid_image_input",
     "image_input_unsupported",
@@ -720,6 +728,61 @@ class ReActAgent(BaseAgent):
             priority=_SKILLS_SECTION_PRIORITY,
         )
 
+    async def _admit_user_message(
+            self,
+            ctx: AgentCallbackContext,
+            context: ModelContext,
+            parts: List[str],
+            *,
+            source: str,
+            prefix: str = "",
+    ) -> None:
+        """Join one batch of consumed inputs into the conversation, rails first.
+
+        Every input the agent consumes -- a new round's query, the follow-ups
+        that queued up while it was busy, a batch of steering messages, a
+        resumed workflow interrupt -- lands here. ON_USER_MESSAGE fires on the
+        list, *before* it is joined, so a rail still sees the individual inputs
+        and can drop a whole one that a later entry supersedes. This is the one
+        moment a rail can treat them as *inputs*: joined and written, they are
+        ordinary history, subject to compaction, and can no longer be located by
+        position.
+
+        Args:
+            ctx: Callback context; ``inputs`` carries the part list for rails.
+            context: Model context the joined message is written into.
+            parts: The queued inputs, oldest first. Handed to rails as a mutable
+                list and consumed afterwards, so rails may reorder, drop or
+                prepend entries.
+            source: Which input path this came from (see UserMessageInputs).
+            prefix: Literal text put in front of the joined body (the steering
+                marker). It is not a part, so a rail prepending at index 0
+                lands after it rather than displacing it.
+        """
+        previous_inputs = ctx.inputs
+        ctx.inputs = UserMessageInputs(parts=parts, source=source)
+        try:
+            await ctx.fire(AgentCallbackEvent.ON_USER_MESSAGE)
+        finally:
+            ctx.inputs = previous_inputs
+        if not parts:
+            return
+        body = "\n".join(parts)
+        await context.add_messages(UserMessage(content=f"{prefix}{body}"))
+
+    def _extract_user_parts(self, ctx: AgentCallbackContext, user_input: Any) -> List[str]:
+        """Normalize a round's query into the input list ON_USER_MESSAGE sees.
+
+        A round may be driven by several inputs that queued up together; the
+        caller hands those over unjoined so rails still see the seams. The
+        query itself is the same content already joined, and is the single
+        input in every other case.
+        """
+        parts = ctx.extra.get("_input_parts")
+        if parts:
+            return [str(part) for part in parts]
+        return [self._extract_user_text(user_input)]
+
     def _build_preview_messages(self, context: ModelContext) -> List[Any]:
         """Build a lightweight preview of the current model input messages."""
         preview_messages = copy.deepcopy(context.get_messages())
@@ -754,7 +817,39 @@ class ReActAgent(BaseAgent):
             model_context=context,
         )
 
-        ai_message = await self._railed_model_call(ctx)
+        try:
+            ai_message = await self._railed_model_call(ctx)
+        except Exception as exc:
+            if ctx.extra.get("_model_exception_recovery_attempted"):
+                raise
+
+            try:
+                recovered = await self._recover_from_model_exception(
+                    ctx,
+                    context=context,
+                    exception=exc,
+                )
+            except Exception as recovery_exc:
+                logger.warning(
+                    "Model exception recovery hook failed; preserving the original "
+                    "model exception: %s",
+                    recovery_exc,
+                    exc_info=True,
+                )
+                raise exc from recovery_exc
+
+            if not recovered:
+                raise
+
+            # The recovery hook is allowed to mutate the context. Rebuild the
+            # preview before running BEFORE_MODEL_CALL rails for the retry.
+            ctx.extra["_model_exception_recovery_attempted"] = True
+            ctx.inputs = ModelCallInputs(
+                messages=self._build_preview_messages(context),
+                tools=list(tools) if tools else None,
+                model_context=context,
+            )
+            ai_message = await self._railed_model_call(ctx)
 
         if not isinstance(ai_message, AssistantMessage):
             return ai_message
@@ -762,6 +857,44 @@ class ReActAgent(BaseAgent):
         log_llm_response(logger, ai_message)
 
         return ai_message
+
+    async def _recover_from_model_exception(
+            self,
+            ctx: AgentCallbackContext,
+            *,
+            context: ModelContext,
+            exception: Exception,
+    ) -> bool:
+        """Extension point for context-aware recovery before one model retry.
+
+        ContextEngine recognizes provider context-window errors, actively
+        compresses the context when a configured processor can change it, and
+        returns ``True`` to retry the same ReAct model step. Returning
+        ``False`` leaves the original exception untouched.
+        """
+        # Inspect the instance without triggering dynamic ``__getattr__`` hooks
+        # on mocks/proxies. This still honors a method explicitly installed on
+        # the instance as well as the normal ContextEngine class method.
+        recover_descriptor = inspect.getattr_static(
+            self.context_engine,
+            "recover_from_model_exception",
+            None,
+        )
+        if recover_descriptor is None:
+            return False
+
+        recover = getattr(self.context_engine, "recover_from_model_exception", None)
+        if not callable(recover):
+            return False
+
+        return bool(await recover(
+            context_id=context.context_id(),
+            session=ctx.session,
+            context=context,
+            exception=exception,
+            streaming=bool(ctx.extra.get("_streaming")),
+            stream_chunks_emitted=int(ctx.extra.get("_stream_chunks_emitted", 0) or 0),
+        ))
 
     def _build_context_window_kwargs(
             self,
@@ -886,6 +1019,7 @@ class ReActAgent(BaseAgent):
         call_first_token_time = None
         call_last_token_time = None
         call_chunk_count = 0
+        ctx.extra["_stream_chunks_emitted"] = 0
         try:
             async for chunk in llm.stream(
                     model=self._config.model_name,
@@ -902,6 +1036,7 @@ class ReActAgent(BaseAgent):
                     call_first_token_time = time.monotonic()
                 call_last_token_time = time.monotonic()
                 call_chunk_count += 1
+                ctx.extra["_stream_chunks_emitted"] = call_chunk_count
 
                 inspectors = ctx.extra.get("_stream_chunk_inspectors") or []
                 if isinstance(inspectors, dict):
@@ -1311,13 +1446,14 @@ class ReActAgent(BaseAgent):
 
         for tool_result in tool_results:
             for item in ReActAgent._iter_multimodal_image_items(tool_result):
+                source = str(item.get("source") or "tool")
                 source_path = str(item.get("source_path") or "unknown image")
                 data_url = item["data_url"]
                 loaded_paths.append(source_path)
                 content.append(
                     {
                         "type": "text",
-                        "text": f"Image loaded from read_file: {source_path}",
+                        "text": f"Image loaded from {source}: {source_path}",
                     }
                 )
                 content.append(
@@ -1716,6 +1852,9 @@ class ReActAgent(BaseAgent):
     async def _inner_invoke(self, session, inputs, query, need_cleanup, conversation_id, **kwargs):
         invoke_inputs = InvokeInputs(query=query, conversation_id=conversation_id)
         ctx = AgentCallbackContext(agent=self, inputs=invoke_inputs, session=session)
+        abort_persisted = False
+        stream_lifecycle_owner = bool(kwargs.get("_stream_lifecycle_owner"))
+        commit_on_abort = self._session_supports_agent_lifecycle(session)
         ctx.extra["_streaming"] = kwargs.get("_streaming", False)
         if isinstance(inputs, dict):
             ctx.extra["user_id"] = inputs.get("user_id", "")
@@ -1728,6 +1867,11 @@ class ReActAgent(BaseAgent):
             # loop over the existing context, without a new user turn.
             if inputs.get("_resume_continuation"):
                 ctx.extra["_resume_continuation"] = True
+            # Several inputs queued up together and drive this one round. The
+            # query is already their joined text; these are the same content
+            # unjoined, so ON_USER_MESSAGE rails still see the seams.
+            if inputs.get("_input_parts"):
+                ctx.extra["_input_parts"] = list(inputs["_input_parts"])
 
         try:
             async with ctx.lifecycle(AgentCallbackEvent.BEFORE_INVOKE, AgentCallbackEvent.AFTER_INVOKE):
@@ -1737,6 +1881,11 @@ class ReActAgent(BaseAgent):
                 resume_continuation = bool(ctx.extra.get("_resume_continuation"))
                 if not user_input and not resume_continuation:
                     raise ValueError("Input must contain 'query'")
+
+                # Invoke preparation runs between BEFORE_INVOKE and the first
+                # ReAct iteration with no events of its own; stage timings turn
+                # that window into something a slow-start report can name.
+                prep_started_at = time.monotonic()
 
                 hitl_state = self._hitl_handler.load(session)
                 interruption_state = hitl_state or self._load_interruption_state(session)
@@ -1748,8 +1897,11 @@ class ReActAgent(BaseAgent):
                     # Restore original query so MemoryRail.after_invoke writes the right UserMessage
                     ctx.extra["_original_query"] = interruption_state.original_query
 
+                state_loaded_at = time.monotonic()
+
                 context = await self._init_context(session)
                 ctx.context = context
+                context_ready_at = time.monotonic()
 
                 rendered_system_prompt = self._build_rendered_system_prompt(
                     inputs,
@@ -1760,9 +1912,27 @@ class ReActAgent(BaseAgent):
                     rendered_system_prompt,
                     priority=_IDENTITY_SECTION_PRIORITY,
                 )
+                system_prompt_ready_at = time.monotonic()
+
                 await self._update_skill_prompt_builder_section(rendered_system_prompt)
+                skills_ready_at = time.monotonic()
 
                 tools = await self.ability_manager.list_tool_info()
+                tools_ready_at = time.monotonic()
+
+                prep_elapsed = tools_ready_at - prep_started_at
+                if prep_elapsed >= SLOW_INVOKE_PREP_SECONDS:
+                    logger.info(
+                        "[InvokePrep] slow invoke preparation, total_ms=%.1f "
+                        "(interruption_state=%.1f context=%.1f system_prompt=%.1f "
+                        "skills=%.1f tools=%.1f)",
+                        prep_elapsed * 1000,
+                        (state_loaded_at - prep_started_at) * 1000,
+                        (context_ready_at - state_loaded_at) * 1000,
+                        (system_prompt_ready_at - context_ready_at) * 1000,
+                        (skills_ready_at - system_prompt_ready_at) * 1000,
+                        (tools_ready_at - skills_ready_at) * 1000,
+                    )
 
                 start_iteration = 0
                 if interruption_state is not None:
@@ -1776,7 +1946,12 @@ class ReActAgent(BaseAgent):
                         start_iteration = ctx.extra.pop(RESUME_START_ITERATION_KEY, 0)
                     else:
                         # Workflow Interrupt
-                        await context.add_messages(UserMessage(content=self._extract_user_text(user_input)))
+                        await self._admit_user_message(
+                            ctx,
+                            context,
+                            [self._extract_user_text(user_input)],
+                            source="resume",
+                        )
                         resume_result = await self._handle_resume(
                             interruption_state, user_input, ctx, context, session, invoke_inputs=invoke_inputs
                         )
@@ -1785,7 +1960,12 @@ class ReActAgent(BaseAgent):
                         else:
                             start_iteration = ctx.extra.pop(RESUME_START_ITERATION_KEY, 0)
                 elif not resume_continuation:
-                    await context.add_messages(UserMessage(content=self._extract_user_text(user_input)))
+                    await self._admit_user_message(
+                        ctx,
+                        context,
+                        self._extract_user_parts(ctx, user_input),
+                        source="query",
+                    )
 
                 if invoke_inputs.result is None:
                     for iteration in range(start_iteration, self._config.max_iterations):
@@ -1805,14 +1985,12 @@ class ReActAgent(BaseAgent):
                         # before the next model call.
                         steering = ctx.drain_steering()
                         if steering:
-                            combined = "\n".join(steering)
-                            await context.add_messages(
-                                UserMessage(
-                                    content=(
-                                        f"[STEERING] "
-                                        f"{combined}"
-                                    )
-                                )
+                            await self._admit_user_message(
+                                ctx,
+                                context,
+                                list(steering),
+                                source="steering",
+                                prefix="[STEERING] ",
                             )
 
                         ai_message = await self._call_model(
@@ -1898,17 +2076,36 @@ class ReActAgent(BaseAgent):
             # after_invoke rails have fired; return result (possibly adapted by rails via ctx.extra)
             return ctx.extra.get("invoke_result", invoke_inputs.result)
         except asyncio.CancelledError:
-            # 外部取消（非工具级 CancelledError）。
-            # Fix 1 确保工具级 CancelledError 在 asyncio.gather 中被捕获并转为
-            # ToolMessage，不会传播到这里。此处只清理当前轮次的消息（工具调用请求 +
-            # 部分结果），保留历史对话上下文（with_history=False）。
-            await self.clear_context_messages(session_id=session.get_session_id())
+            # 外部取消（非工具级 CancelledError）。工具级 CancelledError
+            # 在 AbilityManager.execute 中会被转成 ToolMessage，不会传播到这里。
+            if stream_lifecycle_owner:
+                raise
+            abort_persisted = await self._handle_context_abort(
+                session,
+                marker="[Request cancelled by user]",
+                commit_session=commit_on_abort,
+            )
             raise  # Re-raise to propagate cancellation signal
+        except Exception:
+            # A model/rail/context failure may happen after the current turn has
+            # already been appended to the in-memory context. Preserve the same
+            # safe prefix used for cancellation instead of falling back to the
+            # last persisted snapshot on the next invocation.
+            if stream_lifecycle_owner:
+                raise
+            abort_persisted = await self._handle_context_abort(
+                session,
+                marker="[Request interrupted by an unexpected error]",
+                commit_session=commit_on_abort,
+            )
+            raise  # Preserve the original ReAct failure for the caller
         finally:
-            if need_cleanup:
-                await self.context_engine.save_contexts(session)
+            if need_cleanup and not stream_lifecycle_owner:
+                if not abort_persisted:
+                    await self.context_engine.save_contexts(session)
                 await session.close_stream()
-                await session.commit()
+                if not abort_persisted:
+                    await session.commit()
 
     async def write_invoke_result_to_stream(
             self,
@@ -1995,11 +2192,7 @@ class ReActAgent(BaseAgent):
             need_cleanup = True
 
         # Only manage agent-session stream lifecycle, not workflow sessions.
-        self.is_agent_session = (
-            hasattr(session, "pre_run")
-            and hasattr(session, "close_stream")
-            and hasattr(session, "commit")
-        )
+        self.is_agent_session = self._session_supports_agent_lifecycle(session)
         # self.is_agent_session = isinstance(session, AgentSession)
         if self.is_agent_session:
             await session.pre_run(
@@ -2011,9 +2204,17 @@ class ReActAgent(BaseAgent):
 
     @with_session()
     async def _inner_stream(self, session, inputs, need_cleanup):
+        abort_persisted = False
+
         async def stream_process():
+            nonlocal abort_persisted
             try:
-                final_result = await self.invoke(inputs, session, _streaming=True)
+                final_result = await self.invoke(
+                    inputs,
+                    session,
+                    _streaming=True,
+                    _stream_lifecycle_owner=True,
+                )
                 if isinstance(final_result, list):
                     for schema in final_result:
                         await session.write_stream(schema)
@@ -2021,18 +2222,31 @@ class ReActAgent(BaseAgent):
                     await self._write_invoke_result_to_stream(
                         final_result, session
                     )
+            except asyncio.CancelledError:
+                abort_persisted = await self._handle_context_abort(
+                    session,
+                    marker="[Request cancelled by user]",
+                    commit_session=self.is_agent_session,
+                )
+                raise
             except Exception as e:
-                logger.error(f"ReActAgent stream error: {e}", exc_info=True)
+                logger.error("ReActAgent stream error: %s", e, exc_info=True)
+                abort_persisted = await self._handle_context_abort(
+                    session,
+                    marker="[Request interrupted by an unexpected error]",
+                    commit_session=self.is_agent_session,
+                )
                 error_result = {"output": str(e), "result_type": "error"}
                 await self._write_invoke_result_to_stream(
                     error_result, session
                 )
             finally:
-                if need_cleanup:
+                if need_cleanup and not abort_persisted:
                     await self.context_engine.save_contexts(session)
                 if self.is_agent_session:
                     await session.close_stream()
-                    await session.commit()
+                    if not abort_persisted:
+                        await session.commit()
 
         if self.is_agent_session:
             # Agent sessions use stream_iterator for consuming output
@@ -2083,6 +2297,192 @@ class ReActAgent(BaseAgent):
 
         await context.clear_messages(with_history=False)
         return True
+
+    @staticmethod
+    def _session_supports_agent_lifecycle(session: Session) -> bool:
+        """Return whether ReAct owns the agent-session persistence lifecycle."""
+        return session is not None and all(
+            callable(getattr(session, method_name, None))
+            for method_name in ("pre_run", "close_stream", "commit")
+        )
+
+    async def _handle_context_abort(
+            self,
+            session: Session,
+            *,
+            marker: str,
+            commit_session: Optional[bool] = None,
+    ) -> bool:
+        """Clean and persist the current turn after cancellation or failure.
+
+        The context is cleaned before persistence so a subsequent invocation
+        can continue from the current turn rather than restoring the previous
+        checkpoint. The original exception/cancellation is still propagated by
+        the caller.
+        """
+        try:
+            await asyncio.shield(
+                self._cleanup_context_after_abort(session, marker=marker)
+            )
+        except asyncio.CancelledError:
+            logger.info(
+                "Context cleanup was shielded but the caller was cancelled again for session %s",
+                session.get_session_id(),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to cleanup context after ReAct abort for session %s",
+                session.get_session_id(),
+                exc_info=True,
+            )
+
+        return await self._persist_context_after_abort(
+            session,
+            commit_session=commit_session,
+        )
+
+    async def _cleanup_context_after_abort(
+            self,
+            session: Session,
+            *,
+            marker: str,
+    ) -> None:
+        """Keep the aborted turn's user query; drop incomplete tool debris.
+
+        Unlike ``clear_context_messages``, this preserves the current-turn
+        ``UserMessage`` (and any fully completed tool pairs) so the next turn
+        in the same session still sees what the user asked before the abort.
+        """
+        session_id = session.get_session_id()
+        context = self.context_engine.get_context(session_id=session_id)
+        if context is None:
+            return
+
+        current = context.get_messages(with_history=False)
+        if not current:
+            return
+
+        kept = self._sanitize_cancelled_turn_messages(current, marker=marker)
+        context.set_messages(kept, with_history=False)
+
+    async def _persist_context_after_abort(
+            self,
+            session: Session,
+            *,
+            commit_session: Optional[bool] = None,
+    ) -> bool:
+        """Persist cleaned context and commit only agent-owned sessions.
+
+        An externally supplied agent session is still committed on abort: the
+        Runner commits it on the normal path, but does not reach ``post_run``
+        when the agent raises. Workflow/custom sessions remain caller-owned and
+        are never committed here.
+        """
+        try:
+            await asyncio.shield(self.context_engine.save_contexts(session))
+        except asyncio.CancelledError:
+            logger.info(
+                "Context save was shielded but the caller was cancelled again for session %s",
+                session.get_session_id(),
+            )
+            return False
+        except Exception:
+            logger.warning(
+                "Failed to save context after ReAct abort for session %s",
+                session.get_session_id(),
+                exc_info=True,
+            )
+            return False
+
+        if commit_session is None:
+            commit_session = self._session_supports_agent_lifecycle(session)
+        if not commit_session:
+            return True
+
+        commit = getattr(session, "commit", None)
+        if not callable(commit):
+            return True
+
+        try:
+            commit_result = commit()
+            if inspect.isawaitable(commit_result):
+                await asyncio.shield(commit_result)
+        except asyncio.CancelledError:
+            logger.info(
+                "Session commit was shielded but the caller was cancelled again for session %s",
+                session.get_session_id(),
+            )
+            return False
+        except Exception:
+            logger.warning(
+                "Failed to commit session after ReAct abort for session %s",
+                session.get_session_id(),
+                exc_info=True,
+            )
+            return False
+
+        return True
+
+    async def _save_contexts_on_cancel(self, session: Session) -> None:
+        """Compatibility wrapper for cancellation-specific callers."""
+        try:
+            await self._persist_context_after_abort(session)
+        except asyncio.CancelledError:
+            # Preserve the historical contract of this compatibility helper:
+            # repeated cancellation must not make its task fail.
+            logger.info(
+                "Cancellation-specific context persistence was cancelled for session %s",
+                session.get_session_id(),
+            )
+
+    @staticmethod
+    def _sanitize_cancelled_turn_messages(
+            messages: List[Any],
+            marker: str = "[Request cancelled by user]",
+    ) -> List[Any]:
+        """Return a LLM-safe prefix of an aborted turn's messages.
+
+        Keeps user text and completed assistant/tool pairs. Drops incomplete
+        tool_call blocks. Ensures the turn does not end on a bare UserMessage
+        by appending the supplied abort marker when needed.
+        """
+        kept: List[Any] = []
+        i = 0
+        n = len(messages)
+        while i < n:
+            msg = messages[i]
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                tool_ids = [
+                    getattr(tc, "id", None) for tc in msg.tool_calls if getattr(tc, "id", None)
+                ]
+                needed = set(tool_ids)
+                found: Dict[str, ToolMessage] = {}
+                j = i + 1
+                while j < n and isinstance(messages[j], ToolMessage):
+                    tool_msg = messages[j]
+                    found[tool_msg.tool_call_id] = tool_msg
+                    j += 1
+                if needed and needed <= set(found.keys()):
+                    kept.append(msg)
+                    for tool_id in tool_ids:
+                        kept.append(found[tool_id])
+                    i = j
+                else:
+                    # Incomplete tool block: drop assistant + partial tools.
+                    i = j
+                continue
+
+            if isinstance(msg, ToolMessage):
+                # Orphan tool result without a matching assistant tool_calls.
+                i += 1
+                continue
+
+            kept.append(msg)
+            i += 1
+
+        if kept and isinstance(kept[-1], UserMessage):
+            kept.append(AssistantMessage(content=marker))
+        return kept
 
 
 __all__ = [

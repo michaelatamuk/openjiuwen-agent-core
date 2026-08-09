@@ -6,8 +6,8 @@
 |---|---|
 | 类型 | spec |
 | 关联模块 | `openjiuwen/agent_teams/spawn/`、`openjiuwen/agent_teams/agent/spawn_manager.py`、`openjiuwen/agent_teams/agent/stream_controller.py`、`openjiuwen/agent_teams/agent/payload.py`、`openjiuwen/agent_teams/agent/agent_configurator.py`、`openjiuwen/agent_teams/worktree/`、`openjiuwen/agent_teams/context.py` |
-| 最近一次修订日期 | 2026-07-14 |
-| 关联 feature | F_38_team-teammate-worktree-isolation-agenttool.md、F_28_native-harness-team-adoption.md、F_60_native-harness-pause-abort-resume.md |
+| 最近一次修订日期 | 2026-08-05 |
+| 关联 feature | F_38_team-teammate-worktree-isolation-agenttool.md、F_28_native-harness-team-adoption.md、F_60_native-harness-pause-abort-resume.md、F_69_cwd-workspace-project-root-separation.md、F_74_leader-member-activity-and-team-idle.md |
 
 ## 范围 / 边界
 
@@ -114,12 +114,18 @@
    （`worktree/naming.py`）。`TeamMember.options.worktree` 持久化 `isolation/path`；
    旧库 migration 会把 `model_ref_json` backfill 到 `options.model_ref` 后删除旧列。
    完整 worktreeInfo（`worktree_name/worktree_branch/head_commit`）留在 leader 侧
-   宿主内存；`TeamRuntimeContext` 只携带 `worktree_path` 作为 teammate 的
-   cwd override。
-7. **Worktree workspace 不走 cleanup_path**：`AgentConfigurator.setup_agent`
-   看到 `ctx.worktree_path` 时把成员 `WorkspaceSpec.root_path` 覆盖为该路径，
-   并关闭 stable_base；该路径不能注册到 `TeamBackend.cleanup_path`，否则
-   `clean_team` 会绕过 `git worktree remove` 直接删除工作树。
+   宿主内存；`TeamRuntimeContext` 只携带 `worktree_path`，它是 teammate 的
+   **cwd** override（不是 workspace override，见下方不变量 7）。
+7. **Worktree 只移动 cwd，不夺走 workspace**（见 [[F_69]]）：`AgentConfigurator.setup_agent`
+   看到 `ctx.worktree_path` 时把它写进成员的 **cwd**（`DeepAgentSpec.cwd`），
+   `WorkspaceSpec.root_path` **始终**是成员自己的稳定目录
+   （`ensure_team_member_workspace_link`，即 stable_base 语义）。理由：workspace 装
+   成员产物 / memory / skills 视图 / `.team` 挂载点，若它跟着 worktree 走，worktree
+   一删这些就没了。由此 workspace 恒为团队自己的目录，**无条件**注册进
+   `TeamBackend.cleanup_path`；worktree 本身不在 cleanup_path 里，`clean_team` 仍
+   只经 `git worktree remove` 拆它。成员没有 workspace spec 时兜底
+   `WorkspaceSpec(stable_base=True)`——team 成员恒有 workspace，`DeepAgent` 的 cwd
+   初始化以它为锚。
 8. **Worktree finalize fail-closed，且不在 `cleanup_teammate` 里**：finalize 由
    `TeammateWorktreeLifecycle` 拥有，两个入口——
    `finalize_non_contributing_member_worktrees()`（leader round 收尾，经
@@ -329,6 +335,9 @@ class StreamController:
     # stream 收尾
     def close_stream(self) -> None: ...                                       # put_nowait(None)
     def emit_completion_and_close(self, member_count: int, task_count: int) -> None: ...
+    def emit_team_idle(self, members: dict[str, str]) -> None: ...  # team.idle 标记，不关流（F_74）
+    def schedule_team_idle(self) -> None: ...  # 武装去抖 2s 的 team.idle 定时（替换既有 pending）
+    def cancel_team_idle(self) -> None: ...    # 丢弃待发定时；幂等，stop / close_stream 都调
 
     # 状态查询（一律直读 harness.state，本层不缓存）
     def is_agent_running(self) -> bool: ...      # harness.state is RUNNING
@@ -359,6 +368,15 @@ class StreamController:
 - `_forward_outputs` 整体包在 `except Exception` 里记 exception 日志；
   `CancelledError` 是 `BaseException`，不会被捕获，cancel 正常向上传播（`stop()`
   依赖这一点）。
+- **team-idle 定时 task 不得泄露**（F_74）：`StreamController` 至多持有一个
+  `_idle_marker_task`；`schedule_team_idle` 先 `cancel_team_idle` 再建新的；
+  `cancel_team_idle` **先把字段置 None 再 `task.cancel()`**（done callback 稍后在
+  loop 上跑，只在 `self._idle_marker_task is task` 时清空，故"取消旧的、立刻武装新的"
+  不会被迟到的回调抹掉）；`stop()` 与 `close_stream()` 两条 teardown 路径都调
+  `cancel_team_idle`，定时器不得活过它要写入的那条流。定时体内**不捕获**
+  `CancelledError`（task 必须以 cancelled 状态结束），done callback 对非取消结束
+  必须 `task.exception()` 取出异常，否则 GC 时的 "Task exception was never
+  retrieved" 会盖掉真正的失败。
 
 ### session_id contextvar 契约
 

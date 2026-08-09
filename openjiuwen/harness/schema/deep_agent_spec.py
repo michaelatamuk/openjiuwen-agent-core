@@ -1,26 +1,7 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 
-"""Serializable DeepAgent specifications for network distribution.
-
-All types in this module are Pydantic BaseModels that support full JSON
-round-trip via ``model_dump_json()`` / ``model_validate_json()``.
-Call ``build()`` on a spec to materialize the corresponding runtime object.
-
-This is the harness-level home for ``DeepAgentSpec`` and its leaf specs:
-``RailSpec`` / ``BuiltinToolSpec`` / ``SubAgentSpec``. It was relocated here
-from ``agent_teams/schema`` because every declaration in it depends only on
-``core.*`` + ``harness.*`` — it describes a single DeepAgent's runtime shape,
-not team topology. Keeping it under ``harness/schema`` lets
-``DeepAgent`` / ``factory`` / team code all reference one DeepAgent-level
-schema with the dependency direction ``agent_teams -> harness``.
-
-The flat route is the single source of truth here: ``DeepAgentSpec`` carries
-tools / mcps / rails / subagents / skills directly; ``resolve_parts`` /
-``build`` materialize them via the leaf ``Spec.build()`` chain. /
-Hot load uses ``ExpertHarnessSpec``
-→ ``resolve_expert_harness_parts`` → ``expert_harness_runtime.apply_expert_harness_hot``.
-"""
+"""Serializable DeepAgentSpec and leaf specs for cold construction."""
 
 from __future__ import annotations
 
@@ -49,7 +30,10 @@ from openjiuwen.core.sys_operation.config import (
     SandboxGatewayConfig,
 )
 from openjiuwen.core.sys_operation.sys_operation import SysOperationCard, SysOperation
-from openjiuwen.harness.schema.build_context import BuildContext
+from openjiuwen.harness.schema.build_context import (
+    BuildContext,
+    PARENT_SYS_OPERATION_EXTRAS_KEY,
+)
 from openjiuwen.harness.schema.config import (
     AudioModelConfig,
     DEFAULT_ACR_BASE_URL,
@@ -457,8 +441,14 @@ class DeepAgentSpec(BaseModel):
     enable_task_loop: bool = True
     enable_async_subagent: bool = False
     add_general_purpose_agent: bool = False
+    enable_security_rail: bool = True
+    enable_tool_resilience_rail: bool = True
     max_iterations: int = 15
     workspace: Optional[WorkspaceSpec] = None
+    cwd: Optional[str] = None
+    """Shell working directory / relative-path base. Defaults to the workspace root."""
+    project_root: Optional[str] = None
+    """Project identity anchor. Defaults to ``cwd``."""
     skills: Optional[list[str]] = None
     enable_skill_discovery: bool = False
     sys_operation: Optional[SysOperationSpec] = None
@@ -466,6 +456,18 @@ class DeepAgentSpec(BaseModel):
     prompt_mode: Optional[str] = None
     vision_model: Optional[VisionModelSpec] = None
     audio_model: Optional[AudioModelSpec] = None
+    enable_read_image_multimodal: Optional[bool] = None
+    """Whether read_file may attach images natively.
+
+    ``None`` leaves it to the runtime probe; set it explicitly to skip that
+    probe entirely (an agent that never reads images should say ``False``).
+    """
+    enable_sys_operation: bool = True
+    """Whether this agent gets a sys_operation (filesystem / shell / code).
+
+    ``False`` skips resolving one, so none of its tool resources are registered.
+    Only meaningful for an agent that declares no such tools to begin with.
+    """
     enable_task_planning: bool = False
     restrict_to_sandbox: bool = False
     auto_create_workspace: bool = True
@@ -549,6 +551,16 @@ class DeepAgentSpec(BaseModel):
         # so core.subagent.* / progressive_tool factories can read extras.
         build_ctx.extras["_parent_model"] = llm_model
 
+        # Resolved before rails / sub-agents so the sub-agent factories can hand
+        # it to their specs: a sub-agent that carries no sys_operation gets a
+        # fresh LOCAL one from ``create_deep_agent``, which both ignores this
+        # agent's sandbox (escaping onto the host) and turns on
+        # ``restrict_to_sandbox`` against its own narrower workspace. Resolving
+        # early is safe -- ``SysOperationSpec.resolve`` is get-or-create on a
+        # stable id, so the later consumers see the same instance.
+        sys_operation = self.sys_operation.resolve() if self.sys_operation else None
+        build_ctx.extras[PARENT_SYS_OPERATION_EXTRAS_KEY] = sys_operation
+
         rails = None
         if self.rails:
             rails = []
@@ -566,8 +578,6 @@ class DeepAgentSpec(BaseModel):
                     ),
                 )
 
-        sys_operation = self.sys_operation.resolve() if self.sys_operation else None
-
         return resolve_deep_agent_parts(
             llm_model,
             card=self.card,
@@ -579,8 +589,12 @@ class DeepAgentSpec(BaseModel):
             enable_task_loop=self.enable_task_loop,
             enable_async_subagent=self.enable_async_subagent,
             add_general_purpose_agent=self.add_general_purpose_agent,
+            enable_security_rail=self.enable_security_rail,
+            enable_tool_resilience_rail=self.enable_tool_resilience_rail,
             max_iterations=self.max_iterations,
             workspace=workspace,
+            cwd=self.cwd,
+            project_root=self.project_root,
             skills=self.skills,
             enable_skill_discovery=self.enable_skill_discovery,
             sys_operation=sys_operation,
@@ -588,6 +602,8 @@ class DeepAgentSpec(BaseModel):
             prompt_mode=self.prompt_mode,
             vision_model_config=vision_config,
             audio_model_config=audio_config,
+            enable_read_image_multimodal=self.enable_read_image_multimodal,
+            enable_sys_operation=self.enable_sys_operation,
             enable_task_planning=self.enable_task_planning,
             restrict_to_work_dir=self.restrict_to_sandbox,
             auto_create_workspace=self.auto_create_workspace,

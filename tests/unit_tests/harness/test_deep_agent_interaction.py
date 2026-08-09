@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,10 +13,67 @@ from openjiuwen.core.session import InteractiveInput
 from openjiuwen.core.single_agent.schema.agent_card import AgentCard
 from openjiuwen.harness.deep_agent import DeepAgent
 from openjiuwen.harness.schema.interaction import (
+    ActiveInteractionRound,
     InputDispatchMode,
     RoundWorkItem,
     SendInputRequest,
 )
+from openjiuwen.harness.tools.worktree import session as worktree_session_state
+from openjiuwen.harness.tools.worktree.models import WorktreeSession
+from openjiuwen.harness.tools.worktree.session import (
+    get_current_session,
+    set_current_session,
+)
+
+
+@pytest.mark.asyncio
+async def test_start_initializes_context_before_scheduler_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scheduler created during start shares the pre-created mutable holder."""
+    agent = DeepAgent(AgentCard(name="deep", description="test"))
+    agent._task_completion_rail = object()  # type: ignore[assignment]
+
+    scheduler_release = asyncio.Event()
+    scheduler_task: asyncio.Task[None] | None = None
+    active = WorktreeSession(
+        original_cwd="/repo",
+        worktree_path="/repo/.worktrees/shared",
+        worktree_name="shared",
+    )
+
+    async def scheduler() -> None:
+        await scheduler_release.wait()
+        set_current_session(active)
+
+    async def prepare_interaction_task_loop(_session):
+        nonlocal scheduler_task
+        scheduler_task = asyncio.create_task(scheduler())
+        return MagicMock(), MagicMock()
+
+    async def forward_session_stream() -> None:
+        return
+
+    monkeypatch.setattr(
+        agent,
+        "prepare_interaction_task_loop",
+        prepare_interaction_task_loop,
+    )
+    monkeypatch.setattr(agent, "_forward_session_stream", forward_session_stream)
+    monkeypatch.setattr(agent, "_ensure_supervisor_running", MagicMock())
+
+    token = worktree_session_state._state.set(None)
+    try:
+        session = MagicMock()
+        session.get_session_id.return_value = "shared-holder-session"
+        await agent.start(session=session)
+
+        assert scheduler_task is not None
+        scheduler_release.set()
+        await scheduler_task
+        assert get_current_session() is active
+    finally:
+        worktree_session_state._state.reset(token)
 
 
 @pytest.mark.asyncio
@@ -131,3 +189,53 @@ async def test_run_one_round_uses_single_round_path_for_interrupt_resume(
     build_next_work.assert_not_called()
     write_result.assert_awaited_once_with(result, session)
     assert outcome.error_code is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_active_round_does_not_block_on_slow_cancel_task() -> None:
+    """abort first; cancel_task wait is bounded so overwrite is not stuck."""
+    import asyncio
+
+    agent = DeepAgent(AgentCard(name="deep", description="test"))
+    agent._interaction_started = True
+    agent._interaction_session = MagicMock()
+    agent.abort = AsyncMock()
+
+    async def _slow_cancel_task(_task_id: str):
+        await asyncio.sleep(10)
+
+    scheduler = MagicMock()
+    scheduler.cancel_task = _slow_cancel_task
+    controller = MagicMock()
+    controller.task_scheduler = scheduler
+    agent._loop_controller = controller
+
+    work = RoundWorkItem(
+        kind="goal",
+        request_id="req-cancel",
+        inputs={"query": "overwrite me"},
+        context={"goal_id": "g1", "revision": 1},
+    )
+    agent._active_interaction_round = ActiveInteractionRound(
+        work=work,
+        task_id="task-slow",
+    )
+
+    async def _noop_round():
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+
+    agent._interaction_round_task = asyncio.create_task(_noop_round())
+
+    started = asyncio.get_running_loop().time()
+    await agent._cancel_active_round(
+        reason="goal_overwrite",
+        wait_timeout=0.05,
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    agent.abort.assert_awaited_once()
+    assert elapsed < 1.0
+    assert agent._interaction_round_task.cancelled() or agent._interaction_round_task.done()
