@@ -24,7 +24,7 @@ from openjiuwen.harness.prompts.sections.skills import (
 from openjiuwen.harness.prompts.prompt_attachment_manager import PromptAttachmentKind
 from openjiuwen.harness.rails.base import DeepAgentRail
 from openjiuwen.harness.rails._multimodal import should_enable_read_image_multimodal
-from openjiuwen.harness.tools import BashTool, ReadFileTool, ListSkillTool, SkillTool
+from openjiuwen.harness.tools import BashTool, ReadFileTool, ListSkillTool, RecommendSkillTool, SkillTool
 from openjiuwen.agent_evolving.checkpointing import EvolutionStore
 
 # Lines read when probing a SKILL.md for its YAML front matter. Bodies run to
@@ -46,7 +46,8 @@ class SkillUseRail(DeepAgentRail):
 
     SKILL_MODE_ALL = "all"
     SKILL_MODE_AUTO_LIST = "auto_list"
-    _VALID_SKILL_MODES = {SKILL_MODE_ALL, SKILL_MODE_AUTO_LIST}
+    SKILL_MODE_RECOMMENDATION = "recommendation"
+    _VALID_SKILL_MODES = {SKILL_MODE_ALL, SKILL_MODE_AUTO_LIST, SKILL_MODE_RECOMMENDATION}
     _SESSION_STATE_KEY = "skill_use"
     _SESSION_STATE_SCHEMA_VERSION = 1
     _RUNTIME_ATTACHMENT_SECTION = "skills.runtime_changes"
@@ -57,6 +58,7 @@ class SkillUseRail(DeepAgentRail):
         *,
         skill_mode: str = SKILL_MODE_AUTO_LIST,
         list_skill_model: Optional[Model] = None,
+        oracle_dir: Optional[Union[str, Path]] = None,
         enable_cache: bool = True,
         include_tools: bool = True,
         enabled_skills: Optional[Union[str, List[str]]] = None,
@@ -71,7 +73,10 @@ class SkillUseRail(DeepAgentRail):
             skill_mode: Skill expose mode, supports:
                 - "all": inject all enabled skills into system prompt
                 - "auto_list": add list_skill tool and let model decide when to inspect skills
+                - "recommendation": add recommend_skill tool backed by an offline scoring matrix
             list_skill_model: Optional model used by list_skill tool.
+            oracle_dir: Directory with ``scoring_matrix_*.json`` files (recommendation mode only).
+            When None the recommender is not configured and falls back to returning all skills.
             enable_cache: Whether to cache loaded skills across invokes.
             include_tools: Whether to register read_file / bash tools.
             enabled_skills: Optional allow-list of skill names. Supports str or List[str].
@@ -90,6 +95,9 @@ class SkillUseRail(DeepAgentRail):
         self.skills_dir = skills_dir
         self.skill_mode = skill_mode
         self.list_skill_model = list_skill_model
+        self.oracle_dir: Optional[Path] = (
+            Path(oracle_dir).expanduser() if oracle_dir else None
+        )
         self.enable_cache = enable_cache
         self.include_tools = include_tools
         self.enabled_skills = self._normalize_name_set(enabled_skills)
@@ -312,6 +320,15 @@ class SkillUseRail(DeepAgentRail):
                     agent_id=agent_id,
                 )
             )
+        elif self.skill_mode == self.SKILL_MODE_RECOMMENDATION:
+            tools.append(
+                RecommendSkillTool(
+                    get_skills=lambda: self.skills,
+                    oracle_dir=self.oracle_dir,
+                    language=lang,
+                    agent_id=agent_id,
+                )
+            )
 
         ability_manager = getattr(agent, "ability_manager", None)
         if ability_manager is None:
@@ -492,6 +509,12 @@ class SkillUseRail(DeepAgentRail):
                 skill_lines=build_skill_lines(body_lines),
                 language=self.system_prompt_builder.language,
                 mode="all",
+            )
+        elif self.skill_mode == self.SKILL_MODE_RECOMMENDATION:
+            return build_skills_section(
+                skill_lines="",
+                language=self.system_prompt_builder.language,
+                mode="recommendation",
             )
         else:
             return build_skills_section(
