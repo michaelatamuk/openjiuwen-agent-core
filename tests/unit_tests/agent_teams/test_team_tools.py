@@ -25,6 +25,7 @@ from openjiuwen.agent_teams.tools.database import (
     DatabaseType,
     TeamDatabase,
 )
+from openjiuwen.agent_teams.tools import locales as team_locales
 from openjiuwen.agent_teams.tools.locales import Translator, make_translator
 from openjiuwen.agent_teams.schema.team import ExternalCliAgentSpec, TeamRole
 from openjiuwen.agent_teams.tools.team import TeamBackend
@@ -172,6 +173,182 @@ class TestBuildTeamTool:
         team_info = await db.team.get_team("test_team")
         assert team_info.display_name == "Minimal Team"
         assert team_info.desc == "A minimal team"
+
+    @pytest.mark.asyncio
+    @pytest.mark.level0
+    async def test_existing_team_is_taken_over_not_rebuilt(self, agent_team_without_team, t, db, message_bus):
+        """A leader inheriting a team calls build_team like any other (F_76).
+
+        A new session on the same team, or a cold recovery, reaches build_team
+        with the row already there. That call is the one place the collaboration
+        policy is handed over, so it must succeed -- failing it would leave that
+        leader with the bootstrap alone.
+        """
+        args = {
+            "display_name": "My Team",
+            "team_desc": "d",
+            "leader_display_name": "Lead",
+            "leader_desc": "PM",
+        }
+        first = await BuildTeamTool(agent_team_without_team, t).invoke(args)
+        assert first.success is True
+        roster_after_create = [m.member_name for m in await db.member.get_team_members("test_team")]
+
+        # A fresh backend, exactly as a new session / recovery builds one.
+        reattached = TeamBackend(
+            team_name="test_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+        )
+        second = await BuildTeamTool(reattached, t).invoke(args)
+
+        assert second.success is True, second.error
+        # Nothing was rebuilt: no duplicate rows, no second leader registration.
+        assert [m.member_name for m in await db.member.get_team_members("test_team")] == roster_after_create
+
+    @pytest.mark.asyncio
+    @pytest.mark.level0
+    async def test_take_over_discloses_the_same_policy(self, agent_team_without_team, t, db, message_bus):
+        """Both paths hand over byte-identical policy text."""
+        args = {
+            "display_name": "My Team",
+            "team_desc": "d",
+            "leader_display_name": "Lead",
+            "leader_desc": "PM",
+        }
+        create_tool = BuildTeamTool(agent_team_without_team, t)
+        created = create_tool.map_result(await create_tool.invoke(args))
+
+        reattached = TeamBackend(
+            team_name="test_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+        )
+        take_over_tool = BuildTeamTool(reattached, t)
+        taken_over = take_over_tool.map_result(await take_over_tool.invoke(args))
+
+        assert "# 团队角色" in taken_over
+        # Same policy body; only the outcome lines differ.
+        assert taken_over.split("\n\n", 1)[1] == created.split("\n\n", 1)[1]
+        # And the outcome must say which of the two happened: a leader that
+        # inherited a roster must not re-spawn the members already on it.
+        assert created.startswith("Team created:")
+        assert taken_over.startswith("Existing team taken over:")
+        assert "do not re-spawn" in taken_over
+
+    @pytest.mark.asyncio
+    @pytest.mark.level0
+    async def test_cold_recovery_is_refused_not_served(self, agent_team_without_team, t, db, message_bus):
+        """A recovered leader must not rebuild: it already holds the policy.
+
+        Cold recovery continues the same session, so the history comes back
+        with the original build_team result in it -- and that result is never
+        compacted away. Serving the call idempotently would cost a round and
+        say nothing new, so it is refused.
+        """
+        args = {
+            "display_name": "My Team",
+            "team_desc": "d",
+            "leader_display_name": "Lead",
+            "leader_desc": "PM",
+        }
+        assert (await BuildTeamTool(agent_team_without_team, t).invoke(args)).success is True
+
+        recovered = TeamBackend(
+            team_name="test_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+        )
+        recovered.mark_history_restored()
+
+        result = await BuildTeamTool(recovered, t).invoke(args)
+
+        assert result.success is False
+        assert "do not call build_team again" in result.error
+        # Refused before anything was touched.
+        assert recovered.team_taken_over() is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.level1
+    async def test_recovered_leader_may_rebuild_a_disbanded_team(self, agent_team_without_team, t, db, message_bus):
+        """The refusal keys on the team row, not on the recovery alone.
+
+        A recovered leader whose team was disbanded mid-run (the
+        all-teammates-SHUTDOWN path calls clean_team) has no team left and
+        genuinely needs to build one.
+        """
+        args = {
+            "display_name": "My Team",
+            "team_desc": "d",
+            "leader_display_name": "Lead",
+            "leader_desc": "PM",
+        }
+        recovered = TeamBackend(
+            team_name="test_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+        )
+        recovered.mark_history_restored()
+        assert await db.team.team_exists("test_team") is False
+
+        result = await BuildTeamTool(recovered, t).invoke(args)
+
+        assert result.success is True, result.error
+        assert await db.team.team_exists("test_team") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.level1
+    async def test_take_over_reads_the_effective_flag_off_the_row(self, db, message_bus):
+        """The team's own configuration wins over this call's arguments.
+
+        The team was configured when it was built and its members already run
+        under that configuration, so a take-over reports what the team actually
+        has -- not what this call asked for.
+        """
+        from openjiuwen.agent_teams.tools.locales import make_translator
+
+        translator = make_translator("cn")
+        builder = TeamBackend(
+            team_name="verified_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+            dispatch_mode="scheduled",
+            enable_task_verification=True,
+        )
+        args = {
+            "display_name": "T",
+            "team_desc": "d",
+            "leader_display_name": "L",
+            "leader_desc": "PM",
+        }
+        await BuildTeamTool(builder, translator, dispatch_mode="scheduled").invoke(args)
+        assert builder.task_verification_enabled() is True
+
+        # A fresh backend whose spec ceiling would say False on its own.
+        reattached = TeamBackend(
+            team_name="verified_team",
+            member_name="leader1",
+            is_leader=True,
+            db=db,
+            messager=message_bus,
+            dispatch_mode="scheduled",
+            enable_task_verification=False,
+        )
+        result = await BuildTeamTool(reattached, translator, dispatch_mode="scheduled").invoke(args)
+
+        assert result.success is True
+        assert reattached.task_verification_enabled() is True
+        assert result.data["enable_task_verification"] is True
 
 
 class TestCleanTeamTool:
@@ -1875,7 +2052,7 @@ class TestTranslator:
     def test_missing_desc_raises_file_not_found(self):
         """Unknown tool: no markdown and no STRINGS entry → FileNotFoundError.
 
-        Protects against silent KeyError if a descs/<lang>/<tool>.md
+        Protects against silent KeyError if a descs/<lang>/<domain>/<tool>.md
         is deleted or mis-named.
         """
         translate = make_translator("cn")
@@ -1886,6 +2063,55 @@ class TestTranslator:
         msg = str(excinfo.value)
         assert "nonexistent_tool_for_translator_test" in msg
         assert "cn" in msg
+
+
+# ========== Descriptions resolve through a domain-grouped index ==========
+
+
+@pytest.mark.level1
+def test_desc_index_maps_flat_keys_to_domain_subdirectories():
+    """Files sit under domain dirs while desc_key stays flat and prefix-free."""
+    index = team_locales._desc_index("cn")
+
+    assert index["build_team"].parent.name == "team"
+    assert index["create_task"].parent.name == "task"
+    assert index["send_message_scheduled"].parent.name == "message"
+    assert index["structured_output"].parent.name == "common"
+    assert all("/" not in key for key in index)
+
+
+@pytest.mark.level1
+def test_desc_index_excludes_fragments_and_is_language_symmetric():
+    """Slot names are a separate namespace, and both languages carry the same keys."""
+    cn_index = team_locales._desc_index("cn")
+    en_index = team_locales._desc_index("en")
+
+    assert "fork_usage" not in cn_index
+    assert "artifact_handoff_policy" not in cn_index
+    assert set(cn_index) == set(en_index)
+
+
+@pytest.mark.level1
+def test_duplicate_desc_key_across_domains_raises(tmp_path, monkeypatch):
+    """The same key filed under two domains fails loudly at index time.
+
+    Picking one would make the description a model reads depend on directory
+    walk order, which is invisible until a model behaves oddly in production.
+    """
+    for domain in ("task", "message"):
+        domain_dir = tmp_path / "cn" / domain
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "duplicated_tool.md").write_text("desc", encoding="utf-8")
+    monkeypatch.setattr(team_locales, "_DESCS_DIR", tmp_path)
+
+    team_locales._desc_index.cache_clear()
+    try:
+        with pytest.raises(ValueError) as excinfo:
+            team_locales._desc_index("cn")
+    finally:
+        team_locales._desc_index.cache_clear()
+
+    assert "duplicated_tool" in str(excinfo.value)
 
 
 # ========== Team rails are provider-built fresh each cycle (never cached) ==========

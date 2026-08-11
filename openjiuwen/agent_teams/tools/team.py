@@ -111,6 +111,7 @@ class TeamBackend:
         *,
         dispatch_mode: str = "autonomous",
         enable_task_verification: bool = False,
+        enable_fork: bool = False,
         external_cli_agents: list[ExternalCliAgentSpec] | None = None,
         on_before_team_cleaned: Callable[[], Awaitable[None]] | None = None,
         on_team_cleaned: Callable[[], Awaitable[None]] | None = None,
@@ -159,6 +160,13 @@ class TeamBackend:
             enable_task_verification: Spec-level "verification expected"
                 ceiling (F_62); ``build_team`` may override the runtime
                 instance flag, mirroring ``enable_hitt``.
+            enable_fork: Spec-level context-inheritance capability gate
+                (``TeamAgentSpec.enable_fork``). When False the
+                ``checkpoint`` tool is not wired and ``spawn_teammate``
+                carries neither the fork properties nor the fork prose.
+                Unlike ``enable_hitt``, there is no ``build_team`` override:
+                fork is an execution-time optimization, not a team-shape
+                decision the leader gets to make per instance.
             external_cli_agents: Static launch configs for external CLI
                 agents (``TeamAgentSpec.external_cli_agents``). The
                 non-empty set of declared ``cli_agent`` names is the
@@ -226,6 +234,13 @@ class TeamBackend:
         # flag, mirroring the ``enable_hitt`` pattern.
         self._spec_enable_task_verification: bool = enable_task_verification
         self._enable_task_verification: bool = enable_task_verification
+        # True once build_team took over a team that already existed rather
+        # than creating one, so the tool result can say which it was.
+        self._team_taken_over: bool = False
+        # True when this run restored a conversation that already contains the
+        # build_team result -- a cold recovery. Set by
+        # ``TeamAgent.recover_from_session``; see ``rejects_rebuild``.
+        self._history_restored: bool = False
         # Fired once on the build_team / clean_team success paths so the
         # hosting TeamAgent can persist DB lifecycle state and latch
         # state.team_cleaned deterministically inside the leader's round.
@@ -293,7 +308,11 @@ class TeamBackend:
         # only the default ones.
         self._cleanup_paths: set[str] = set()
 
-        # Fork / checkpoint support
+        # Fork / checkpoint support. ``_enable_fork`` is the capability gate:
+        # the tool factory reads it to decide whether ``checkpoint`` is wired
+        # and whether ``spawn_teammate`` exposes the fork properties at all,
+        # so everything below stays dormant when fork is off.
+        self._enable_fork: bool = enable_fork
         self._pending_forks: dict[str, dict] = {}    # member_name → {fork, since, source}
         self._checkpoints: dict[str, int] = {}       # name → message_count
         self._snapshot_length: Callable[[], int] | None = None
@@ -314,6 +333,17 @@ class TeamBackend:
     # ------------------------------------------------------------------
     # Fork / checkpoint support
     # ------------------------------------------------------------------
+
+    def fork_enabled(self) -> bool:
+        """Whether context inheritance (fork) is open for this team.
+
+        Straight from ``TeamAgentSpec.enable_fork`` — no ``build_team``
+        override, unlike ``hitt_enabled`` / ``bridge_enabled``. Single gate
+        signal for all three fork surfaces: the ``checkpoint`` tool, the
+        fork properties on ``spawn_teammate``'s schema, and the fork section
+        of its description.
+        """
+        return self._enable_fork
 
     def set_snapshot_length(self, fn) -> None:
         """Register the callback that returns this member's message count."""
@@ -1237,6 +1267,48 @@ class TeamBackend:
         team_logger.info(f"Cancelled {len(cancelled_tasks)} tasks in team {self.team_name}")
         return len(cancelled_tasks)
 
+    async def _reattach_team(self, existing: Any) -> None:
+        """Take over a team that already exists instead of creating one.
+
+        Reached when the leader calls ``build_team`` against a team whose row is
+        already in the static table — in practice a fresh session inheriting a
+        running team (``NEW_TEAM_IN_SESSION``). The row, the roster and the
+        members' own configuration are all standing facts by then — the
+        teammates are re-spawned from that roster by ``recover_team``, not from
+        anything decided here — so this path writes no rows and re-registers
+        nobody.
+
+        **The capability arguments of this call do not apply.** The team was
+        configured when it was built, its members already run under that
+        configuration, and its tasks may already be shaped by it (reviewers on a
+        verify-gated board). So the effective verification flag is read back off
+        the row rather than recomputed, and the leader learns what it actually
+        got from the tool result — the same way it learns a narrowed ceiling on
+        the create path.
+
+        ``on_team_built`` still fires: the checkpoint of *this* session has to
+        record that the team DB row exists, or a later run would dispatch on a
+        state that does not match the database. No ``TeamCreated`` event is
+        published — nothing was created, and members that acted on it would be
+        reacting to an event about a team they are already part of.
+
+        Args:
+            existing: The team row read from the static table.
+        """
+        self._enable_task_verification = bool(existing.enable_task_verification)
+        self._team_taken_over = True
+        team_logger.info(
+            "Team %s already exists; taking it over (task_verification=%s)",
+            self.team_name,
+            self._enable_task_verification,
+        )
+
+        if self._on_team_built is not None:
+            try:
+                await self._on_team_built()
+            except Exception as e:
+                team_logger.error(f"on_team_built callback failed for team {self.team_name}: {e}")
+
     async def build_team(
         self,
         display_name: str,
@@ -1249,6 +1321,12 @@ class TeamBackend:
 
         Creates team in database, writes the leader into the member table,
         then publishes TeamEvent.Created.
+
+        **Idempotent against an existing team**: when the row is already there
+        the call takes the team over (see :meth:`_reattach_team`) instead of
+        failing, because this is also the one call that hands the leader its
+        collaboration policy — and a leader inheriting a team needs that policy
+        at least as much as one that just built it.
 
         Args:
             display_name: Human-readable team label.
@@ -1264,6 +1342,21 @@ class TeamBackend:
                 the F_62 rule instead: None -> "autonomous", "scheduled" must
                 be explicit and requires the spec ceiling.
         """
+        # Step 0: a team that already exists is taken over, not rebuilt. The
+        # case this exists for is NEW_TEAM_IN_SESSION -- a fresh session
+        # inheriting a team that is already running. A child agent session
+        # shares the team session id, so a new session means an empty history:
+        # the build_team tool result that carries the collaboration policy is
+        # gone, while the team, its roster and its tasks are all still there.
+        # Since that call is the single place the policy is handed over (F_76),
+        # failing here would leave that leader with the bootstrap alone.
+        # (COLD_RECOVER keeps its history and normally does not call build_team
+        # again; idempotence is just harmless insurance for it.)
+        existing = await self.db.team.get_team(self.team_name)
+        if existing is not None:
+            await self._reattach_team(existing)
+            return
+
         enable_hitt = overrides.enable_hitt if overrides is not None else None
         enable_bridge = overrides.enable_bridge if overrides is not None else None
         enable_task_verification = overrides.enable_task_verification if overrides is not None else None
@@ -1636,6 +1729,48 @@ class TeamBackend:
         off" while ``spawn_human_agent`` waits to be called.
         """
         return self._enable_hitt
+
+    def mark_history_restored(self) -> None:
+        """Record that this run restored a conversation containing the policy.
+
+        Called on the cold-recovery path (``TeamAgent.recover_from_session``),
+        which continues the *same* session: the child agent session shares the
+        team session id, so the leader's history comes back with the original
+        ``build_team`` result -- and therefore the collaboration policy -- still
+        in it. See :meth:`rejects_rebuild`.
+        """
+        self._history_restored = True
+
+    async def rejects_rebuild(self) -> bool:
+        """Whether ``build_team`` must refuse to run on this team.
+
+        A cold recovery already holds the policy in its restored history, and
+        that result is never compacted away, so calling ``build_team`` again
+        buys nothing and costs a round -- and a leader that does it is usually
+        confused about whether its team exists, which the refusal corrects.
+
+        Both conditions are required. ``_history_restored`` alone is not
+        enough: a recovered leader whose team was disbanded mid-run (the
+        all-teammates-SHUTDOWN path in ``CoordinationKernel.start`` calls
+        ``clean_team``) has no team row left and genuinely does need to build
+        one. The team row is what says a team is there to be rejoined.
+
+        Returns:
+            True when the leader is already attached, with history, to a team
+            that still exists.
+        """
+        if not self._history_restored:
+            return False
+        return await self.db.team.team_exists(self.team_name)
+
+    def team_taken_over(self) -> bool:
+        """Whether ``build_team`` took over an existing team instead of creating one.
+
+        Read by ``BuildTeamTool`` so the result says which happened: a leader
+        that inherited a running team must not go on to spawn the members that
+        are already on its roster.
+        """
+        return self._team_taken_over
 
     def task_verification_enabled(self) -> bool:
         """Whether task verification is expected for this team instance.

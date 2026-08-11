@@ -1,5 +1,10 @@
 Assemble a team and register yourself as Leader. Call as soon as you have a goal — don't hesitate.
 
+**When the team already exists this tool takes it over rather than failing**: nothing is rebuilt, no member is registered twice, the roster and each member's configuration are left as they are, and the effective capability flags come from the team's own configuration (this call's matching arguments do not apply). Inheriting the same team in a new session takes this path — just call it as usual.
+
+## What It Returns
+Besides the creation result, this tool returns **your full collaboration policy** — core responsibilities, hand-off conventions, decision principles, response cadence, task state transitions, how tasks reach members, team lifecycle wrap-up, and the inbound-tag system. It is tailored to the parameters of this very call, and it is **the basis for everything you do afterwards: read it and follow it**. Do not treat it as a one-off notice to skim past.
+
 ## Call Order
 build_team → spawn_teammate → create_task → put the members to work (how depends on the team's dispatch mode). Members exist before tasks, so work lands on named people.
 No other team tool may be called before build_team.
@@ -20,6 +25,8 @@ Once HITT is on, the following rules apply to every `role=human_agent` member:
 - They only have `send_message`, but can be assigned tasks via `update_task`;
 - Once one of them has claimed a task, you cannot cancel or reassign it — only `send_message` nudges addressed to that specific human are allowed;
 - Direct conversation with a human member **must** go through `send_message(to="<human_member_name>", ...)`; plain text is invisible.
+
+{{build_team_verify_gate}}
 
 ## Task Design Principles
 - Describe goals, not steps: content should contain goals, acceptance criteria, and constraints — not specific operations
