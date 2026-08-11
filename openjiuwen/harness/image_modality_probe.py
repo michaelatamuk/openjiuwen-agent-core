@@ -56,6 +56,7 @@ _IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
     "images are not supported",
     "multimodal input is not supported",
     "not support image input",
+    "unknown variant",
     "unsupported image",
     "vision is not supported",
 )
