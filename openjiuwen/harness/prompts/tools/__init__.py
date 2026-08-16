@@ -78,6 +78,12 @@ from openjiuwen.harness.prompts.tools.goal import (
 from openjiuwen.harness.prompts.tools.list_skill import (
     ListSkillMetadataProvider,
 )
+from openjiuwen.harness.prompts.tools.recommend_skill import (
+    RecommendSkillMetadataProvider,
+)
+from openjiuwen.harness.prompts.tools.load_tools import (
+    LoadToolsMetadataProvider,
+)
 from openjiuwen.harness.prompts.tools.lsp_tool import (
     LspToolMetadataProvider,
 )
@@ -155,6 +161,9 @@ _PROVIDERS: List[ToolMetadataProvider] = [
     GrepMetadataProvider(),
     ListSkillMetadataProvider(),
     ToolSearchMetadataProvider(),
+    RecommendSkillMetadataProvider(),
+    SearchToolsMetadataProvider(),
+    LoadToolsMetadataProvider(),
     SessionsListMetadataProvider(),
     SessionsSpawnMetadataProvider(),
     SessionsCancelMetadataProvider(),

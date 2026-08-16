@@ -215,6 +215,8 @@ def resolve_deep_agent_parts(
     parallel_tool_calls: bool = True,
     enable_security_rail: bool = True,
     enable_model_anomaly_detection_rail: bool = True,
+    skill_mode: str = "all",
+    oracle_dir: Optional[str | Path] = None,
     enable_sys_operation: bool = True,
     trajectory_span_processor: TrajectorySpanProcessor | None = None,
     **config_kwargs: Any,
@@ -380,7 +382,8 @@ def resolve_deep_agent_parts(
         include_tools = not _already_provided(SysOperationRail)
         return SkillUseRail(
             skills_dir=skills_dirs,
-            skill_mode="all",
+            skill_mode=skill_mode,
+            oracle_dir=oracle_dir,
             disabled_skills=disabled_skills or None,
             include_tools=include_tools,
         )
@@ -481,6 +484,8 @@ def create_deep_agent(
     parallel_tool_calls: bool = True,
     enable_security_rail: bool = True,
     enable_model_anomaly_detection_rail: bool = True,
+    skill_mode: str = "all",
+    oracle_dir: Optional[str | Path] = None,
     **config_kwargs: Any,
 ) -> DeepAgent:
     """Create and configure a DeepAgent instance.
@@ -539,6 +544,12 @@ def create_deep_agent(
             Dict mapping Model instance to description string. When provided along with
             enable_task_planning, TaskPlanningRail will be configured with model selection,
             allowing different models to be used for different subtasks.
+        skill_mode: Skill expose mode for the auto-added SkillUseRail. One of ``"all"``,
+            ``"auto_list"``, or ``"recommendation"``. Defaults to ``"all"``. Ignored when
+            the caller supplies their own ``SkillUseRail`` in *rails*.
+        oracle_dir: Directory containing ``scoring_matrix_*.json`` files used by
+            ``"recommendation"`` mode. When ``None`` the recommender falls back to returning
+            all skills. Ignored for other skill modes and when a custom rail is provided.
         **config_kwargs: Extra fields forwarded to
             DeepAgentConfig.
 
@@ -575,6 +586,8 @@ def create_deep_agent(
         parallel_tool_calls=parallel_tool_calls,
         enable_security_rail=enable_security_rail,
         enable_model_anomaly_detection_rail=enable_model_anomaly_detection_rail,
+        skill_mode=skill_mode,
+        oracle_dir=oracle_dir,
         **config_kwargs,
     )
     agent = DeepAgent(parts.config.card)
