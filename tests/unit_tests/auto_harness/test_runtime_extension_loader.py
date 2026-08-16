@@ -5,27 +5,24 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 from types import ModuleType
-import uuid
 
 import pytest
 
-from openjiuwen.core.single_agent.schema.agent_card import (
-    AgentCard,
-)
 from openjiuwen.auto_harness.infra.runtime_extension_loader import (
     load_runtime_rails,
     load_runtime_tools,
-)
-from openjiuwen.auto_harness.infra.runtime_manifest import (
-    load_runtime_manifest,
 )
 from openjiuwen.auto_harness.schema import (
     RuntimeExtensionArtifact,
 )
 from openjiuwen.core.common.exception.codes import StatusCode
 from openjiuwen.core.common.exception.errors import AgentError
+from openjiuwen.core.single_agent.schema.agent_card import (
+    AgentCard,
+)
 from openjiuwen.harness.deep_agent import DeepAgent
 from openjiuwen.harness.rails import SkillUseRail
 from openjiuwen.harness.schema.config import DeepAgentConfig
@@ -191,7 +188,7 @@ async def test_runtime_extension_skills_are_refreshed_and_preferred(
     await agent.register_rail(old_rail)
     await old_rail.reload_skills()
 
-    record = await agent.load_expert_harness(
+    record = await agent.load_plugin(
         artifact.config_path
     )
 
@@ -227,11 +224,11 @@ async def test_load_expert_harness_raises_for_missing_file(
 
     missing_config = tmp_path / "missing" / "harness_config.yaml"
     with pytest.raises(AgentError, match="not found") as exc_info:
-        await agent.load_expert_harness(str(missing_config))
+        await agent.load_plugin(str(missing_config))
 
     err = exc_info.value
     message = str(err)
-    assert err.status == StatusCode.DEEPAGENT_LOAD_EXPERT_HARNESS_ERROR
+    assert err.status == StatusCode.DEEPAGENT_LOAD_PLUGIN_ERROR
     assert isinstance(err.__cause__, FileNotFoundError)
     assert "harness_config.yaml" in message
     assert str(missing_config) in message
@@ -281,7 +278,7 @@ async def test_unload_expert_harness_removes_skill_dirs_from_shared_rail(
     await old_rail.reload_skills()
 
     # Load through the canonical ExpertHarness interface (merges skill dirs).
-    record = await agent.load_expert_harness(artifact.config_path)
+    record = await agent.load_plugin(artifact.config_path)
     assert any(ref.kind.value == "skill" for ref in record.refs)
 
     skill_rail = next(
@@ -293,7 +290,7 @@ async def test_unload_expert_harness_removes_skill_dirs_from_shared_rail(
     assert len(skill_dirs) >= 2  # old_root + runtime skill dir
 
     # Unload via the load record (no fragile re-parse of the manifest).
-    unloaded = await agent.unload_expert_harness(record)
+    unloaded = await agent.unload_extension(record)
     assert any(item.startswith("skill:") for item in unloaded)
 
     # Verify runtime skill dir is removed but old_root remains
@@ -335,7 +332,14 @@ async def test_load_expert_harness_loads_runtime_extension(
         DeepAgentConfig(enable_task_loop=False)
     )
 
-    record = await agent.load_expert_harness(artifact.config_path)
+    # load_plugin binds skills through the registered SkillUseRail; provide one.
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir(parents=True)
+    skill_rail = SkillUseRail(skills_dir=str(skill_root), skill_mode="all")
+    await agent.register_rail(skill_rail)
+    await skill_rail.reload_skills()
+
+    record = await agent.load_plugin(artifact.config_path)
 
     ref_identities = {ref.identity for ref in record.refs}
     assert "DemoRail" in ref_identities
@@ -379,7 +383,7 @@ async def test_load_expert_harness_resolves_relative_import(
     )
 
     # Must not raise ImportError("attempted relative import with no known parent package").
-    record = await agent.load_expert_harness(artifact.config_path)
+    record = await agent.load_plugin(artifact.config_path)
 
     assert record.refs
     tool = next(
@@ -417,7 +421,7 @@ async def test_load_expert_harness_ignores_stale_official_extension_modules(
             DeepAgentConfig(enable_task_loop=False)
         )
 
-        record = await agent.load_expert_harness(artifact.config_path)
+        record = await agent.load_plugin(artifact.config_path)
 
         assert record.refs
         tool = next(
@@ -453,13 +457,13 @@ async def test_unload_expert_harness_reverts_runtime_extension(
         DeepAgentConfig(enable_task_loop=False)
     )
 
-    record = await agent.load_expert_harness(artifact.config_path)
+    record = await agent.load_plugin(artifact.config_path)
     assert any(
         type(rail).__name__ == "DemoRail"
         for rail in agent._registered_rails
     )
 
-    unloaded = await agent.unload_expert_harness(record)
+    unloaded = await agent.unload_extension(record)
 
     assert unloaded
     assert not any(

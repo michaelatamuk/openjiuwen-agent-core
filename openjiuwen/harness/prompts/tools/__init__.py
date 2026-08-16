@@ -78,12 +78,6 @@ from openjiuwen.harness.prompts.tools.goal import (
 from openjiuwen.harness.prompts.tools.list_skill import (
     ListSkillMetadataProvider,
 )
-from openjiuwen.harness.prompts.tools.recommend_skill import (
-    RecommendSkillMetadataProvider,
-)
-from openjiuwen.harness.prompts.tools.load_tools import (
-    LoadToolsMetadataProvider,
-)
 from openjiuwen.harness.prompts.tools.lsp_tool import (
     LspToolMetadataProvider,
 )
@@ -104,6 +98,9 @@ from openjiuwen.harness.prompts.tools.powershell import (
 from openjiuwen.harness.prompts.tools.search_tools import (
     SearchToolsMetadataProvider,
 )
+from openjiuwen.harness.prompts.tools.recommend_skill import (
+    RecommendSkillMetadataProvider,
+)
 from openjiuwen.harness.prompts.tools.session_tools import (
     SessionsCancelMetadataProvider,
     SessionsListMetadataProvider,
@@ -120,6 +117,9 @@ from openjiuwen.harness.prompts.tools.todo import (
     TodoGetMetadataProvider,
     TodoListMetadataProvider,
     TodoModifyMetadataProvider,
+)
+from openjiuwen.harness.prompts.tools.tool_search import (
+    ToolSearchMetadataProvider,
 )
 from openjiuwen.harness.prompts.tools.video_understanding import (
     VideoUnderstandingMetadataProvider,
@@ -161,8 +161,6 @@ _PROVIDERS: List[ToolMetadataProvider] = [
     GrepMetadataProvider(),
     ListSkillMetadataProvider(),
     RecommendSkillMetadataProvider(),
-    SearchToolsMetadataProvider(),
-    LoadToolsMetadataProvider(),
     SessionsListMetadataProvider(),
     SessionsSpawnMetadataProvider(),
     SessionsCancelMetadataProvider(),
