@@ -97,6 +97,7 @@ __all__ = [
     "ListDirTool",
     "ListSkillTool",
     "ReadFileTool",
+    "RecommendSkillTool",
     "SkillTool",
     "TodoCreateTool",
     "TodoListTool",

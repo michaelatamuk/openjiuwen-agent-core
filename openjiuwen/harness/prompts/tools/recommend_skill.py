@@ -1,6 +1,8 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+
 """Bilingual description and input params for the RecommendSkill tool."""
+
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -49,3 +51,6 @@ class RecommendSkillMetadataProvider(ToolMetadataProvider):
 
     def get_input_params(self, language: str = "cn") -> Dict[str, Any]:
         return get_recommend_skill_input_params(language)
+
+
+__all__ = ["RecommendSkillMetadataProvider", "get_recommend_skill_input_params"]

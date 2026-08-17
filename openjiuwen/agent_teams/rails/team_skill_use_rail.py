@@ -64,6 +64,7 @@ class TeamSkillUseRail(SkillUseRail):
         visibility_provider: SkillVisibilityProvider,
         skill_mode: str = "all",
         include_tools: bool = True,
+        oracle_dir: str | None = None,
     ) -> None:
         """Initialize the team Skill rail.
 
@@ -76,11 +77,14 @@ class TeamSkillUseRail(SkillUseRail):
             include_tools: Whether the rail registers its own read_file / bash
                 fallback tools. Off when a system-operation rail already owns
                 them, otherwise every build logs duplicate-ability warnings.
+            oracle_dir: Optional directory with ``scoring_matrix_*.json`` files
+                for ``recommendation`` skill mode.
         """
         super().__init__(
             skills_dir=skills_dir,
             skill_mode=skill_mode,
             include_tools=include_tools,
+            oracle_dir=oracle_dir,
         )
         self.visibility_provider = visibility_provider
         # Seed the sets before the first refresh so an early call to
@@ -193,6 +197,7 @@ def create_team_skill_use_rail(
     bootstrap_allow: list[str],
     skill_mode: str = "all",
     include_tools: bool = False,
+    oracle_dir: str | None = None,
 ) -> TeamSkillUseRail:
     """Seed the member declaration and build the rail over the shared library.
 
@@ -224,6 +229,8 @@ def create_team_skill_use_rail(
         bootstrap_allow: Seed allow-list from the blueprint.
         skill_mode: ``all`` or ``auto_list``.
         include_tools: Whether the rail registers its read_file / bash fallback.
+        oracle_dir: Optional directory with ``scoring_matrix_*.json`` files for
+            ``recommendation`` skill mode.
 
     Returns:
         A configured :class:`TeamSkillUseRail`.
@@ -256,6 +263,7 @@ def create_team_skill_use_rail(
         visibility_provider=provider,
         skill_mode=skill_mode,
         include_tools=include_tools,
+        oracle_dir=oracle_dir,
     )
 
 
