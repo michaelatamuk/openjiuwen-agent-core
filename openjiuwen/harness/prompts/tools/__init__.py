@@ -95,6 +95,9 @@ from openjiuwen.harness.prompts.tools.memory import (
 from openjiuwen.harness.prompts.tools.powershell import (
     PowerShellMetadataProvider,
 )
+from openjiuwen.harness.prompts.tools.recommend_skill import (
+    RecommendSkillMetadataProvider,
+)
 from openjiuwen.harness.prompts.tools.session_tools import (
     SessionsCancelMetadataProvider,
     SessionsListMetadataProvider,
@@ -155,6 +158,7 @@ _PROVIDERS: List[ToolMetadataProvider] = [
     GrepMetadataProvider(),
     ListSkillMetadataProvider(),
     ToolSearchMetadataProvider(),
+    RecommendSkillMetadataProvider(),
     SessionsListMetadataProvider(),
     SessionsSpawnMetadataProvider(),
     SessionsCancelMetadataProvider(),

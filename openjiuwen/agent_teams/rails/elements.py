@@ -400,6 +400,10 @@ class TeamSkillUseInput(ConstructionInput):
         default=False,
         description="Whether the rail registers its own read_file / bash fallback tools.",
     )
+    oracle_dir: str | None = param_field(
+        default=None,
+        description="Directory with scoring_matrix_*.json files for recommendation mode.",
+    )
 
 
 @harness_element(
@@ -431,6 +435,7 @@ def build_team_skill_use_rail(params: dict[str, Any], context: Any) -> Any:
         bootstrap_allow=list(inp.bootstrap_allow),
         skill_mode=inp.skill_mode,
         include_tools=inp.include_tools,
+        oracle_dir=inp.oracle_dir,
     )
 
 

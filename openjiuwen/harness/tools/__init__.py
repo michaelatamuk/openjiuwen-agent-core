@@ -40,7 +40,7 @@ from openjiuwen.harness.tools.multimodal import (
     create_vision_tools,
 )
 from openjiuwen.harness.tools.shell import BashTool, PowerShellTool
-from openjiuwen.harness.tools.skills import ListSkillTool, SkillTool
+from openjiuwen.harness.tools.skills import ListSkillTool, RecommendSkillTool, SkillTool
 from openjiuwen.harness.tools.subagent import (
     SESSION_SPAWN_TASK_TYPE,
     SessionsCancelTool,
@@ -96,6 +96,7 @@ __all__ = [
     "ListDirTool",
     "ListSkillTool",
     "ReadFileTool",
+    "RecommendSkillTool",
     "SkillTool",
     "TodoCreateTool",
     "TodoListTool",
