@@ -316,8 +316,14 @@ async def execute_cmd(
 
 **行为说明**：
 
-- 命令先与 `launcher_config.extra_params["excluded_commands"]` 中的 fnmatch 模式匹配，命中则**预路由到本地** `bash -lc` 执行；
-- 否则走 sandbox 执行；当 `extra_params["fallback_on_failure"]=True` 时，sandbox 执行失败回退本地；
+- 命令按 `launcher_config.extra_params["excluded_commands"]`（fnmatch）做叶子级路由：
+  - **全命中**：整条在本地 `bash -lc` 执行；
+  - **全未命中**：整条走 sandbox（现有 `_run_exec_pipeline`，可配合 `fallback_on_failure`）；
+  - **混合命中**（如 `cat host.txt | grep x` 且排除 `cat`）：本地 bash 编排控制流，未命中段改写为 `jiuwenbox sandbox exec`（管道消费者加 `--stdin -`）；**仅混合路径**会插入 CLI；
+  - 分类结果为 `unsupported`（如空命令）时：**整条命令放到沙箱执行**；
+  - 无 tree-sitter 时降级为旧版整命令预路由。
+- 未配置 `excluded_commands` 时行为不变：整条走 sandbox，不插入 CLI；
+- `execute_code` 仍按代码首行整段预路由，不做管道混跑；
 - 超时（`exit_code=124`）返回带超时提示的错误结果。
 
 ### async execute_cmd_stream
@@ -419,13 +425,13 @@ def build_jiuwenbox_http_client(
 
 **参数**：
 
-* **base_url**(str)：JiuwenBox 服务基础 URL，末尾 `/` 会被去除。
+* **base_url**(str)：JiuwenBox 服务端点，末尾 `/` 会被去除。TCP 用 `http://host:port`；Unix Domain Socket 用 `unix:///abs/socket/path`（必须三斜杠 + 绝对路径）。UDS 走 `httpx.HTTPTransport(uds=...)`，相对 API 路径仍按 HTTP 拼接。
 * **timeout_seconds**(float, 可选)：请求超时（秒），默认值 `30.0`。
 * **api_token**(str | None, 可选)：API token；为 `None` 时从默认解析逻辑取，无则不加鉴权头。默认值 `None`。
 
 **返回**：
 
-* **httpx.Client**：配置好 `base_url`、超时与（可选）`Authorization: Bearer <token>` 头的客户端。
+* **httpx.Client**：配置好超时与（可选）`Authorization: Bearer <token>` 头的客户端。TCP 使用传入的 `base_url`；UDS 使用占位 `http://jiuwenbox`，实际流量走 socket。
 
 ### clear_jiuwenbox_shared_sandbox
 
@@ -532,6 +538,6 @@ async def delete_jiuwenbox_sandbox(
 
 **生命周期钩子**：`launcher_config.extra_params["lifecycle_hook"]` 可传入 `Callable[[str, dict], None]`，在沙箱创建/删除/重建事件中回调；创建时捕获的钩子缓存于类级 `_lifecycle_hooks`，使 `delete_jiuwenbox_sandbox` 在未显式传入钩子时仍能触发删除事件。
 
-**排除模式预路由与本地回退**：`launcher_config.extra_params["excluded_commands"]`（fnmatch 模式列表）使命中的命令/代码首行**预路由到本地**执行，绕过远端沙箱；`extra_params["fallback_on_failure"]=True` 时，远端执行失败回退本地 `subprocess`。本地执行结果经 `_wrap_shell_local_result` / `_wrap_code_local_result` 包装为与远端一致的结果对象，`exit_code=124` 表示超时。
+**排除模式预路由与本地回退**：`launcher_config.extra_params["excluded_commands"]`（fnmatch）对 shell 做叶子级匹配：同质全本地/全远端不改写；混合时由本地 bash + `jiuwenbox sandbox exec` 跨端编排（需宿主已安装 CLI，且 token 经 `JIUWENBOX_API_TOKEN` 环境传递、不进 argv）。混合启动后不自动 recreate/整条 fallback，避免重复本地副作用。`execute_code` 仍按首行整段预路由。`fallback_on_failure=True` 仅作用于整条远端 pipeline。本地结果经 `_wrap_shell_local_result` / `_wrap_code_local_result` 包装，`exit_code=124` 表示超时。
 
 **并发重建锁**：类级 `_recreate_lock`（懒初始化的 `asyncio.Lock`）串行化并发的沙箱重建操作，避免重复创建；`_idle_timeout_cache` 按 `base_url` 去重 PUT `/api/v1/timeout` 请求。
