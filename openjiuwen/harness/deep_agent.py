@@ -214,6 +214,10 @@ _DEFAULT_DIRECT_TOOL_NAMES = frozenset(
         "ltm_search",
         "ltm_search_summary",
         "send_file_to_user",
+        "enter_plan_mode",
+        "exit_plan_mode",
+        "skill_branch_explore",
+        "skill_index_build",
     }
 )
 
