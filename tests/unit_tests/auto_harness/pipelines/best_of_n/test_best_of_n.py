@@ -11,14 +11,12 @@ from unittest import IsolatedAsyncioTestCase
 from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_scorer import (
     AttemptScore,
     AttemptScorer,
-    ScoredAttempt,
 )
 from openjiuwen.rsi.auto_harness.pipelines.best_of_n.attempt_selector import BestOfNSelector
 from openjiuwen.rsi.auto_harness.pipelines.best_of_n.controller import (
     BestOfNController,
     BestOfNResult,
 )
-from openjiuwen.rsi.auto_harness.infra.workspace_cloner import WorkspaceCloner
 
 
 class TestBestOfNController(IsolatedAsyncioTestCase):
@@ -122,7 +120,7 @@ class TestBestOfNController(IsolatedAsyncioTestCase):
             async def attempt_factory(path: Path, seed: int):
                 pass
 
-            result = await ctrl.run(
+            await ctrl.run(
                 workspace=workspace,
                 attempt_factory=attempt_factory,
             )
