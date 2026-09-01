@@ -649,7 +649,6 @@ class DeepAgent(BaseAgent):
             ))
         else:
             prompt_builder.add_section(build_identity_section(language))
-        prompt = prompt_builder.build()
         new_react_config = self._react_agent.config.model_copy()
         new_react_config.prompt_template = [
             {"role": "system", "content": _render_identity_prompt(prompt_builder, language)}
@@ -1180,12 +1179,12 @@ class DeepAgent(BaseAgent):
             self.ability_manager.add(mcp_config)
 
     async def _resolve_read_image_multimodal(self) -> None:
-        """Resolve read_file image modality when it is set to auto.
+        """Warm the native-image capability decision when it is set to auto.
 
         A probe costs a full LLM round-trip, so it never blocks startup: a
-        cached verdict is applied straight away, otherwise the probe runs in the
-        background and this run stays metadata-only (``None`` is falsy at every
-        read site). Later agents on the same endpoint and model reuse the cache.
+        cached verdict is consumed dynamically by image-input call sites;
+        otherwise the probe runs in the background. The config remains ``None``
+        so auto mode follows later probe completion and main-model changes.
         """
         config = self._deep_config
         if config is None or config.enable_read_image_multimodal is not None:
@@ -1193,14 +1192,12 @@ class DeepAgent(BaseAgent):
 
         if config.model is None:
             logger.debug(
-                "[DeepAgent] no model configured; disabling read_file image multimodal",
+                "[DeepAgent] no model configured; native image input remains unavailable",
             )
-            config.enable_read_image_multimodal = False
             return
 
         cached = get_cached_image_support(config.model)
         if cached is not None:
-            config.enable_read_image_multimodal = cached
             logger.info(
                 "[DeepAgent] read_file image multimodal from probe cache: %s",
                 cached,
@@ -1209,7 +1206,7 @@ class DeepAgent(BaseAgent):
 
         logger.info(
             "[DeepAgent] read_file image multimodal not probed yet; "
-            "probing in background and degrading to metadata-only for this run",
+            "probing in background and using metadata-only until resolved",
         )
         schedule_image_support_probe(config.model)
 
@@ -1543,7 +1540,7 @@ class DeepAgent(BaseAgent):
                     )
                     factory_kwargs.setdefault(
                         "enable_read_image_multimodal",
-                        parent_image_support is True,
+                        parent_image_support,
                     )
                 if browser_capabilities is not None:
                     factory_kwargs["browser_capabilities"] = list(browser_capabilities)
@@ -1628,6 +1625,11 @@ class DeepAgent(BaseAgent):
             query = inputs.get("query", "")
             conversation_id = inputs.get("conversation_id")
             parent_session_id = inputs.get("parent_session_id")
+            invocation_id = inputs.get("invocation_id")
+            parent_invocation_id = inputs.get("parent_invocation_id")
+            delegation_id = inputs.get("delegation_id")
+            agent_path = inputs.get("agent_path")
+            depth = int(inputs.get("depth") or 0)
             run = inputs.get("run", {})
             run_kind = None
             run_context = None
@@ -1659,12 +1661,22 @@ class DeepAgent(BaseAgent):
             query = inputs
             conversation_id = None
             parent_session_id = None
+            invocation_id = None
+            parent_invocation_id = None
+            delegation_id = None
+            agent_path = None
+            depth = 0
             run_kind = None
             run_context = None
         elif isinstance(inputs, InteractiveInput):
             query = inputs
             conversation_id = None
             parent_session_id = None
+            invocation_id = None
+            parent_invocation_id = None
+            delegation_id = None
+            agent_path = None
+            depth = 0
             run_kind = None
             run_context = None
         else:
@@ -1679,6 +1691,11 @@ class DeepAgent(BaseAgent):
             run_kind=run_kind,
             run_context=run_context,
             parent_session_id=parent_session_id,
+            invocation_id=invocation_id,
+            parent_invocation_id=parent_invocation_id,
+            delegation_id=delegation_id,
+            agent_path=agent_path,
+            depth=depth,
         )
         return invoke_inputs
 
@@ -1726,6 +1743,16 @@ class DeepAgent(BaseAgent):
             effective_inputs["conversation_id"] = invoke_inputs.conversation_id
         if invoke_inputs.parent_session_id is not None:
             effective_inputs["parent_session_id"] = invoke_inputs.parent_session_id
+        if invoke_inputs.invocation_id is not None:
+            effective_inputs["invocation_id"] = invoke_inputs.invocation_id
+        if invoke_inputs.parent_invocation_id is not None:
+            effective_inputs["parent_invocation_id"] = invoke_inputs.parent_invocation_id
+        if invoke_inputs.delegation_id is not None:
+            effective_inputs["delegation_id"] = invoke_inputs.delegation_id
+        if invoke_inputs.agent_path is not None:
+            effective_inputs["agent_path"] = list(invoke_inputs.agent_path)
+        if invoke_inputs.depth:
+            effective_inputs["depth"] = invoke_inputs.depth
         if invoke_inputs.run_kind is not None:
             effective_inputs["run_kind"] = invoke_inputs.run_kind
         if invoke_inputs.run_context is not None:
