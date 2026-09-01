@@ -341,4 +341,5 @@ def build_tools_section(
         name=SectionName.TOOLS,
         content={language: content},
         priority=40,
+        category="tools",
     )
