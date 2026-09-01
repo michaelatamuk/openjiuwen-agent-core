@@ -19,7 +19,7 @@ from openjiuwen.rsi.harness_rsi.auto_harness.infra.parsers import (
     parse_pr_draft,
     parse_tasks,
 )
-from openjiuwen.rsi.auto_harness.infra.workspace_cloner import (
+from openjiuwen.rsi.harness_rsi.auto_harness.infra.workspace_cloner import (
     WorkspaceCloner,
 )
 from openjiuwen.rsi.harness_rsi.auto_harness.infra.session_budget import (
