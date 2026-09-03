@@ -468,6 +468,10 @@ class TeamWorkerBackend(AgentBackend):
             if budget_rail is not None:
                 harness.add_rail(budget_rail)
             kv_cache_harness_session_lifecycle_hook.configure_harness_session_hooks(
+                harness,
+                product_session_id=self._session_id,
+                evict_on_finish=True,
+            )
             if agent_id:
                 harness.add_rail(
                     SwarmflowActivityRail(
