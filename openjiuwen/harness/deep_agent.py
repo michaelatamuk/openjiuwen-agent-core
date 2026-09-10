@@ -610,7 +610,8 @@ class DeepAgent(BaseAgent):
         """Sync tool cards in the shared AbilityManager during hot-reconfigure.
 
         Tools are matched by id: a card whose id already exists in the
-        AbilityManager is left untouched.  Cards with a new id replace any
+        AbilityManager is left untouched, except paid-search cards whose
+        configured-provider metadata has changed. Cards with a new id replace any
         existing entry with the same name, or are added fresh.  Tools present
         in the AbilityManager but absent from config.tools are removed.
         MCP server registrations and other ability types are not affected.
@@ -643,7 +644,8 @@ class DeepAgent(BaseAgent):
         for name, card in new_by_name.items():
             existing = self.ability_manager.get(name)
             existing_tool = existing if isinstance(existing, ToolCard) else None
-            if existing_tool is not None and existing_tool.id == card.id:
+            same_card = existing_tool is not None and existing_tool.id == card.id
+            if same_card and (name != "paid_search" or existing_tool == card):
                 self._ensure_builtin_tool_resource(card, config)
                 continue  # Same id - no update needed.
             if existing_tool is not None:
@@ -2887,6 +2889,36 @@ class DeepAgent(BaseAgent):
             await self._cancel_stream_process_task()
             raise
         finally:
+            # Stall aclose / GeneratorExit does not raise CancelledError, so
+            # CancelledError-only teardown left _stream_process, parallel tool
+            # gathers, and SubagentControl caches pending.
+            if not task.done():
+                try:
+                    await self._cancel_session_deep_tasks(
+                        session.get_session_id()
+                    )
+                except Exception:
+                    logger.debug(
+                        "deep task cancel during stream close failed",
+                        exc_info=True,
+                    )
+                try:
+                    await self._release_session_subagent_controls(
+                        session,
+                        reason="stream_cancelled",
+                    )
+                except Exception:
+                    logger.debug(
+                        "subagent control release during stream close failed",
+                        exc_info=True,
+                    )
+                try:
+                    await self._cancel_stream_process_task()
+                except Exception:
+                    logger.debug(
+                        "stream process cancel during stream close failed",
+                        exc_info=True,
+                    )
             if self._stream_process_task is task:
                 self._stream_process_task = None
 
@@ -3168,15 +3200,31 @@ class DeepAgent(BaseAgent):
         )
 
     async def _cancel_stream_process_task(self) -> None:
-        """Cancel the in-flight task-loop stream background task, if any."""
+        """Cancel the in-flight task-loop stream background task, if any.
+
+        Must not ``await`` the current task. Doing so (or cancelling a
+        gather that includes the waiter) creates an asyncio
+        ``Task.cancel`` parent cycle and raises ``RecursionError`` —
+        observed when headless stream-stall timeouts cancel a DeepAgent
+        mid parallel tool batch.
+        """
         task = self._stream_process_task
         if task is None or task.done():
+            return
+        # Same guard as ``_cancel_active_round`` for ``_interaction_round_task``.
+        if task is asyncio.current_task():
+            task.cancel()
             return
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
+        except RecursionError:
+            logger.warning(
+                "RecursionError while awaiting cancelled stream process task; "
+                "leaving task to be collected by the event loop"
+            )
         except Exception:
             logger.debug(
                 "stream process task raised during cancel",
