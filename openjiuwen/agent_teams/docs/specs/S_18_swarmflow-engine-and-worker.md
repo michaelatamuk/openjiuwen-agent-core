@@ -36,7 +36,7 @@
   `agent()` 的 option 集合包含 `label` / `phase` / `schema` / `model` /
   `timeout` / `isolation`。`isolation` 当前只允许 `None` 或 `"worktree"`；
   engine 只校验与透传，具体隔离语义由 backend 实现。
-- **可观测性**：`Runtime` 有两个 sink。`log_sink: Callable[[str], None]`（诊断文本，默认 no-op）；`progress_sink: Callable[[WorkflowProgressEvent], None]`（结构化进度，默认 no-op）。`phase()`/`log()`/`agent()` 起止发 `WorkflowProgressEvent`；引擎不读 wall-clock（保持 resume 确定性），事件**无时间戳**——消费方在 agent_teams 层补时。
+- **可观测性**：`Runtime` 有两个 sink。`log_sink: Callable[[str], None]`（诊断文本，默认 no-op）；`progress_sink: Callable[[WorkflowProgressEvent], None]`（结构化进度，默认 no-op）。`phase()`/`log()`/`agent()` 起止发 `WorkflowProgressEvent`；引擎不读 wall-clock（保持 resume 确定性），事件**无时间戳**——消费方在 agent_teams 层补时。`WORKFLOW_STARTED` 事件额外携带 `script_path`（`run_workflow(path)` 的绝对脚本路径，供嵌入层冷启动恢复 advisory 用，见 `F_110`；其它 kind 一律 None）。
 - **嵌套 workflow 的深度守卫是 per-task，不是全局**：`workflow()` 递归封顶用 `primitives._wf_depth`（contextvar，`_MAX_WORKFLOW_DEPTH=1`），非共享 `Runtime` 计数器。
   - contextvar 随 asyncio Task 拷贝：`parallel`/`pipeline` 各分支继承父深度 → **同层并发 `workflow()` 全部放行**
   - 真递归（子流 `run()` 内再调 `workflow()`，同一 Task）→ 返回 `None` + progress `LOG`（`[wf] nested workflow depth > 1 not allowed; skipping`）
@@ -58,6 +58,7 @@
 - **两级执法，缺一不可**：
   - **rail（主力）**：backend 给每个 worker / avatar harness 挂一个 `SwarmflowBudgetRail`。`after_model_call` 记账、超了 `ctx.request_force_finish` **就地终止该 round**；`before_model_call` 挡下付不起的调用（专治并发——账本共享，兄弟 worker 烧干预算时本 worker 立刻被挡）。用 force-finish 而非抛异常：超预算是钱花完了，不是坏了，已做的工作照常返回。
   - **引擎（兜底）**：`_check_budget(rt)` 紧挨 `_check_abort(rt)`，只在 `agent()` / `AgentSession.send()` **入口**，`raise BudgetExhausted`。**不做 pre-journal 检查**（与 `_check_abort` 不同）：钱已经花了的调用必须落 journal，否则 resume 会重跑并再付一次。
+  - **引擎（重试短路）**：`_attempt_calls` 的 except 分支在重试前查账本——ledger 干涸则 **fail-fast 不重试**（账本不退款，重试必败；human turn 的重试还会重新弹一次 `HUMAN_PROMPT`），失败结果直接带与 gate 同格式的 `workflow/session token budget exhausted: X/Y` 真因进 `AGENT_FAILED`。消息格式统一由 `_budget_exhaustion` 出。
 - **`BudgetExhausted` 是 `BaseException`**（与 `WorkflowAborted` 同理由：能被 `except Exception` 吞掉的天花板不叫天花板，须穿透 `parallel` / `pipeline` 分支体）。但语义相反——abort 可恢复（resume 重跑），exhausted 是**终态**（重跑只会撞同一个 gate），故 `SwarmflowTool.run_background` 单独捕获它转成 `BackendError`，让 async-tool runtime 注入 leader 读得到的失败；直接放 `BaseException` 上去会静默杀掉 task。
 - **允许小幅越界**：一次调用的用量只有返回后才入账，最后那次可以把 `spent` 顶过 `total`；`remaining()` 因此 clamp 到 0，不返回负数。要不越界就得预知成本——不可能。
 - **作用域是 leader，不是 run**：账本由 `agent_configurator` 在 `role==LEADER and enable_swarmflow` 时建一个，经 `inject_team_handles(SWARMFLOW_BUDGET)` → `TeamToolRail` → `create_team_tools` → `SwarmflowTool` → `run_swarmflow(budget=)` 下发（与 `swarmflow_concurrency` 完全平行的链路）。并发 run 抽同一个池，对齐工具描述里 `spent()`「跨主循环 + 所有工作流共享」的语义。配置入口是 `TeamAgentSpec.swarmflow_budget: int | None`（build 期校验 `>= 1`，与 `validate_swarmflow_concurrency` 同层）；**不是 `swarmflow()` 工具入参**——花钱上限是部署方的决定，不该由 leader 每次现编。
@@ -161,6 +162,9 @@ journal 在 call-path 记录（`__call__:` 前缀）之外，新增 run 级记�
 - **pause 记录**：可恢复中断时 `_write_pause_record(rt, pause_reason)` 写
   `__run__:pause:{run_id}`（`pause_reason` = `paused` / `early_return` /
   `workflow_budget_exhausted`）。pause 记录的 run 可同 run_id resume。
+- **args 记录**（`F_110`）：首跑 `run_workflow` 时若 `args is not None` 且 `run_id` 非空写
+  `__run__:args:{run_id}`（payload `{"args": <string>}`）；冷启动 resume 无 args 时
+  `find_run_record(run_id, "args")` 读回。保证 resume 重放与首跑同路径（缓存命中），不退化全量重跑。
 
 事件语义对齐（`F_88`）：
 
@@ -181,7 +185,7 @@ journal 在 call-path 记录（`__call__:` 前缀）之外，新增 run 级记�
   `new_swarmflow_run_id()`。best-effort，journal 读取失败只 debug log，不阻塞。
 - **`relaunch_kind`**：`WorkflowProgressTeamEvent.relaunch_kind: "relaunch" | "resume" | None`，
   由 `SwarmflowTool._publish` 从 inputs 透传。`"relaunch"`（脚本编辑重跑，存在 resume_id 时
-  invoke 设置）= 整体替换 phase/agent 树；`"resume"`（pause→resume，`_relaunch` 设置）= 增量合并；
+  invoke 设置）= 整体替换 phase/agent 树；`"resume"`（pause→resume，`relaunch` 设置）= 增量合并；
   `None` = 全新 launch。
 - **`swarmflow_human_reply_topic(session_id, team_name, run_id)`**：human session 真人回复走专用
   topic（run-scoped，避免与 leader team-event 订阅竞态）。
@@ -201,7 +205,7 @@ journal 在 call-path 记录（`__call__:` 前缀）之外，新增 run 级记�
 - engine：`Runtime.agent_gate`（`AgentAdmission` 协议）；Swarmflow 注入 `RunAgentAdmission`（先 L2 后 L3）。
   **未注入时 back-compat**：`primitives._resolve_agent_gate(rt)` 惰性构造 `SemaphoreAdmission(rt.make_cap())`
   赋回 `rt.agent_gate`，等价旧 `Runtime.sem`（`MockBackend` / `preprocess_swarmflow` / 旧测试不受影响）。
-- **resume（`F_43`）**：`_relaunch` 复用 inputs 内 ticket/gate，**不**二次 admit。注：`run_background.finally`
+- **resume（`F_43`）**：`relaunch` 复用 inputs 内 ticket/gate，**不**二次 admit。注：`run_background.finally`
   对 `WorkflowAborted→CancelledError` 也会 release（pause 退出即释 L1）；resume 复用同 ticket 但不重新 admit，
   故 resume 期间不占 L1 槽（详见 `S_21` 错误语义）。
 - **`run_id`**：进程内身份 + Leader 播报 + worker 命名前缀；**不改变** journal 路径（仍
@@ -232,16 +236,22 @@ async_tool_runtime.cancel(task_id)`。
    human 还 cancel `_pending_human` 在等真人的 future）。abort_all 在 controller 协程内**完整**执行，
    故必须排在 cancel 之前，否则顶层 cancel 解栈时 session supervisor 泄漏。
 
-**resume 契约**：`controller.resume()` → `SwarmflowTool._relaunch(inputs, session_id)`（新 task_id +
+**resume 契约**：`controller.resume()` → `SwarmflowTool.relaunch(inputs, session_id)`（新 task_id +
 `launch_async_tool(同一 inputs)`，绕过 `invoke`）。journal 路径由 `(team,session,name)` 唯一决定 →
 命中 pause 前完成的 agent、断点后 live。SwarmflowTool 把 engine 抛的 `WorkflowAborted` 转
 `CancelledError`，让 async-tool runtime 静默取消（不注入完成）。human turn 的 `correlation_id` 跨
 resume 稳定，真人回复仍能匹配重跑的那轮。**resume 必须恢复 `session_id` contextvar**：relaunch 由
 外部协程（controller）驱动、不在 leader round 上下文里，而 `launch_async_tool` 的新 task 在
 `create_task` 时继承当前 context；故 `run_background` 捕获 `session_id` 一次（贯穿 `_publish` topic
-/ `run_swarmflow` / relaunch 闭包），`_relaunch` 在 launch 前 `set_session_id(原 session)`、`finally`
+/ `run_swarmflow` / relaunch 闭包），`relaunch` 在 launch 前 `set_session_id(原 session)`、`finally`
 复位。缺这一步 resume 会解析到空 session → 用错 journal 路径（不命中缓存、全部重跑）+ 进度事件发到
 错 topic（外部 monitor/drain 收不到）。
+
+**stop 契约（`F_110`）**：`controller.stop(run_id: str | None = None)`。单值语义不变（active →
+`_abort_one(reason="stop")` 写 seal 断根、paused → 丢复活票）。`run_id=None` 全量遍历两个注册表：
+`_active` 逐个 abort+pop（写 seal）、`_paused` 逐个 pop 且**不补 seal**（pause 记录已在 journal，
+冷启动仍可 `resume_id` 命中缓存前缀续跑）。stop 与 pause/resume 同 `_lock` 互斥；`_paused` 的清理
+是"丢票保账本"，对应嵌入层"切换/断连清扫不终止意图"的语义。
 
 **接线**：`team_runner.run_agent_team_streaming(background_task_controller=)` →
 `TeamAgent.set_background_task_controller` → `TeamHarness`（存 `_bg_controller`，`start` 跨 native
@@ -283,7 +293,7 @@ rebuild 回灌）→ `NativeHarness.background_task_controller`；SwarmflowTool 
 - harness 无原生结构化输出。当 `agent(prompt, schema=...)` 的 `schema_json` 非空：backend 构造一个 `StructuredOutputTool` **对象**，其 `ToolCard.input_params == schema_json`，描述经 `tools/locales` i18n 解析（`descs/<lang>/common/structured_output.md`），**作为实例追加进 worker spec.tools**（`DeepAgentSpec._resolve_tools` 原样透传实例）。挂上 harness 时 ability_manager 把 id re-qualify 为 `structured_output_{owner_id}`（owner = worker card id，并发 worker 不撞），无需 backend 指定 per-call id。
 - worker system prompt 要求「完成后必须调用 `structured_output` 提交结构化结果」。工具 `invoke(inputs)` 捕获 `inputs` 到 `self.captured` 并标 `called`。
 - **成功捕获即终止本轮**：`StructuredOutputFinishRail`（`AgentRail`，`after_tool_call` hook）在 `tool_name == "structured_output"` 且 `ctx.exception is None` 时 `ctx.request_force_finish(...)`，经 ability_manager 冒泡到 ReAct 主 ctx → 本轮 `break`、不再发起下一次 LLM 调用。worker（`has_schema` 时，`team_worker_backend`）与 avatar session（`avatar_session_backend._start_avatar`，`start` 前）各经 `TeamHarness.add_rail`（委派 `native.add_rail`，对称于 `add_tool`）挂一份。这从机制上消除小模型"调用成功后无停止信号 → 反复重发 `structured_output`"的循环（force-finish 的 payload 无关紧要——backend 仍读 `captured`）。若工具调用失败，rail 不 force-finish，错误 `ToolMessage` 会进入下一轮模型请求，让模型有机会自我修正并重新提交合法的 `structured_output`。详见 `F_39`。
-- `TeamWorkerBackend.run` 读 `submit_tool.captured` → `AgentResult(structured=...)`；若 worker 未调用工具则抛 `BackendError` → 引擎按 `retries` 重试 → 耗尽后 `agent()` 返回 `None`（dw 控制流容忍）。工具的注册/清理全由 harness 的 ability_manager + `run_once` 的 `teardown_tools` 负责，backend **不手动** `resource_mgr.add/remove`。
+- `TeamWorkerBackend.run` 读 `submit_tool.captured` → `AgentResult(structured=...)`；若 worker 未调用工具则抛 `BackendError` → 引擎按 `retries` 重试 → 耗尽后 `agent()` 返回 `None`（dw 控制流容忍）。例外：账本干涸的失败不重试（见 Token 预算节的"重试短路"），`AGENT_FAILED` 直接带 budget 真因。工具的注册/清理全由 harness 的 ability_manager + `run_once` 的 `teardown_tools` 负责，backend **不手动** `resource_mgr.add/remove`。
 - `schema_json` 为空时：worker 不装该工具，取最终自由文本 → `AgentResult(text=...)`。
 
 ## 进度事件与 leader 旁观（`WORKFLOW_PROGRESS`）
