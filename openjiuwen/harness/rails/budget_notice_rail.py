@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from openjiuwen.core.common.logging import logger
 from openjiuwen.core.single_agent.rail.base import AgentCallbackContext
 from openjiuwen.harness.prompts.sections import SectionName
 from openjiuwen.harness.prompts.sections.budget_notice import (
@@ -62,6 +63,7 @@ class BudgetNoticeRail(DeepAgentRail):
         self._token_ratio = token_ratio
         self._time_ratio = time_ratio
         self.system_prompt_builder = None
+        self._last_notice_kinds: tuple = ()
 
     # -- lifecycle --
 
@@ -75,6 +77,7 @@ class BudgetNoticeRail(DeepAgentRail):
 
     async def before_invoke(self, ctx: AgentCallbackContext, **kwargs: Any) -> None:
         """Clear any stale notice at the start of a new invocation."""
+        self._last_notice_kinds = ()
         self._remove_section()
 
     async def before_model_call(self, ctx: AgentCallbackContext, **kwargs: Any) -> None:
@@ -85,6 +88,7 @@ class BudgetNoticeRail(DeepAgentRail):
 
         coordinator = getattr(getattr(ctx, "agent", None), "loop_coordinator", None)
         notices = self._near_limit_notices(coordinator)
+        self._log_transition(notices)
         section = build_budget_notice_section(
             getattr(self.system_prompt_builder, "language", "cn"),
             notices,
@@ -94,6 +98,29 @@ class BudgetNoticeRail(DeepAgentRail):
             self.system_prompt_builder.add_section(section)
 
     # -- internals --
+
+    def _log_transition(self, notices: List[Dict[str, Any]]) -> None:
+        """Log only when the set of near-limit budgets changes (edge-triggered)."""
+        kinds = tuple(sorted(str(n.get("kind")) for n in notices))
+        if kinds == self._last_notice_kinds:
+            return
+        self._last_notice_kinds = kinds
+        if kinds:
+            logger.info(
+                "BudgetNoticeRail firing for %s: %s",
+                kinds,
+                [
+                    {
+                        "kind": n.get("kind"),
+                        "used": n.get("used"),
+                        "limit": n.get("limit"),
+                        "remaining": n.get("remaining"),
+                    }
+                    for n in notices
+                ],
+            )
+        else:
+            logger.debug("BudgetNoticeRail cleared (budgets no longer near limit)")
 
     def _remove_section(self) -> None:
         if self.system_prompt_builder is not None:

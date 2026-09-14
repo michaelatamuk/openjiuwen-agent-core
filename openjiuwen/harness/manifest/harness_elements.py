@@ -153,6 +153,7 @@ class TaskCompletionInput(ConstructionInput):
     allow_promise_details: bool = param_field(default=False, description="Allow promise detail tags.")
     max_rounds: int | None = param_field(default=None, description="Max task-loop rounds.")
     timeout_seconds: float | None = param_field(default=None, description="Task-loop timeout seconds.")
+    max_tokens: int | None = param_field(default=None, description="Task-loop cumulative token budget.")
 
 
 class VerificationInput(ConstructionInput):
