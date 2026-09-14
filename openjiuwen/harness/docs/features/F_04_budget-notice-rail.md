@@ -4,10 +4,10 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-09-12 |
+| 日期 | 2026-09-14 |
 | 状态 | **已实现** |
-| 范围 | `harness/rails/budget_notice_rail.py`（新）、`harness/prompts/sections/budget_notice.py`（新）、`harness/prompts/sections/__init__.py`（`SectionName.BUDGET_NOTICE`）、`harness/schema/stop_condition.py`（`BudgetLimit` + `StopConditionEvaluator.budget()`）、`harness/task_loop/loop_coordinator.py`（`token_usage` / `elapsed_seconds` / `budget_limits()`）、`harness/manifest/harness_elements.py`（`core.budget_notice` 元素）、`harness/rails/__init__.py`（导出） |
-| 测试基线 | `python -m pytest tests/unit_tests/harness/rails/test_budget_notice_rail.py -q --no-cov` → **13 passed** |
+| 范围 | `harness/rails/budget_notice_rail.py`（新）、`harness/prompts/sections/budget_notice.py`（新）、`harness/prompts/sections/__init__.py`（`SectionName.BUDGET_NOTICE`）、`harness/schema/stop_condition.py`（`BudgetLimit` + `StopConditionEvaluator.budget()`）、`harness/task_loop/loop_coordinator.py`（`token_usage` / `elapsed_seconds` / `budget_limits()`）、`harness/rails/task_completion_rail.py`（`max_tokens` 接线）、`harness/manifest/harness_elements.py`（`core.budget_notice` 元素 + `TaskCompletionInput.max_tokens`）、`harness/rails/__init__.py`（导出） |
+| 测试基线 | `python -m pytest tests/unit_tests/harness/rails/test_budget_notice_rail.py -q --no-cov` → **19 passed** |
 | Refs | #1348 |
 | 关系 | 读 S_03 的停止条件求值器与 `LoopCoordinator`；section 归 S_06；声明式装配归 S_12；rail 契约归 S_04 |
 
@@ -49,7 +49,17 @@ DeepAgent 的 task loop 由**三个**硬预算共同约束，全部落在 `schem
    **未提供** `TaskCompletionRail` 时才注入默认实例。此前无条件追加，导致用户/宿主传入的
    `TaskCompletionRail`（带 `max_rounds`）与默认实例并存、且默认实例因排在最后而生效——
    注释宣称的"可覆盖"实际不成立。修正后宿主可传入带 `max_rounds`/`timeout_seconds` 的实例，
-   让循环预算真实落地，同时供本 rail 通过 `budget_limits()` 读取。
+    让循环预算真实落地，同时供本 rail 通过 `budget_limits()` 读取。
+7. **token/时间预算接线、默认按需启用。** 给 `TaskCompletionRail` 增加 `max_tokens` 参数
+   （对应 `TaskCompletionInput.max_tokens`），`build_evaluators()` 在 `max_tokens is not None`
+   时生成 `TokenBudgetEvaluator`（时间走既有的 `timeout_seconds` → `TimeoutEvaluator`）。
+   三个上限默认均为 `None`：**轮次是唯一默认生效的预算，token/时间由宿主按需开启**。理由是
+   默认的 token / 墙钟硬上限会在生产环境静默截断长任务，比"无上限"更危险；轮次已经给循环
+   兜底。宿主配置键与默认值在 jiuwenswarm 侧落地。
+8. **观测：告警边沿触发。** `BudgetNoticeRail` 用项目统一 logger
+   （`openjiuwen.core.common.logging.logger`）在**接近上限的预算集合发生变化时**打一条
+   INFO（清空时 DEBUG），而不是每次 `before_model_call` 都打——后者会在告警期内刷屏。
+   `before_invoke` 重置边沿状态。
 
 ## 数据结构
 
@@ -58,6 +68,8 @@ DeepAgent 的 task loop 由**三个**硬预算共同约束，全部落在 `schem
   求值器。
 - `BudgetNoticeRail` 参数：`enabled` / `round_remaining` / `round_ratio` / `token_ratio` /
   `time_ratio`。
+- `TaskCompletionRail` 参数：`max_rounds` / `timeout_seconds` / `max_tokens` / `evaluators`
+  （前三个 `None` 时不生成对应求值器）。
 - 每次 `before_model_call`：读 limits + usage → 生成 `notices` → `remove_section` 后按需
   `add_section`；`before_invoke` / `uninit` 负责清理，保证跨 invoke 不残留。
 
@@ -74,19 +86,23 @@ DeepAgent 的 task loop 由**三个**硬预算共同约束，全部落在 `schem
 
 ## 验证
 
-- `tests/unit_tests/harness/rails/test_budget_notice_rail.py`：**13 passed**，覆盖
+- `tests/unit_tests/harness/rails/test_budget_notice_rail.py`：**19 passed**，覆盖
   - `budget()` 在三个资源型求值器上的取值、谓词型返回 `None`；
   - `LoopCoordinator.budget_limits()` 聚合与 usage 访问器；
+  - `TaskCompletionRail.build_evaluators()` 对 `max_rounds` / `timeout_seconds` /
+    `max_tokens` 的接线与未设置时不生成；
   - section 的 i18n 渲染与空输入返回 `None`；
   - rail 在 token/轮次接近上限时注入、健康时不注入、`enabled=False` 不注入、
-    预算恢复/`before_invoke`/`uninit` 时清理。
+    轮次比例阈值、时间比例阈值、预算恢复/`before_invoke`/`uninit` 时清理；
+  - 告警日志边沿触发（连续两次调用只打一条）。
 - 导入与端到端构造冒烟（`LoopCoordinator` + 三个求值器 + section 渲染）。
 
 ## 已知遗留
 
-- 默认 `TaskCompletionRail.build_evaluators()` 未接 `TokenBudgetEvaluator`；token 告警
-  只有在宿主显式配置 token 预算时才出现。后续可让 `TaskCompletionInput` 暴露 `max_tokens`
-  并在构建求值器时接线（本 feature 未改默认停止条件，避免影响既有行为）。
+- 默认 `TaskCompletionRail` 只接轮次（`max_rounds`）时，token/时间告警不会出现——
+  需要宿主显式传 `max_tokens` / `timeout_seconds`。这是刻意的 opt-in 选择，不是缺口。
 - 宿主（jiuwenswarm）侧的配置映射、`config.yaml` 键与文档在另一仓库落地。jiuwenswarm
-  通过传入 `TaskCompletionRail(max_rounds=max_iterations)` 让轮次预算真实生效；token/时间
-  预算目前无宿主配置来源，故仅轮次告警。
+  通过传入 `TaskCompletionRail(max_rounds=max_iterations)` 让轮次预算生效；token/时间
+  预算的配置来源由宿主决定。
+- 子代理（subagent）/ team 的预算与告警覆盖由宿主装配侧负责，agent-core 只保证
+  `BudgetNoticeRail` + `TaskCompletionRail` 在任意 `DeepAgent` 上可组合。

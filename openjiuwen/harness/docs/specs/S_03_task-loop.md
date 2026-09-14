@@ -6,7 +6,7 @@
 |---|---|
 | 类型 | spec |
 | 关联模块 | `openjiuwen/harness/task_loop/`（8 个模块）、`openjiuwen/harness/schema/loop_event.py`、`openjiuwen/harness/schema/stop_condition.py`、`openjiuwen/harness/schema/task.py` |
-| 最近一次修订日期 | 2026-09-12 |
+| 最近一次修订日期 | 2026-09-14 |
 | 关联 feature | N/A |
 
 ## 范围 / 边界
@@ -176,8 +176,13 @@ class TaskLoopController(Controller):
 返回 `None`。`LoopCoordinator.budget_limits()` 即该方法的聚合出口。
 
 `enable_task_loop` 时，`DeepAgent` 仅在调用方**未提供** `TaskCompletionRail` 时才注入默认
-实例；调用方提供的实例（可带 `max_rounds` / `timeout_seconds` / `evaluators`）决定
-`LoopCoordinator` 的预算链。同类型 rail 不并存，避免默认实例覆盖调用方的预算。
+实例；调用方提供的实例（可带 `max_rounds` / `timeout_seconds` / `max_tokens` / `evaluators`）
+决定 `LoopCoordinator` 的预算链。同类型 rail 不并存，避免默认实例覆盖调用方的预算。
+
+`TaskCompletionRail.build_evaluators()` 只为**显式设置**的参数生成预算求值器：`max_rounds`
+→ `MaxRoundsEvaluator`、`timeout_seconds` → `TimeoutEvaluator`、`max_tokens` →
+`TokenBudgetEvaluator`；三者默认均为 `None`（不生成对应求值器，即无该维度硬上限）。
+因此三种预算的执行是**宿主按需启用**，`max_tokens` 默认关闭。
 
 ## 与其它 spec 的关系
 

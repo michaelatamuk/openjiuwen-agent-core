@@ -6,18 +6,19 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from openjiuwen.harness.prompts.sections import SectionName
 from openjiuwen.harness.prompts.sections.budget_notice import (
     build_budget_notice_section,
 )
-from openjiuwen.harness.rails import BudgetNoticeRail
+from openjiuwen.harness.rails import BudgetNoticeRail, TaskCompletionRail
 from openjiuwen.harness.schema.stop_condition import (
     BudgetLimit,
     CompletionPromiseEvaluator,
     MaxRoundsEvaluator,
-    TokenBudgetEvaluator,
     TimeoutEvaluator,
+    TokenBudgetEvaluator,
 )
 from openjiuwen.harness.task_loop.loop_coordinator import LoopCoordinator
 
@@ -198,3 +199,63 @@ class TestBudgetNoticeRail(IsolatedAsyncioTestCase):
         await rail.before_model_call(_ctx(builder, coordinator))
         rail.uninit(SimpleNamespace(system_prompt_builder=builder))
         self.assertNotIn(SectionName.BUDGET_NOTICE, builder.sections)
+
+    async def test_round_ratio_threshold(self) -> None:
+        builder = _FakePromptBuilder()
+        coordinator = LoopCoordinator([MaxRoundsEvaluator(20)])
+        coordinator.reset()
+        for _ in range(16):
+            coordinator.increment_iteration()  # 4 rounds left = 20% < 25%
+        rail = _make_rail(builder, coordinator, round_ratio=0.25)
+        await rail.before_model_call(_ctx(builder, coordinator))
+        self.assertIn(SectionName.BUDGET_NOTICE, builder.sections)
+
+    async def test_time_budget_uses_time_ratio(self) -> None:
+        builder = _FakePromptBuilder()
+        coordinator = LoopCoordinator([TimeoutEvaluator(100)])
+        coordinator.reset()
+        coordinator._start_time -= 90  # 10% left of a 100s budget
+        rail = _make_rail(builder, coordinator, time_ratio=0.15)
+        await rail.before_model_call(_ctx(builder, coordinator))
+        self.assertIn(SectionName.BUDGET_NOTICE, builder.sections)
+
+    async def test_notice_log_is_edge_triggered(self) -> None:
+        builder = _FakePromptBuilder()
+        coordinator = LoopCoordinator([MaxRoundsEvaluator(20)])
+        coordinator.reset()
+        for _ in range(19):
+            coordinator.increment_iteration()
+        rail = _make_rail(builder, coordinator, round_ratio=0.5)
+        with patch(
+            "openjiuwen.harness.rails.budget_notice_rail.logger"
+        ) as mock_logger:
+            await rail.before_model_call(_ctx(builder, coordinator))
+            await rail.before_model_call(_ctx(builder, coordinator))
+        mock_logger.info.assert_called_once()
+
+
+class TestTaskCompletionBudgetWiring(IsolatedAsyncioTestCase):
+    """TaskCompletionRail turns loop parameters into stop-condition budgets."""
+
+    def test_max_tokens_builds_token_budget(self) -> None:
+        rail = TaskCompletionRail(max_tokens=500)
+        budgets = [e.budget() for e in rail.build_evaluators()]
+        self.assertIn(BudgetLimit("tokens", 500.0), budgets)
+
+    def test_all_budgets_wired_together(self) -> None:
+        rail = TaskCompletionRail(
+            max_rounds=20, timeout_seconds=60, max_tokens=500
+        )
+        budgets = [e.budget() for e in rail.build_evaluators()]
+        self.assertEqual(
+            budgets,
+            [
+                BudgetLimit("rounds", 20.0),
+                BudgetLimit("seconds", 60.0),
+                BudgetLimit("tokens", 500.0),
+            ],
+        )
+
+    def test_no_budget_when_unset(self) -> None:
+        rail = TaskCompletionRail()
+        self.assertEqual(rail.build_evaluators(), [])
