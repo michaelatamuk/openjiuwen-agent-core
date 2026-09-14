@@ -161,7 +161,7 @@ class BashTool(Tool):
             workdir=inputs.get("workdir", ""),
             run_in_background=bool(inputs.get("run_in_background", False)),
             max_output_chars=BashTool._resolve_max_output_chars(inputs.get("max_output_chars", 20000)),
-            head_ratio=BashTool._resolve_head_ratio(inputs.get("head_ratio", 0.6)),
+            head_ratio=BashTool._resolve_head_ratio(inputs.get("head_ratio")),
             shell_type=shell_type,
             description=inputs.get("description", ""),
         )
