@@ -141,7 +141,7 @@ class PowerShellTool(Tool):
             workdir=inputs.get("workdir", ""),
             background=bool(inputs.get("background", False)),
             max_output_chars=PowerShellTool._resolve_max_output_chars(inputs.get("max_output_chars", 20000)),
-            head_ratio=PowerShellTool._resolve_head_ratio(inputs.get("head_ratio", 0.6)),
+            head_ratio=PowerShellTool._resolve_head_ratio(inputs.get("head_ratio")),
             description=inputs.get("description", ""),
         )
 
