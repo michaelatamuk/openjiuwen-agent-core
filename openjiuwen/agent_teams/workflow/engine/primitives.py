@@ -597,6 +597,11 @@ async def agent(
 
     async with gate.acquire():
         rt.spawn_count += 1
+        # ``ks`` (the journal key) rides into backend.run so backend-side per-call
+        # identity (worker member names) is deterministic across replays.
+        call_result = await _attempt_calls(
+            rt, opts, json_schema, model_cls,
+            lambda: rt.backend.run(prompt, opts, json_schema, call_key=ks),
         call_result = await _call_backend(
             rt,
             _BackendCallSpec(
