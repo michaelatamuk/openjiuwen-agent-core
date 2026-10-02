@@ -65,6 +65,45 @@ class ReasoningConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class IntelliRouterDeploymentConfig(BaseModel):
+    """One deployment candidate used by the IntelliRouter model client."""
+
+    route_id: str = Field(description="Stable route ID inside the model group")
+    model_id: Optional[str] = Field(default=None, description="Business model ID resolved by JiuwenSwarm")
+    model_name: str = Field(description="Provider-facing model name")
+    provider: str = Field(description="Provider adapter name used by intelli_router")
+    api_key: str = Field(default="", description="Resolved API key")
+    api_base: str = Field(default="", description="Provider API base URL")
+    endpoint_profile: Optional[str] = Field(default=None, description="Provider endpoint dialect")
+    custom_headers: Optional[dict[str, str]] = Field(default=None, description="Route-level custom headers")
+    verify_ssl: Optional[bool] = Field(default=None, description="Route-level TLS verification override")
+    fallback_tag: Optional[str] = Field(default=None, description="Official model name used by tag-filtered routing")
+    model_description: Optional[str] = Field(default=None, description="User-provided model capability description")
+    request_defaults: dict[str, Any] = Field(default_factory=dict)
+    tpm: Optional[int] = Field(default=None, description="Tokens-per-minute capacity hint")
+    rpm: Optional[int] = Field(default=None, description="Requests-per-minute capacity hint")
+    timeout: Optional[float] = Field(default=None, description="Route-level timeout")
+
+    model_config = {"extra": "forbid"}
+
+
+class IntelliRouterConfig(BaseModel):
+    """Structured config for the IntelliRouter model client."""
+
+    model_group_id: Optional[str] = Field(default=None, description="Business model group ID")
+    deployments: list[IntelliRouterDeploymentConfig] = Field(default_factory=list)
+    strategy: str = Field(default="ordered-failover", description="Routing strategy name")
+    strategy_kwargs: dict[str, Any] = Field(default_factory=dict)
+    num_retries: Optional[int] = Field(default=None, description="Fallback retry budget")
+    timeout: float = Field(default=30.0, description="Router request timeout")
+    enable_health_check: bool = Field(default=False, description="Enable router health checks")
+    health_check_interval: float = Field(default=300.0, description="Health check interval in seconds")
+    enable_observability: bool = Field(default=False, description="Enable router observability hooks")
+    web_dashboard_port: int = Field(default=0, description="Metrics web dashboard port")
+
+    model_config = {"extra": "forbid"}
+
+
 _TOP_LEVEL_API_KEY_PROVIDERS = {
     ProviderType.OpenAI.value,
     ProviderType.OpenRouter.value,
@@ -118,9 +157,11 @@ class ModelClientConfig(BaseModel):
     )
 
     max_retries: int = Field(
-        default=1,
-        description="Maximum number of thin SDK-level retries for transient HTTP failures "
-                    "(connection drops, 429, 5xx). Whole-call retries are handled by LLMRetryRail."
+        default=0,
+        description="Retained for compatibility. OpenAI and Anthropic SDK clients are "
+                    "created with max_retries=0, so this value is not passed to the SDK. "
+                    "Whole-call retries for transient provider failures are handled by "
+                    "ModelAnomalyDetectionRail."
     )
     use_shared_llm_http_client: bool = Field(
         default=True,
@@ -139,6 +180,10 @@ class ModelClientConfig(BaseModel):
     endpoint_profile: Optional[str] = Field(default=None, description="OpenAI-compatible endpoint profile name")
     extensions: LLMExtensionsConfig = Field(default_factory=LLMExtensionsConfig)
     legacy_client_provider: Optional[str] = Field(default=None, description="Original provider before normalization")
+    intelli_router: Optional[IntelliRouterConfig] = Field(
+        default=None,
+        description="Structured IntelliRouter configuration, used when client_provider is intelli_router",
+    )
     model_config = {
         "extra": "allow",
     }

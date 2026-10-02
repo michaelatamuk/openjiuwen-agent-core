@@ -29,6 +29,7 @@ from openjiuwen.agent_teams.interaction import (
     DeliverResult,
     ExternalTeamEvent,
     GodViewMessage,
+    GroupChatMessage,
     HumanAgentInbox,
     HumanAgentMessage,
     HumanAgentNotEnabledError,
@@ -165,13 +166,17 @@ class TeamRuntimeManager:
             team_db_state,
             pool_entry is not None,
         )
-        return await self._apply_action(
+        activation = await self._apply_action(
             action,
             spec=spec,
             team_session=team_session,
             pool_entry=pool_entry,
             inputs=inputs,
         )
+        backend = getattr(activation.agent, "team_backend", None)
+        if backend is not None and hasattr(backend, "bind_group_session"):
+            backend.bind_group_session(target_session_id)
+        return activation
 
     async def finalize(
         self,
@@ -369,7 +374,7 @@ class TeamRuntimeManager:
 
         ``payload`` accepts an ``InteractiveInput`` for pending leader
         interrupts, an :class:`InteractPayload` (one of
-        ``GodViewMessage`` / ``OperatorMessage`` / ``HumanAgentMessage``),
+        ``GodViewMessage`` / ``OperatorMessage`` / ``HumanAgentMessage`` / ``GroupChatMessage``),
         or a free-form ``str``. String inputs are parsed by
         :func:`parse_interact_str` exactly once at this layer:
 
@@ -422,6 +427,13 @@ class TeamRuntimeManager:
             return DeliverResult.failure("invalid_external_event")
         if external_event is not None:
             return await self._route_external_team_event(entry, external_event)
+
+        try:
+            group_input = GroupChatMessage.from_wire(payload)
+        except ValueError:
+            return DeliverResult.failure("invalid_group_chat")
+        if group_input is not None:
+            payload = group_input
 
         if isinstance(payload, str):
             parsed = parse_interact_str(payload)
@@ -580,6 +592,10 @@ class TeamRuntimeManager:
         if backend is None and not isinstance(payload, GodViewMessage):
             return DeliverResult.failure("no_team_backend")
 
+        if isinstance(payload, GroupChatMessage):
+            from openjiuwen.agent_teams.group_chat.handler import deliver_group_message
+
+            return await deliver_group_message(backend, payload)
         if isinstance(payload, GodViewMessage):
             # GodView is the explicit "talk straight to the leader's
             # DeepAgent" channel — no mention parsing here. Routing
@@ -725,15 +741,13 @@ class TeamRuntimeManager:
                 session_id,
             )
             return False
+        # A failed shutdown is still a live, owned runtime. Preserve the entry
+        # and propagate the failure so callers can retry instead of orphaning it.
+        token = set_session_id(session_id)
         try:
             await entry.agent.stop_coordination()
-        except Exception as exc:
-            team_logger.warning(
-                "Failed to stop team {} on session {}: {}",
-                team_name,
-                session_id,
-                exc,
-            )
+        finally:
+            reset_session_id(token)
         await self._pool.remove(team_name)
         team_logger.info(
             "stop_team: team {} session {} stopped and removed from pool",
@@ -861,6 +875,9 @@ class TeamRuntimeManager:
                 team_names=[team_name],
                 db=db,
             )
+        from openjiuwen.agent_teams.group_chat.conversation import GroupConversationLog
+
+        await asyncio.to_thread(GroupConversationLog.delete_registered, team_name)
         for session_id in session_ids:
             await db.drop_session_tables_by_id(session_id)
             if not await remove_session_worktrees(team_name, session_id):
@@ -950,6 +967,10 @@ class TeamRuntimeManager:
             team_names=release_info.team_names,
             db=db,
         )
+        from openjiuwen.agent_teams.group_chat.conversation import GroupConversationLog
+
+        for team_name in release_info.team_names:
+            await asyncio.to_thread(GroupConversationLog.delete_registered, team_name, session_id)
         await db.drop_session_tables_by_id(session_id)
         for team_name in release_info.team_names:
             if not await remove_session_worktrees(team_name, session_id):
@@ -1140,6 +1161,12 @@ class TeamRuntimeManager:
             # would just rebuild the same members the coordination start spawns
             # — a redundant second restart per teammate every cold recover.
             agent = TeamAgent.recover_from_session(team_session, team_name, runtime_spec=spec)
+            backend = agent.team_backend
+            leader_name = agent.member_name
+            if backend is None or leader_name is None:
+                raise RuntimeError("Cold recovery requires a configured leader and team backend")
+            await backend.db.initialize()
+            await backend.db.member.reset_cold_recovery_execution_status(team_name, (leader_name,))
         elif kind is RunActionKind.NEW_TEAM_IN_SESSION:
             await self._pre_run_with_inputs(team_session, inputs)
             agent = spec.build()
