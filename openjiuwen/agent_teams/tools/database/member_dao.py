@@ -23,8 +23,10 @@ from openjiuwen.agent_teams.tools.database.engine import (
     retry_on_locked,
 )
 from openjiuwen.agent_teams.tools.member_options import (
+    MemberBuiltinModel,
     MemberWorktreeOptions,
     promote_member_fallback_model,
+    set_member_builtin_model,
     set_member_worktree_options,
 )
 from openjiuwen.agent_teams.tools.models import TeamMember
@@ -90,7 +92,7 @@ class MemberDao:
                 ``role=TeamRole.HUMAN_AGENT.value`` explicitly.
             options: JSON object for extensible member configuration.
                 Current shape: ``{"model_ref": {...},
-                "fallback_model_ref": {...}, "cli_agent": "...",
+                "fallback_model_ref": {...}, "builtin_model": {...}, "cli_agent": "...",
                 "worktree": {...}, "permissions_override": {...}}``.
         """
         async with self._sessions.write() as session:
@@ -496,6 +498,149 @@ class MemberDao:
             )
             return False
 
+    async def reset_member_execution_status(
+        self,
+        member_name: str,
+        team_name: str,
+        execution_status: str,
+    ) -> bool:
+        """Reset member execution status without predecessor checks.
+
+        This is intentionally NOT a normal state-machine transition; it is
+        used only during recovery/restart when the previous execution context
+        has been cleaned up and the member is about to begin a brand-new task
+        lifecycle. Skipping the predecessor guard allows RUNNING/STARTING/etc.
+        to be forced back to IDLE, eliminating illegal-transition noise like
+        ``RUNNING -> STARTING`` on restart (issue #4318).
+        """
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                )
+                .values(execution_status=execution_status)
+            )
+            if result.rowcount == 1:
+                await session.commit()
+                team_logger.debug(
+                    "Member %s execution status reset to %s", member_name, execution_status
+                )
+                return True
+
+            team_logger.warning(
+                "Failed to reset execution status for member %s: rowcount=%s",
+                member_name,
+                result.rowcount,
+            )
+            return False
+
+    async def reset_paused_member_execution_status(
+        self,
+        team_name: str,
+        member_names: tuple[str, ...],
+    ) -> int:
+        """Set stopped, paused members to IDLE in one lifecycle cleanup update.
+
+        This reset runs only after the member runtimes have stopped. It is
+        separate from round-driven transitions, which still use the guarded
+        execution status state machine.
+
+        Args:
+            team_name: Team owning the paused members.
+            member_names: Members successfully marked PAUSED for this pause.
+
+        Returns:
+            Number of paused member rows reset to IDLE.
+        """
+        if not member_names:
+            return 0
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.team_name == team_name,
+                    TeamMember.member_name.in_(member_names),
+                    TeamMember.status == MemberStatus.PAUSED.value,
+                    TeamMember.execution_status.is_distinct_from(ExecutionStatus.IDLE.value),
+                )
+                .values(execution_status=ExecutionStatus.IDLE.value)
+            )
+            await session.commit()
+            return result.rowcount
+
+    async def reset_cold_recovery_execution_status(
+        self,
+        team_name: str,
+        member_names: tuple[str, ...],
+    ) -> int:
+        """Reset execution snapshots before starting cold-recovered runtimes.
+
+        Args:
+            team_name: Team whose old runtimes have exited.
+            member_names: Members about to start in this process.
+
+        Returns:
+            Number of rows changed to IDLE.
+        """
+        if not member_names:
+            return 0
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.team_name == team_name,
+                    TeamMember.member_name.in_(member_names),
+                    TeamMember.execution_status.is_distinct_from(ExecutionStatus.IDLE.value),
+                )
+                .values(execution_status=ExecutionStatus.IDLE.value)
+            )
+            await session.commit()
+            return result.rowcount
+
+    async def claim_member_restart(
+        self,
+        member_name: str,
+        team_name: str,
+        expected_status: MemberStatus,
+    ) -> bool:
+        """Claim a teammate for restart and reset its execution snapshot.
+
+        A teammate can restart after a pause or a process restart. Matching
+        the observed status prevents a changed member from being restarted.
+
+        Args:
+            member_name: Member to restart.
+            team_name: Team owning the member.
+            expected_status: Status observed in the recovery roster.
+
+        Returns:
+            True if the row was claimed, False if it changed or departed.
+        """
+        if expected_status in {MemberStatus.SHUTDOWN_REQUESTED, MemberStatus.SHUTDOWN}:
+            return False
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                    TeamMember.status == expected_status.value,
+                )
+                .values(
+                    status=MemberStatus.RESTARTING.value,
+                    execution_status=ExecutionStatus.IDLE.value,
+                )
+            )
+            if result.rowcount != 1:
+                return False
+            await session.commit()
+            return True
+
     async def update_member_worktree(
         self,
         member_name: str,
@@ -523,6 +668,28 @@ class MemberDao:
                 isolation=isolation,
                 worktree_path=worktree_path,
             )
+            await session.commit()
+            return True
+
+    async def update_member_builtin_model(
+        self,
+        member_name: str,
+        team_name: str,
+        builtin_model: MemberBuiltinModel | None,
+    ) -> bool:
+        """Persist the built-in CLI model an external-CLI member runs on."""
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                select(TeamMember).where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                )
+            )
+            member = result.scalar_one_or_none()
+            if member is None:
+                team_logger.error("Member %s not found in team %s", member_name, team_name)
+                return False
+            member.options = set_member_builtin_model(member.options, builtin_model)
             await session.commit()
             return True
 

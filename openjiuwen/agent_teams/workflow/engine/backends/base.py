@@ -26,6 +26,8 @@ class AgentResult:
     * ``structured`` - a JSON-able object conforming to the schema, when one was.
     * ``tokens``     - tokens this one call consumed, for reporting. The engine
       does **not** accumulate it — see :meth:`AgentBackend.bind_budget`.
+    * ``input_tokens`` / ``output_tokens`` - the prompt / completion split of
+      ``tokens`` for display (``None`` when the provider reported no split).
     * ``skipped``    - the backend declined to answer; the call returns ``None``
       (also how a human turn signals a timeout / no answer).
     """
@@ -33,6 +35,9 @@ class AgentResult:
     text: str | None = None
     structured: Any = None
     tokens: int = 0
+    cache_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     skipped: bool = False
 
 
@@ -56,6 +61,7 @@ class AgentBackend(abc.ABC):
     def __init__(self) -> None:
         self._budget = BudgetLedger()
         self._workflow_budget: BudgetLedger | None = None
+        self._progress_sink: Any = None
 
     @property
     def budget(self) -> BudgetLedger:
@@ -97,6 +103,21 @@ class AgentBackend(abc.ABC):
         call is reported to both); overriding is only needed to fan out further.
         """
         self._workflow_budget = workflow_budget
+
+    @property
+    def progress_sink(self) -> Any:
+        """The run's progress sink, or ``None`` when not bound (``run_workflow``)."""
+        return self._progress_sink
+
+    def bind_progress_sink(self, progress_sink: Any) -> None:
+        """Adopt the run's progress sink; called once by ``run_workflow``.
+
+        Lets the backend emit ``WorkflowProgressEvent`` mid-call (e.g. live
+        worker activity from rails attached to the agents it spawns) instead of
+        only the engine's start/end hooks. ``None`` means the backend stays
+        silent (a no-op), which is fine for test backends.
+        """
+        self._progress_sink = progress_sink
 
     @abc.abstractmethod
     async def run(

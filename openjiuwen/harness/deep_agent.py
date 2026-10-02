@@ -7,7 +7,6 @@ import asyncio
 import copy
 import dataclasses
 import os
-import sys
 import uuid
 from contextlib import AbstractAsyncContextManager, aclosing, suppress
 import warnings
@@ -73,7 +72,10 @@ from openjiuwen.harness.rails.progressive_tool_rail import ProgressiveToolRail
 from openjiuwen.harness.rails.task_completion_rail import (
     TaskCompletionRail,
 )
-from openjiuwen.harness.schema.config import DeepAgentConfig
+from openjiuwen.harness.schema.config import (
+    DeepAgentConfig,
+    resolve_inner_react_max_iterations,
+)
 from openjiuwen.harness.schema.stop_condition import (
     NoProgressAnswerEvaluator,
     StopConditionEvaluator,
@@ -244,6 +246,20 @@ _DEFAULT_DIRECT_TOOL_NAMES = frozenset(
 _ROUND_BOUNDARY = object()
 
 FreshInputContextFactory = Callable[[], AbstractAsyncContextManager[None]]
+
+
+def _bind_inner_react_max_iterations(
+    react_config: ReActAgentConfig,
+    max_iterations: Optional[int],
+) -> int:
+    """Apply the inner ReAct cap and log the resolved value once."""
+    resolved = resolve_inner_react_max_iterations(max_iterations)
+    react_config.max_iterations = resolved
+    if max_iterations is None:
+        logger.info("[DeepAgent] inner ReAct max_iterations=unbounded (default)")
+    else:
+        logger.info("[DeepAgent] inner ReAct max_iterations=%s (configured)", resolved)
+    return resolved
 
 
 def _render_identity_prompt(prompt_builder: SystemPromptBuilder, language: str) -> str:
@@ -481,6 +497,13 @@ class DeepAgent(BaseAgent):
         self._react_agent = self._create_react_agent()
         self._queue_pending_rails(config)
 
+    def _goal_prompt_language(
+        self, config: Optional[DeepAgentConfig] = None
+    ) -> str:
+        """Resolve cn/en for GoalManager and the auto TaskCompletionRail."""
+        cfg = config if config is not None else self._deep_config
+        return resolve_language(None if cfg is None else cfg.language)
+
     def _hot_reconfigure(self, config: DeepAgentConfig) -> None:
         """Hot-reconfigure an already-running agent without restarting it."""
         previous_config = self._deep_config
@@ -584,9 +607,7 @@ class DeepAgent(BaseAgent):
                     if hasattr(client_cfg.client_provider, "value")
                     else client_cfg.client_provider
                 )
-        new_react_config.max_iterations = (
-            sys.maxsize if config.enable_task_loop else config.max_iterations
-        )
+        _bind_inner_react_max_iterations(new_react_config, config.max_iterations)
         if config.context_engine_config is not None:
             new_react_config.context_engine_config = config.context_engine_config
         if config.kv_cache_affinity_config is not None:
@@ -690,6 +711,10 @@ class DeepAgent(BaseAgent):
         self._react_agent.configure(new_react_config)
         self.system_prompt_builder = prompt_builder
         self._sync_prompt_builder_references()
+        if isinstance(self._task_completion_rail, TaskCompletionRail):
+            self._task_completion_rail.goal_language = language
+        if self.goal_manager is not None:
+            self.goal_manager.language = language
         logger.info("[DeepAgent] System prompt hot reloaded")
 
     def _sync_prompt_builder_references(self) -> None:
@@ -758,7 +783,11 @@ class DeepAgent(BaseAgent):
         # their own TaskCompletionRail via add_rail() or the
         # factory's rails= argument.
         if config.enable_task_loop:
-            self._pending_rails.append(TaskCompletionRail())
+            self._pending_rails.append(
+                TaskCompletionRail(
+                    goal_language=self._goal_prompt_language(config),
+                )
+            )
 
         if isinstance(config.permissions, dict) and config.permissions.get("enabled"):
             ws_root = None
@@ -1109,11 +1138,7 @@ class DeepAgent(BaseAgent):
         )
 
         react_config = ReActAgentConfig()
-        react_config.max_iterations = (
-            sys.maxsize
-            if cfg.enable_task_loop
-            else cfg.max_iterations
-        )
+        _bind_inner_react_max_iterations(react_config, cfg.max_iterations)
         if cfg.context_engine_config is not None:
             react_config.context_engine_config = cfg.context_engine_config
         if cfg.kv_cache_affinity_config is not None:
@@ -3609,8 +3634,11 @@ class DeepAgent(BaseAgent):
 
             self._interaction_session = session
             await self.prepare_interaction_task_loop(session)
+            goal_language = self._goal_prompt_language()
             if self._task_completion_rail is None:
-                await self.register_rail(TaskCompletionRail())
+                await self.register_rail(
+                    TaskCompletionRail(goal_language=goal_language)
+                )
 
             from openjiuwen.harness.goal.store import SessionGoalStore
 
@@ -3622,6 +3650,7 @@ class DeepAgent(BaseAgent):
                 cancel_active_round=self._cancel_active_round,
                 emit_event=self._emit_interaction_event,
                 notify_work=self._notify_work,
+                language=goal_language,
             )
             self._interaction_started = True
             self._interaction_forwarder_task = asyncio.create_task(

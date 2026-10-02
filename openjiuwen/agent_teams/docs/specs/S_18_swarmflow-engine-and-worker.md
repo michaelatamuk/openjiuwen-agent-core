@@ -6,8 +6,8 @@
 |---|---|
 | 类型 | spec |
 | 关联模块 | `workflow/`（engine / backends / observer / schema / runner / tool_swarmflow）、`schema/team.py`、`schema/events.py`、`schema/blueprint.py`、`agent/team_agent.py`、`agent/coordination/handlers/workflow.py`、`rails/team_policy_rail.py`、`prompts/sections.py` |
-| 最近一次修订日期 | 2026-09-16 |
-| 关联 feature | `F_27_swarmflow-workflow-orchestration.md`、`F_31_swarmflow-per-call-model-routing.md`、`F_35_native-harness-async-tool-framework.md`、`F_37_swarmflow-stateful-sessions-and-human.md`、`F_38_swarmflow-journal-persistence.md`、`F_39_swarmflow-agent-worktree-isolation.md`、`F_39_swarmflow-e2e-hardening.md`、`F_40_swarmflow-journal-wal-and-program-order.md`、`F_42_swarmflow-tool-claude-code-alignment.md`、`F_43_swarmflow-pause-resume.md`、`F_47_swarmflow-concurrency-governor.md`、`F_66_swarmflow-real-token-budget-enforcement.md`、`F_69_cwd-workspace-project-root-separation.md`、`F_81_swarmflow-session-fork.md`、`F_87_swarmflow-run-id-isolation-and-dual-budget.md`、`F_88_swarmflow-relaunch-kind-and-seal-pause-semantics.md`、`F_96_swarmflow-worker-name-stability-and-isolation-sig.md` |
+| 最近一次修订日期 | 2026-09-17 |
+| 关联 feature | `F_27_swarmflow-workflow-orchestration.md`、`F_31_swarmflow-per-call-model-routing.md`、`F_35_native-harness-async-tool-framework.md`、`F_37_swarmflow-stateful-sessions-and-human.md`、`F_38_swarmflow-journal-persistence.md`、`F_39_swarmflow-agent-worktree-isolation.md`、`F_39_swarmflow-e2e-hardening.md`、`F_40_swarmflow-journal-wal-and-program-order.md`、`F_42_swarmflow-tool-claude-code-alignment.md`、`F_43_swarmflow-pause-resume.md`、`F_47_swarmflow-concurrency-governor.md`、`F_66_swarmflow-real-token-budget-enforcement.md`、`F_69_cwd-workspace-project-root-separation.md`、`F_81_swarmflow-session-fork.md`、`F_87_swarmflow-run-id-isolation-and-dual-budget.md`、`F_88_swarmflow-relaunch-kind-and-seal-pause-semantics.md`、`F_96_swarmflow-worker-name-stability-and-isolation-sig.md`、`F_112_swarmflow-live-worker-activity.md` |
 
 ## 范围 / 边界
 
@@ -37,6 +37,8 @@
   `timeout` / `isolation`。`isolation` 当前只允许 `None` 或 `"worktree"`；
   engine 只校验与透传，具体隔离语义由 backend 实现（`TeamWorkerBackend` 真实创建/收尾 git worktree，见 `F_39`）。
 - **可观测性**：`Runtime` 有两个 sink。`log_sink: Callable[[str], None]`（诊断文本，默认 no-op）；`progress_sink: Callable[[WorkflowProgressEvent], None]`（结构化进度，默认 no-op）。`phase()`/`log()`/`agent()` 起止发 `WorkflowProgressEvent`；引擎不读 wall-clock（保持 resume 确定性），事件**无时间戳**——消费方在 agent_teams 层补时。`WORKFLOW_STARTED` 事件额外携带 `script_path`（`run_workflow(path)` 的绝对脚本路径，供嵌入层冷启动恢复 advisory 用，见 `F_110`；其它 kind 一律 None）。
+  - **backend → engine 的进度接缝**：`run_workflow` 在建好 `Runtime` 后调 `backend.bind_progress_sink(rt.progress_sink)`，使 backend 能在**单次调用中途**（不只 engine 的起止钩子）发 `WorkflowProgressEvent`。`AgentBackend.progress_sink` 未绑定（如测试）时为 `None`，backend 静默。见 `F_112`。
+  - **单轮 worker 实时活动**：`ProgressKind.AGENT_ACTIVITY` 携带该节点的 `agent_id` / `phase` / `label` + `message="tool: <name>"`，由 backend 侧 rail 在 worker 的 tool call 上（每 worker 节流）发出，经上述接缝进入 `progress_sink`。`agent_id` 复用 journal call-path key，消费方据此把活动归位到同一节点（同 label 的循环 / parallel 分支唯一可判）。events 归属 4 层 `WorkflowRun`（`AgentActivity.activity`）而非 leader 播报——per-agent 事件太吵，详见 `F_112`。
 - **嵌套 workflow 的深度守卫是 per-task，不是全局**：`workflow()` 递归封顶用 `primitives._wf_depth`（contextvar，`_MAX_WORKFLOW_DEPTH=1`），非共享 `Runtime` 计数器。
   - contextvar 随 asyncio Task 拷贝：`parallel`/`pipeline` 各分支继承父深度 → **同层并发 `workflow()` 全部放行**
   - 真递归（子流 `run()` 内再调 `workflow()`，同一 Task）→ 返回 `None` + progress `LOG`（`[wf] nested workflow depth > 1 not allowed; skipping`）
@@ -320,9 +322,9 @@ rebuild 回灌）→ `NativeHarness.background_task_controller`；SwarmflowTool 
 ## 结构化输出工具协议（`StructuredOutputTool`）
 
 - harness 无原生结构化输出。当 `agent(prompt, schema=...)` 的 `schema_json` 非空：backend 构造一个 `StructuredOutputTool` **对象**，其 `ToolCard.input_params == schema_json`，描述经 `tools/locales` i18n 解析（`descs/<lang>/common/structured_output.md`），**作为实例追加进 worker spec.tools**（`DeepAgentSpec._resolve_tools` 原样透传实例）。挂上 harness 时 ability_manager 把 id re-qualify 为 `structured_output_{owner_id}`（owner = worker card id，并发 worker 不撞），无需 backend 指定 per-call id。
-- worker system prompt 要求「完成后必须调用 `structured_output` 提交结构化结果」。工具 `invoke(inputs)` 捕获 `inputs` 到 `self.captured` 并标 `called`。
+- worker system prompt 要求「完成后必须调用 `structured_output` 提交结构化结果」。工具 `invoke(inputs)` 先 `jsonschema.validate(inputs, card.input_params)` 再捕获到 `self.captured` 并标 `called`——schema 违规抛 `ValidationError`（不置位），错误 tool_message 同 turn 回流模型修正（`F_100`；`StructuredOutputFinishRail` 只在无异常时 force-finish，失败调用天然不触发）。
 - **成功捕获即终止本轮**：`StructuredOutputFinishRail`（`AgentRail`，`after_tool_call` hook）在 `tool_name == "structured_output"` 且 `ctx.exception is None` 时 `ctx.request_force_finish(...)`，经 ability_manager 冒泡到 ReAct 主 ctx → 本轮 `break`、不再发起下一次 LLM 调用。worker（`has_schema` 时，`team_worker_backend`）与 avatar session（`avatar_session_backend._start_avatar`，`start` 前）各经 `TeamHarness.add_rail`（委派 `native.add_rail`，对称于 `add_tool`）挂一份。这从机制上消除小模型"调用成功后无停止信号 → 反复重发 `structured_output`"的循环（force-finish 的 payload 无关紧要——backend 仍读 `captured`）。若工具调用失败，rail 不 force-finish，错误 `ToolMessage` 会进入下一轮模型请求，让模型有机会自我修正并重新提交合法的 `structured_output`。详见 `F_39`。
-- `TeamWorkerBackend.run` 读 `submit_tool.captured` → `AgentResult(structured=...)`；若 worker 未调用工具则抛 `BackendError` → 引擎按 `retries` 重试 → 耗尽后 `agent()` 返回 `None`（dw 控制流容忍）。例外：账本干涸的失败不重试（见 Token 预算节的"重试短路"），`AGENT_FAILED` 直接带 budget 真因。工具的注册/清理全由 harness 的 ability_manager + `run_once` 的 `teardown_tools` 负责，backend **不手动** `resource_mgr.add/remove`。
+- `TeamWorkerBackend.run` 读 `submit_tool.captured` → `AgentResult(structured=...)`；若 worker 未调用工具则抛 `BackendError` → 引擎按 `retries` 重试（**校验失败的重试带错误回灌**，`F_100`：`coerce` 的校验错误经 `make_call(feedback)` 拼进下一次 attempt 的 prompt，模型拿到「缺哪个必填属性」的具体信息而非盲重试）→ 耗尽后 `agent()` 返回 `None`（dw 控制流容忍）。例外：账本干涸的失败不重试（见 Token 预算节的"重试短路"），`AGENT_FAILED` 直接带 budget 真因。工具的注册/清理全由 harness 的 ability_manager + `run_once` 的 `teardown_tools` 负责，backend **不手动** `resource_mgr.add/remove`。
 - `schema_json` 为空时：worker 不装该工具，取最终自由文本 → `AgentResult(text=...)`。
 
 ## 进度事件与 leader 旁观（`WORKFLOW_PROGRESS`）
