@@ -22,6 +22,7 @@ from openjiuwen.core.foundation.llm.schema.message import (
 from openjiuwen.core.foundation.llm.schema.message_chunk import AssistantMessageChunk
 from openjiuwen.core.foundation.llm.schema.tool_call import ToolCall
 from openjiuwen.core.foundation.tool import ToolInfo
+from openjiuwen.core.foundation.llm.utils.provider_error import summarize_provider_error_text
 
 
 class OpenAIAccountResponsesError(Exception):
@@ -289,6 +290,10 @@ def raise_for_http_error(response: httpx.Response) -> None:
         return
 
     message = _http_error_message(response)
+    if not message:
+        body = (response.text or "").strip()
+        if body:
+            message = summarize_provider_error_text(body, status_code=response.status_code)
     if not message:
         message = f"OpenAI account Responses request failed with status {response.status_code}."
     raise OpenAIAccountResponsesError(message, status_code=response.status_code)
@@ -599,6 +604,11 @@ def _usage_from_payload(usage: Any, *, model_name: str) -> Optional[UsageMetadat
             _first_present(token_details, "cache_creation_tokens", "cache_write_tokens")
         )
 
+    reasoning_tokens = 0
+    output_details = usage.get("output_tokens_details") or usage.get("completion_tokens_details")
+    if isinstance(output_details, dict):
+        reasoning_tokens = _int_or_zero(output_details.get("reasoning_tokens"))
+
     return UsageMetadata(
         model_name=model_name,
         input_tokens=input_tokens,
@@ -610,6 +620,7 @@ def _usage_from_payload(usage: Any, *, model_name: str) -> Optional[UsageMetadat
         cache_source="provider_usage" if token_details is not None else None,
         cache_authoritative=token_details is not None,
         cache_creation_input_tokens=cache_creation_tokens,
+        reasoning_tokens=reasoning_tokens,
     )
 
 
