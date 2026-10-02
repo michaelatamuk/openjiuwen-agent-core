@@ -34,6 +34,7 @@ from openjiuwen.core.foundation.tool import Tool
 from openjiuwen.core.single_agent.rail.base import (
     AgentCallbackContext,
 )
+from openjiuwen.harness.prompts import resolve_language
 from openjiuwen.harness.prompts.prompt_attachment_manager import (
     PromptAttachmentKind,
 )
@@ -133,7 +134,7 @@ class TaskCompletionRail(DeepAgentRail):
 
         # Goal support
         self._goal_manager = goal_manager
-        self._goal_language = goal_language
+        self.goal_language = goal_language
         self._goal_report_sink: Optional["GoalReportSink"] = None
         self._goal_evaluator: Optional["GoalEvaluator"] = None
         self._goal_tools: List[Tool] = []
@@ -143,6 +144,31 @@ class TaskCompletionRail(DeepAgentRail):
         self._current_session_id: Optional[str] = None
         self._current_attempt_messages: List[Any] = []
         self.attachment_manager = None
+
+    @property
+    def goal_language(self) -> str:
+        return self._goal_language
+
+    @goal_language.setter
+    def goal_language(self, value: str) -> None:
+        self._goal_language = resolve_language(value)
+
+    def _resolve_goal_language(self, builder: Any = None) -> str:
+        """Resolve ``cn``/``en`` for protocol, task query, tools, and assessor.
+
+        Prefer the live prompt builder language so Goal text follows the
+        agent even when this rail was constructed with the default ``cn``.
+        """
+        raw = getattr(builder, "language", None) if builder is not None else None
+        if not raw:
+            raw = self._goal_language
+        return resolve_language(raw)
+
+    def _goal_language_from_ctx(self, ctx: AgentCallbackContext) -> str:
+        builder = getattr(
+            getattr(ctx, "agent", None), "system_prompt_builder", None
+        )
+        return self._resolve_goal_language(builder)
 
     def set_goal_manager(
         self, goal_manager: GoalManager,
@@ -221,15 +247,19 @@ class TaskCompletionRail(DeepAgentRail):
         )
 
         agent_id = getattr(agent, "agent_id", None)
+        language = self._resolve_goal_language(
+            getattr(agent, "system_prompt_builder", None)
+        )
+        self._goal_language = language
         tools: List[Tool] = [
             SubmitGoalReportTool(
                 self._goal_report_sink,
-                language=self._goal_language,
+                language=language,
                 agent_id=agent_id,
             ),
             GetCurrentGoalTool(
                 self._goal_manager,
-                language=self._goal_language,
+                language=language,
                 agent_id=agent_id,
             ),
         ]
@@ -312,9 +342,7 @@ class TaskCompletionRail(DeepAgentRail):
         want_goal = (
             run_kind == "goal" and self._goal_manager is not None
         )
-        language = getattr(
-            builder, "language", self._goal_language
-        ) if builder is not None else self._goal_language
+        language = self._resolve_goal_language(builder)
 
         manager = self.attachment_manager
         if manager is None:
@@ -484,7 +512,9 @@ class TaskCompletionRail(DeepAgentRail):
         self._current_attempt_messages = []
         inputs = ctx.inputs
         if hasattr(inputs, "query"):
-            inputs.query = build_goal_task_query(record, self._goal_language)
+            language = self._goal_language_from_ctx(ctx)
+            self._goal_language = language
+            inputs.query = build_goal_task_query(record, language)
 
     async def _do_goal_after_iteration(
         self, ctx: AgentCallbackContext,
@@ -649,7 +679,8 @@ class TaskCompletionRail(DeepAgentRail):
             )
             return None
 
-        language = self._goal_language
+        language = self._goal_language_from_ctx(ctx)
+        self._goal_language = language
         system_prompt = TRANSCRIPT_ASSESSOR_SYSTEM.get(
             language, TRANSCRIPT_ASSESSOR_SYSTEM["cn"],
         )
