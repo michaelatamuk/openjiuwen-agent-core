@@ -164,6 +164,7 @@ class CodexTurnAccumulator:
                 data["error"] = to_json_safe(error)
             elif status in {"failed", "declined"}:
                 data["error"] = {"status": status}
+            data["is_error"] = "error" in data
             self.messages.append(
                 TurnMessage(
                     message_id=f"codex-tool:{item_id}",
@@ -468,7 +469,11 @@ def _normalize_tool_result(value: Any) -> Any:
     if isinstance(jsonable, list) and jsonable:
         text_parts: list[str] = []
         for item in jsonable:
-            if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
+            if (
+                not isinstance(item, dict)
+                or item.get("type") not in {"inputText", "text"}
+                or not isinstance(item.get("text"), str)
+            ):
                 return jsonable
             text_parts.append(item["text"])
         return "\n".join(text_parts)
