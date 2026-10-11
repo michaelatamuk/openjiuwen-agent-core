@@ -107,6 +107,7 @@ class FakeTeamAgent:
         self.team_name = team_name
         self.stream_label = stream_label
         self.spec = spec
+        self.runtime_context = SimpleNamespace(team_spec=spec)
         self.resume_calls: list[str] = []
         self.pause_calls = 0
         self.cancel_calls = 0
@@ -586,6 +587,7 @@ async def test_team_runtime_manager_cold_recover_reinjects_runtime_spec():
     agent = FakeTeamAgent("cold_recover_team", stream_label="team.chunk")
     reset_execution = AsyncMock(return_value=1)
     agent.team_backend = SimpleNamespace(
+        conversation_mode="team",
         db=SimpleNamespace(
             initialize=AsyncMock(),
             member=SimpleNamespace(reset_cold_recovery_execution_status=reset_execution),

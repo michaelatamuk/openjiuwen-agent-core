@@ -65,6 +65,7 @@ agent_teams/
 ├── rails/               # 团队 Rail + manifest 元素声明（team rail / 内置 rail·tool / context handle / team confirm payload）
 ├── security/            # Team 权限安全辅助（permission narrowing 等）
 ├── runtime/             # Runner 进程内 TeamAgent 对象池 + 派发决策 + Run/Interact 并发门禁
+├── organization/        # 进程内跨团队组织、任务池、消息、专家与汇总团队、共享工作空间；见 docs/specs/S_29_team-organization.md
 ├── interaction/         # 外部交互入口（UserInbox / HumanAgentInbox / @ 路由）
 ├── tools/               # 团队工具（Leader / Teammate / Human Agent 可调用的原子操作）
 ├── messager/            # 消息传输层（inprocess / pyzmq）
@@ -393,7 +394,7 @@ stdout 叙述经 `outputs()` surface 为 `TeamOutputSchema` chunk、与进程内
 
 本模块的设计文档**全部**落在 `docs/` 下，命名与结构规约见 [`docs/AGENTS.md`](docs/AGENTS.md)。
 
-把 **`openjiuwen/agent_teams/` 下的代码 + 本目录 `docs/specs/` + `docs/features/`
+把 **`openjiuwen/agent_teams/` 下的代码 + 本目录 `docs/specs/` + `docs/features/` + `docs/bugfix/`
 + 各级 `<subdir>/AGENTS.md`** 当作**一个一致性单元**来维护——`agent_teams` 子系统
 对契约一致性的要求高于仓库其它模块（多角色 + 多进程 + 持久化状态 + 公共 SDK 表面），
 所以本节的强制约束**只限于** `openjiuwen/agent_teams/` 子树，不上推到仓库其它模块。
@@ -415,6 +416,8 @@ stdout 叙述经 `outputs()` surface 为 `TeamOutputSchema` chunk、与进程内
    落本次涉及的全部文档：`docs/features/F_NN_*.md` 新增 + 下面 #2 要求的 `docs/specs/S_NN_*.md`
    修订（`docs(swarm): ...`）。特性代码、测试、文档不再混进同一次 commit——既不让大段文档 diff 淹没
    代码评审，也让测试改动独立可审，还避免文档归档拖延导致设计上下文随时间漂移。
+   **例外**：归档为 `docs/bugfix/B_NN_*.md` 的缺陷修复，修复代码、回归测试、`B_NN` 文档及连带的
+   spec 修订合并为**一个** `fix(...)` 提交——它们是同一条证据链，需要作为整体评审、cherry-pick 和 revert。
 2. **所有模块设计规约变动必须更新 specs 文档**：模块契约、跨子模块的公共协议、不变量、
    公共 API 形态发生变化时，同步修订对应 `docs/specs/S_NN_<slug>.md`；新规约 = 新 spec 文件。
    规约变了但 specs 没改，下次读 spec 的人就被误导——这是设计债，不是文档懒。
@@ -444,4 +447,4 @@ stdout 叙述经 `outputs()` surface 为 `TeamOutputSchema` chunk、与进程内
 
 footer 用 `Refs: #<issue>` 格式关联 issue。issue 号若无法从当前上下文明确，必须先询问用户，不要臆造或留空。
 
-涉及 `docs/features/F_*` / `docs/specs/S_*` 文档更新的特性改动，**特性代码、测试代码、文档拆成三个连续提交**（提交 1 特性代码 `feat(swarm)`，提交 2 单测 `test(swarm)`，提交 3 文档 `docs(swarm)`），细则见上文「设计文档归档与双向同步」约束 #1。
+涉及 `docs/features/F_*` / `docs/specs/S_*` 文档更新的特性改动，**特性代码、测试代码、文档拆成三个连续提交**（提交 1 特性代码 `feat(swarm)`，提交 2 单测 `test(swarm)`，提交 3 文档 `docs(swarm)`），细则见上文「设计文档归档与双向同步」约束 #1。缺陷修复（`docs/bugfix/B_*`）例外，代码、测试、文档合并为一个 `fix(...)` 提交。

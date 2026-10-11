@@ -294,17 +294,15 @@ class TeamAgentSpec(BaseModel):
     deployment tpm / rpm budgets and (optionally) health checks.
 
     At ``build()`` time the config expands into ``TeamSpec.model_pool``
-    (one entry per logical model name, each carrying the full deployment
-    list) and ``model_pool_strategy`` is set to ``"intelli_router"``, so
+    (one logical ``"*"`` entry carrying the full deployment list) and
+    ``model_pool_strategy`` is set to ``"intelli_router"``, so
     all downstream machinery (``resolve_member_model``,
     ``inherit_pool_ids``, ``update_model_pool``) keeps working against
     the flat pool view.
 
     Mutually exclusive with ``model_pool`` and ``model_router``. The
-    first resolved model name — ``"*"`` (unified routing) unless
-    ``model_names`` overrides the order — is the team default, so a
-    leader without an explicit ``leader.model_name`` gets the broadest
-    failover.
+    The sole logical model name is ``"*"`` (unified routing), so a leader
+    without an explicit ``leader.model_name`` gets the broadest failover.
     """
     model_pool_strategy: Literal["round_robin", "by_model_name", "router", "intelli_router"] = "round_robin"
     """Allocation strategy applied to ``model_pool``.
@@ -734,7 +732,7 @@ class TeamAgentSpec(BaseModel):
             db_config.connection_string = str(get_agent_teams_home() / "team.db")
         return db_config
 
-    def build(self) -> "TeamAgent":
+    def build(self, *, conversation_mode: Literal["team", "group_chat"] = "team") -> "TeamAgent":
         """Materialize a configured TeamAgent from this spec."""
         from openjiuwen.agent_teams.agent.team_agent import TeamAgent as _TeamAgent
         from openjiuwen.harness.prompts import resolve_language
@@ -775,6 +773,7 @@ class TeamAgentSpec(BaseModel):
         team_spec = TeamSpec(
             team_name=self.team_name,
             display_name=self.team_name,
+            conversation_mode=conversation_mode,
             leader_member_name=self.leader.member_name,
             language=resolved_language,
             dispatch_mode=self.dispatch_mode,
