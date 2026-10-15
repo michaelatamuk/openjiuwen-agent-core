@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import dataclasses
 import os
 import uuid
 from contextlib import AbstractAsyncContextManager, aclosing, suppress
@@ -30,6 +29,7 @@ from openjiuwen.core.common.constants.constant import INTERACTION
 from openjiuwen.core.common.exception.codes import StatusCode
 from openjiuwen.core.common.exception.errors import build_error
 from openjiuwen.core.common.logging import logger
+from openjiuwen.core.common.run_context import normalize_run_context
 from openjiuwen.core.common.security.user_config import UserConfig
 from openjiuwen.harness.multi_rollout.executor import (
     MultiRolloutExecutor,
@@ -612,7 +612,18 @@ class DeepAgent(BaseAgent):
             new_react_config.context_engine_config = config.context_engine_config
         if config.kv_cache_affinity_config is not None:
             new_react_config.kv_cache_affinity_config = config.kv_cache_affinity_config
+        # Explicit browser policy instances must survive reconfiguration. Replace
+        # their generative delegate when the caller supplies a new ordinary model.
+        current_model = getattr(self._react_agent, "_llm", None)
+        bind_fallback = getattr(type(current_model), "bind_fallback", None)
+        explicit_model = config.model
+        if callable(bind_fallback) and not callable(getattr(type(explicit_model), "bind_fallback", None)):
+            if explicit_model is not None:
+                current_model.bind_fallback(explicit_model)
+            explicit_model = current_model
         self._react_agent.configure(new_react_config)
+        if callable(getattr(type(explicit_model), "bind_fallback", None)):
+            self._react_agent.set_llm(explicit_model)
         self._sync_prompt_builder_references()
         logger.info("[DeepAgent] Model configuration hot reloaded")
 
@@ -1656,6 +1667,17 @@ class DeepAgent(BaseAgent):
                         **dict(spec.factory_kwargs or {}),
                     )
                 )
+            if normalized_factory in {"cua_agent", "desktop_agent"}:
+                from openjiuwen.harness.subagents.cua_agent import (
+                    create_cua_agent,
+                )
+
+                return self._bind_inherited_artifact_root(
+                    create_cua_agent(
+                        **create_kwargs,
+                        **dict(spec.factory_kwargs or {}),
+                    )
+                )
 
             raise build_error(
                 StatusCode.DEEPAGENT_CREATE_SUBAGENT_NOT_FOUND,
@@ -1719,17 +1741,7 @@ class DeepAgent(BaseAgent):
                 run_kind = RunKind(kind)
                 context_data = run.get("context")
                 if context_data:
-                    _rc_fields = {f.name for f in dataclasses.fields(RunContext)}
-                    extra = dict(context_data.get("extra") or {})
-                    for k, v in context_data.items():
-                        if k not in _rc_fields:
-                            extra[k] = v
-                    rc_kwargs = {
-                        k: v for k, v in context_data.items()
-                        if k in _rc_fields
-                    }
-                    rc_kwargs["extra"] = extra
-                    run_context = RunContext(**rc_kwargs)
+                    run_context = normalize_run_context(context_data)
             # Merge raw_query into RunContext.extra
             # (without affecting run_kind for normal queries)
             raw_query = inputs.get("raw_query", "")

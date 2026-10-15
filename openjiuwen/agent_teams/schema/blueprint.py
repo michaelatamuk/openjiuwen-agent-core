@@ -205,6 +205,20 @@ class TeamAgentSpec(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     agents: dict[str, DeepAgentSpec]
+    reviewer_agent: DeepAgentSpec | None = None
+    """Base spec for the one-shot reviewers spawned per review round.
+
+    Under scheduled dispatch a task's reviewers run as temporary harnesses that
+    only inspect a deliverable and cast a vote, so they should carry a narrow,
+    read-only capability set rather than a teammate's full one. The host that
+    assembles member capabilities builds this spec. ``None`` falls back to the
+    teammate spec with the framework-level trimming the scheduler applies
+    (read-only file tools, no todo planning, no sub-agents).
+
+    Kept out of ``agents`` on purpose: that dict is also looked up by member
+    name, so a reserved ``"reviewer"`` key would collide with a member of that
+    name.
+    """
     team_name: str = "agent_team"
     lifecycle: str = TeamLifecycle.TEMPORARY
     evolution_enabled: bool = True
@@ -533,8 +547,29 @@ class TeamAgentSpec(BaseModel):
     runs draw down one pool rather than getting a ceiling each.
     """
 
+    progressive_tool: bool = False
+    """Opt swarmflow worker avatars into progressive tool exposure.
+
+    True writes ``ProgressiveToolSpec(enabled=True)`` into the worker base spec
+    so each worker mounts the harness ``ProgressiveToolRail`` (``tool_search``
+    meta-tool + deferred tools). Team-level and independent of the single-agent
+    global ``progressive_tool_enabled`` switch: the two member kinds expose
+    different tool surfaces, so one deployment may want them set differently.
+    Only meaningful when ``enable_swarmflow`` is True; ignored otherwise.
+    """
+
     enable_permissions: bool = False
     """Team-specific permission control."""
+
+    enable_organization: bool = True
+    """Spec-level gate for organization tool mounting.
+
+    True mounts org control tools on the leader and rehydrates existing
+    organization bindings. False skips both, so the leader sees no
+    organization tools at all. Default True preserves standalone library
+    behavior; hosts map their own switch to this field, JiuwenSwarm maps
+    its experimental team organization toggle.
+    """
 
     language: Optional[str] = None
     """Preferred language for prompts and tool descriptions ("cn" or "en").
