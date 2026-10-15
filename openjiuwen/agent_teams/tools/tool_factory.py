@@ -91,6 +91,29 @@ _VERIFY_TASK_DESC_KEY: dict[str, str] = {
     "scheduled": "verify_task_scheduled",
 }
 
+# ``view_task`` reads the same board either way; only the "teammate
+# workflow" prose differs — the autonomous claim loop has no place in a
+# scheduled member's description (no ``claim_task``, no hunting for work).
+_VIEW_TASK_DESC_KEY: dict[str, str] = {
+    "autonomous": "view_task",
+    "scheduled": "view_task_scheduled",
+}
+
+# Construction-time keyword arguments per ``create_task`` variant. The
+# scheduled form can declare a task's owner inline (F_118): that needs the
+# model allocator ``spawn_teammate`` uses and the predefined-roster gate.
+# The autonomous form takes nothing extra; the table keeps the call site
+# branch-free.
+
+
+def _create_task_kwargs(dispatch_mode: str, *, team_mode: str, model_config_allocator: Any) -> dict[str, Any]:
+    if dispatch_mode == "scheduled":
+        return {
+            "inline_member_enabled": team_mode != "predefined",
+            "model_config_allocator": model_config_allocator,
+        }
+    return {}
+
 
 # ========== Tool Factory ==========
 
@@ -225,9 +248,13 @@ def create_team_tools(
         "approve_plan": ApprovePlanTool(agent_team, t),
         "approve_tool": ApproveToolCallTool(agent_team, t),
         # Task management
-        "create_task": create_task_cls(agent_team, t),
+        "create_task": create_task_cls(
+            agent_team,
+            t,
+            **_create_task_kwargs(dispatch_mode, team_mode=team_mode, model_config_allocator=model_config_allocator),
+        ),
         "update_task": UpdateTaskTool(agent_team, t, dispatch_mode=dispatch_mode),
-        "view_task": ViewTaskToolV2(task_mgr, t),
+        "view_task": ViewTaskToolV2(task_mgr, t, desc_key=_VIEW_TASK_DESC_KEY[dispatch_mode]),
         "claim_task": ClaimTaskTool(task_mgr, t),
         "submit_plan": SubmitPlanTool(task_mgr, t),
         "verify_task": VerifyTaskTool(task_mgr, t, desc_key=_VERIFY_TASK_DESC_KEY[dispatch_mode]),
@@ -246,6 +273,7 @@ def create_team_tools(
             budget=swarmflow_budget,
             t=t,
             language=lang,
+            team_backend=agent_team,
         ),
         # Async-tool control tools (list / output / cancel background tasks).
         # Leader-only (in LEADER_ONLY_TOOLS); always wired — harmless when the
@@ -255,6 +283,29 @@ def create_team_tools(
         "async_task_output": AsyncTaskOutputTool(parent_agent, t, language=lang),
         "async_task_cancel": AsyncTaskCancelTool(parent_agent, t, language=lang),
     }
+
+    org_task_manager = getattr(agent_team, "org_task_manager", None)
+    if org_task_manager is not None:
+        from openjiuwen.agent_teams.organization.message_service import OrgMessageService
+        from openjiuwen.agent_teams.organization.tools import create_org_leader_tools
+
+        leader_id = agent_team.leader_member_name or agent_team.member_name
+        org_message_service = getattr(agent_team, "org_message_service", None)
+        if org_message_service is None:
+            org_message_service = OrgMessageService(
+                db=org_task_manager.db,
+                organization_id=org_task_manager.organization_id,
+                session_id=org_task_manager.session_id,
+                messager=getattr(agent_team, "messager", None),
+                db_context=org_task_manager.db_context,
+            )
+        org_tools = create_org_leader_tools(
+            manager=org_task_manager,
+            message_service=org_message_service,
+            team_id=agent_team.team_name,
+            leader_id=leader_id,
+        )
+        all_tools.update({tool.card.name: tool for tool in org_tools})
 
     if role == "human_agent":
         allowed = HUMAN_AGENT_TOOLS
@@ -283,6 +334,8 @@ def create_team_tools(
     # always available. Symmetric to the plan_mode / persistent gates above.
     # Unconditional set subtraction is idempotent — teammate / human_agent
     # ``allowed`` sets don't contain these leader-only tools anyway.
+    if getattr(agent_team, "conversation_mode", "team") != "group_chat":
+        allowed = allowed - {"spawn_passive_human"}
     if not agent_team.hitt_enabled():
         allowed = allowed - {"spawn_human_agent", "spawn_passive_human"}
     if not agent_team.bridge_enabled():
@@ -305,7 +358,7 @@ def create_team_tools(
     # spawn tools.
     if swarmflow_model_resolver is None:
         allowed = allowed - {"swarmflow"}
-    if role != "human_agent":
+    if role != "human_agent" and getattr(agent_team, "conversation_mode", "team") == "group_chat":
         from openjiuwen.agent_teams.group_chat.tools import GroupSendMessageTool
 
         tool = GroupSendMessageTool(agent_team, t)
