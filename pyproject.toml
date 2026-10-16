@@ -25,7 +25,7 @@ dependencies = [
     # Date & time
     "python-dateutil>=2.9.0.post0",
     # File & locking
-    "filelock>=3.25.0",
+    "filelock>=3.25.0,<4",
     "portalocker>=3.2.0",
     "aiofiles>=25.1.0",
     # Database ORM
@@ -229,6 +229,8 @@ openjiuwen = [
     "**/locales/**/*.md",
     "**/harness/resources/*.yaml",
     "extensions/observability/schemas/*.json",
+    "harness/moa/NOTICE",
+    "**/harness/moa/skills/**/*.md",
     "**/auto_harness/resources/*.yaml",
     "**/auto_harness/skills/**/*.md",
     "symphony/README.md",
