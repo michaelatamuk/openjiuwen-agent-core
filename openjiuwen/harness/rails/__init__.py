@@ -54,6 +54,7 @@ from openjiuwen.harness.rails.multimodal_context_summarizer_rail import (
 from openjiuwen.harness.rails.memory import (
     CodingMemoryRail,
     ExternalMemoryRail,
+    JiuwenMemoryRail,
     MemoryRail,
 )
 from openjiuwen.harness.rails.progressive_tool_rail import ProgressiveToolRail
@@ -107,6 +108,7 @@ __all__ = [
     "EvolutionTriggerPoint",
     "ExternalMemoryRail",
     "HeartbeatRail",
+    "JiuwenMemoryRail",
     "ModelAnomalyDetectionRail",
     "ToolLoopCompactConfig",
     "LspRail",
