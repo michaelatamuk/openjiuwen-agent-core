@@ -10,6 +10,7 @@ from openjiuwen.agent_teams.constants import (
     RESERVED_MEMBER_NAMES,
     USER_PSEUDO_MEMBER_NAME,
 )
+from openjiuwen.agent_teams.experts import ExpertCatalog, ExpertRef, PackageLocation
 from openjiuwen.agent_teams.external import (
     TEAM_JOIN_ENV,
     ExternalTeamClient,
@@ -32,6 +33,14 @@ from openjiuwen.agent_teams.messager import (
     PyZmqMessager,
     create_messager,
 )
+from openjiuwen.agent_teams.models import ModelPoolEntry
+from openjiuwen.agent_teams.reliability import ReliabilityConfig
+from openjiuwen.agent_teams.runtime import (
+    RunAction,
+    RunActionKind,
+    TeamRuntimeActivation,
+    TeamRuntimeManager,
+)
 from openjiuwen.agent_teams.schema.blueprint import (
     DeepAgentSpec,
     LeaderSpec,
@@ -42,21 +51,14 @@ from openjiuwen.agent_teams.schema.blueprint import (
 )
 from openjiuwen.agent_teams.schema.events import TeamEvent
 from openjiuwen.agent_teams.schema.stream import TeamOutputSchema
-from openjiuwen.agent_teams.models import ModelPoolEntry
-from openjiuwen.agent_teams.runtime import (
-    RunAction,
-    RunActionKind,
-    TeamRuntimeActivation,
-    TeamRuntimeManager,
-)
 from openjiuwen.agent_teams.schema.team import (
+    ExternalCliMemberSpec,
     TeamLifecycle,
     TeamMemberSpec,
     TeamRole,
     TeamRuntimeContext,
     TeamSpec,
 )
-from openjiuwen.agent_teams.reliability import ReliabilityConfig
 from openjiuwen.agent_teams.spawn import InProcessSpawnHandle
 from openjiuwen.agent_teams.tiny_agent import (
     TinyAgent,
@@ -70,6 +72,8 @@ from openjiuwen.agent_teams.tiny_agent import (
 __all__ = [
     "DEFAULT_LEADER_MEMBER_NAME",
     "DeepAgentSpec",
+    "ExpertCatalog",
+    "ExpertRef",
     "ExternalTeamClient",
     "ForkContext",
     "HUMAN_AGENT_MEMBER_NAME",
@@ -80,6 +84,7 @@ __all__ = [
     "UnknownHumanAgentError",
     "LeaderSpec",
     "ModelPoolEntry",
+    "PackageLocation",
     "RESERVED_MEMBER_NAMES",
     "StorageSpec",
     "TeamAgentSpec",
@@ -96,6 +101,7 @@ __all__ = [
     "TeamAgent",
     "TeamEvent",
     "TeamLifecycle",
+    "ExternalCliMemberSpec",
     "TeamMemberSpec",
     "TeamOutputSchema",
     "TeamRole",

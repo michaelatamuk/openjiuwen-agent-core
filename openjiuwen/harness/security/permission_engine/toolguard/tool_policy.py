@@ -7,8 +7,8 @@ from __future__ import annotations
 import logging
 import re
 import sys
-from dataclasses import dataclass
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,31 @@ _PATH_TOOLS = frozenset({
 })
 _NETWORK_TOOLS = frozenset({"mcp_fetch_webpage", "mcp_free_search", "mcp_paid_search"})
 
+# cua desktop-control tools (mouse/keyboard/app lifecycle), under their
+# model-facing names. The rules that target them live with the cua agent's own
+# permissions, not in the package builtin rules: the names are bare, and a
+# category alone changes nothing for another agent's same-named tool.
+_OS_CONTROL_TOOL_PREFIX = ""
+_OS_CONTROL_TOOL_NAMES = (
+    "click",
+    "double_click",
+    "right_click",
+    "move_cursor",
+    "drag",
+    "type_text",
+    "press_key",
+    "hotkey",
+    "scroll",
+    "launch_app",
+    "kill_app",
+    "bring_to_front",
+)
+_OS_CONTROL_TOOLS = frozenset(f"{_OS_CONTROL_TOOL_PREFIX}{name}" for name in _OS_CONTROL_TOOL_NAMES)
+
+
+# Structured argument values an os_control rule pattern may match against.
+_OS_CONTROL_ARG_KEYS = frozenset({"text", "name", "bundle_id", "value", "key", "keys"})
+
 _PATH_ARG_KEYS = frozenset({
     "path", "file_path", "target_file", "file", "old_path", "new_path",
     "source_path", "dest_path", "directory", "dir",
@@ -100,6 +125,8 @@ def _tool_category(
         return "path"
     if tool_name in _NETWORK_TOOLS:
         return "network"
+    if tool_name in _OS_CONTROL_TOOLS:
+        return "os_control"
     return None
 
 
@@ -189,6 +216,30 @@ def _path_pattern_matches(pattern: str, value: str) -> bool:
             logger.warning("[PermissionEngine] permission.tiered_policy.invalid_path_regex expr=%r", expr)
             return False
     return _TIERED_PATH_MATCHER.match_path(p, value)
+
+
+def _os_control_pattern_matches(pattern: str, tool_args: dict[str, Any]) -> bool:
+    """os_control rule matching.
+
+    ``*`` matches any invocation of the tool (whole-tool guardrail). Any other
+    pattern is matched (exact / glob / ``re:``) against the tool's relevant
+    string arguments (text, app name/bundle, key names).
+    """
+    p = (pattern or "").strip()
+    if not p:
+        return False
+    if p == "*":
+        return True
+    for key in _OS_CONTROL_ARG_KEYS:
+        val = tool_args.get(key)
+        if isinstance(val, str):
+            if val.strip() and _shell_pattern_matches(p, val.strip()):
+                return True
+        elif isinstance(val, list):
+            joined = " ".join(str(x) for x in val if x is not None).strip()
+            if joined and _shell_pattern_matches(p, joined):
+                return True
+    return False
 
 
 def _tool_arg_value_looks_like_path(arg_key: str, value: str) -> bool:
@@ -349,6 +400,8 @@ def tiered_policy_rule_matches(
     if cat == "network":
         # 产品设计：网络类暂仅整工具；参数规则不匹配
         return False
+    if cat == "os_control":
+        return _os_control_pattern_matches(pattern, tool_args)
     return False
 
 
@@ -437,6 +490,18 @@ def _apply_shell_ast_floor(
     if matched_rule and shell_floor_rule:
         return final, f"{shell_floor_rule}|{matched_rule}"
     return final, shell_floor_rule or matched_rule
+
+
+def _allow_overrides_unless_denied(
+        permission: PermissionLevel,
+        matched_rule: str,
+        override_hits: list[str],
+) -> tuple[PermissionLevel, str]:
+    """Full-command HITL remember may relax ASK, never DENY."""
+    if permission == PermissionLevel.DENY or not override_hits:
+        return permission, matched_rule
+    contributing = sorted(set(override_hits))
+    return PermissionLevel.ALLOW, _APPROVAL_OVERRIDES_PREFIX + ":" + "+".join(contributing)
 
 
 def _with_shell_command(tool_args: dict[str, Any], command: str) -> dict[str, Any]:
@@ -593,6 +658,8 @@ def evaluate_tiered_policy(
     """返回 (最终权限, matched_rule 摘要).
 
     - 整工具 ``deny`` 优先于参数级放行。
+    - 内置 / 用户参数规则 ``deny`` 优先于 ``approval_overrides``。
+    - 全命令 ``approval_overrides`` 可放宽 ASK（含 shell_guard），不可放宽 DENY。
     - 内置参数规则一旦命中则不再看用户 ``rules``。
     - 有参数级命中时结果仅来自该层（内置或用户）。
     - 无参数级命中时：仅有整工具则用整工具；否则仅用默认（整工具存在则忽略默认）。
@@ -653,9 +720,6 @@ def evaluate_tiered_policy(
         override_hits = _collect_approval_override_hits(
             approval_overrides, tool_name, canon_args, permission_config,
         )
-    if override_hits:
-        contributing = sorted(set(override_hits))
-        return PermissionLevel.ALLOW, _APPROVAL_OVERRIDES_PREFIX + ":" + "+".join(contributing)
 
     if (
             _tool_category(tool_name, permission_config) == "shell"
@@ -698,7 +762,10 @@ def evaluate_tiered_policy(
                 matched_rule = (
                     f"{sink_rule}|{matched_rule}" if matched_rule else sink_rule
                 )
-        return _apply_shell_ast_floor(permission, matched_rule, shell_floor, shell_floor_rule)
+        return _allow_overrides_unless_denied(
+            *_apply_shell_ast_floor(permission, matched_rule, shell_floor, shell_floor_rule),
+            override_hits,
+        )
 
     eval_args = canon_args if _tool_category(tool_name, permission_config) == "shell" else tool_args
     result = _evaluate_single_invocation(
@@ -706,7 +773,10 @@ def evaluate_tiered_policy(
         eval_args,
         invocation_ctx,
     )
-    return _apply_shell_ast_floor(*result, shell_floor, shell_floor_rule)
+    return _allow_overrides_unless_denied(
+        *_apply_shell_ast_floor(*result, shell_floor, shell_floor_rule),
+        override_hits,
+    )
 
 
 def maybe_escalate_shell_operators(

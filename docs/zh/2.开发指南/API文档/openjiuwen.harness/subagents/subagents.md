@@ -6,48 +6,13 @@
 
 ## function create_browser_agent
 
-```python
-def create_browser_agent(
-    model: Model,
-    *,
-    card: Optional[AgentCard] = None,
-    system_prompt: Optional[str] = None,
-    tools: Optional[List[Tool | ToolCard]] = None,
-    mcps: Optional[List[McpServerConfig]] = None,
-    subagents: Optional[List[SubAgentConfig | DeepAgent]] = None,
-    rails: Optional[List[AgentRail]] = None,
-    enable_task_loop: bool = False,
-    max_iterations: int = 15,
-    workspace: Optional[str | Workspace] = None,
-    skills: Optional[List[str]] = None,
-    backend: Optional[Any] = None,
-    sys_operation: Optional[SysOperation] = None,
-    language: Optional[str] = None,
-    prompt_mode: Optional[str] = None,
-    settings: Optional[RuntimeSettings] = None,
-    **config_kwargs: Any,
-) -> DeepAgent
-```
+通过 `create_deep_agent()` 创建浏览器子智能体；默认 max_iterations=100、temperature=0.4，
+注入 BrowserRuntimeRail、上下文 processors、两类 Probe、Batch 与 offload recall。
+默认 MCP capability 为 core；调用方 tools/rails 位于注入项之前，事件执行还受 priority 控制。
 
-创建浏览器子智能体，配备 Playwright 运行时工具。自动注入 `BrowserRuntimeRail` 和浏览器运行时工具。
-
-浏览器子智能体的完整文档见 [`browser_agent`](./浏览器子智能体.md)（能力白名单、无头模式等浏览器选项、驱动模式、实例隔离、guardrails、进度/可恢复性、配置）；完整工具参考见 [`browser_tools`](../tools/浏览器子智能体工具.md)（按能力分组的 Playwright MCP 工具、页面探测、批量交互、自定义动作）。
-
-**参数**:
-
-| 参数 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `model` | `Model` | *(必填)* | 预构建的 Model 实例 |
-| `card` | `Optional[AgentCard]` | `None` | 智能体身份卡。为 None 时创建 `name="browser_agent"` 的默认卡 |
-| `system_prompt` | `Optional[str]` | `None` | 系统提示词。为 None 时使用浏览器专用默认提示词 |
-| `tools` | `Optional[List[Tool \| ToolCard]]` | `None` | 额外工具（追加到浏览器运行时工具之后） |
-| `mcps` | `Optional[List[McpServerConfig]]` | `None` | MCP 服务器配置 |
-| `subagents` | `Optional[List[SubAgentConfig \| DeepAgent]]` | `None` | 子智能体配置 |
-| `rails` | `Optional[List[AgentRail]]` | `None` | 额外 Rails（追加到 BrowserRuntimeRail 之后） |
-| `settings` | `Optional[RuntimeSettings]` | `None` | Playwright 运行时设置。为 None 时从 Model 配置推导 |
-| `**config_kwargs` | `Any` | — | 转发到 `create_deep_agent()` |
-
-**返回值**: `DeepAgent` — 已配置的浏览器智能体实例。
+完整参数、全部工具、Rails、上下文、取消恢复、生命周期及宿主接入，统一见
+[浏览器子智能体](./浏览器子智能体.md)。
+[旧工具页](../tools/浏览器子智能体工具.md)仅保留跳转索引。
 
 ---
 
@@ -64,7 +29,7 @@ def create_code_agent(
     subagents: Optional[List[SubAgentConfig | DeepAgent]] = None,
     rails: Optional[List[AgentRail]] = None,
     enable_task_loop: bool = False,
-    max_iterations: int = 15,
+    max_iterations: int = 50,
     workspace: Optional[str | Workspace] = None,
     skills: Optional[List[str]] = None,
     backend: Optional[Any] = None,
@@ -107,7 +72,7 @@ def create_research_agent(
     subagents: Optional[List[SubAgentConfig | DeepAgent]] = None,
     rails: Optional[List[AgentRail]] = None,
     enable_task_loop: bool = False,
-    max_iterations: int = 15,
+    max_iterations: int = 50,
     workspace: Optional[str | Workspace] = None,
     skills: Optional[List[str]] = None,
     backend: Optional[Any] = None,
@@ -133,3 +98,14 @@ def create_research_agent(
 | `**config_kwargs` | `Any` | — | 转发到 `create_deep_agent()` |
 
 **返回值**: `DeepAgent` — 已配置的研究智能体实例。
+
+---
+
+## function create_cua_agent
+
+通过 `create_deep_agent()` 创建桌面子智能体，通过窗口截图和真实的鼠标键盘输入操作本机原生应用，
+需要支持视觉的模型。默认 max_iterations=25，默认 capability 为 core + input +
+app_lifecycle。`build_cua_agent_config` 生成对应的 `SubAgentConfig`，供父智能体经 `task_tool` 委派。
+
+完整参数、桌面工具、capability、内置 Rails、委派结果与续跑、权限规则，统一见
+[桌面子智能体](./桌面子智能体.md)。

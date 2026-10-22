@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+MemberLifetime = Literal["shutdown", "dormant"]
 
 
 class MemberModelRef(BaseModel):
@@ -17,6 +19,15 @@ class MemberModelRef(BaseModel):
 
     model_name: str | None = None
     model_index: int | None = None
+    route_tag: str | None = None
+    """``fallback_tag`` pinning a model-group member to one model."""
+
+
+class MemberBuiltinModel(BaseModel):
+    """Built-in CLI model (and effort) an external-CLI member runs on its own login."""
+
+    model: str
+    effort: str | None = None
 
 
 class MemberWorktreeOptions(BaseModel):
@@ -31,6 +42,26 @@ class MemberWorktreeOptions(BaseModel):
     head_commit: str | None = None
 
 
+class MemberAgentTemplate(BaseModel):
+    """The expert template a member was spawned from (``spawn_expert``).
+
+    Persisted so the member rebuilds from the row alone — in a subprocess, on
+    cold recovery, after the package was upgraded or removed. A native member
+    carries ``snapshot``; an external-CLI member carries ``external_cli``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    ref: dict[str, Any] = Field(default_factory=dict)
+    """``{"name": ..., "group": ...}`` (``ExpertRef.to_dict()``)."""
+    version: str = ""
+    """Template version at spawn time; empty when unknown."""
+    snapshot: dict[str, Any] | None = None
+    """Capability snapshot (``AgentTemplateSpec`` without prompt sections) of a native member."""
+    external_cli: dict[str, Any] | None = None
+    """Merged ``ExternalCliAgentSpec`` JSON of an external-CLI member."""
+
+
 class TeamMemberOptions(BaseModel):
     """Extensible per-member configuration blob persisted in TeamMember.options."""
 
@@ -38,8 +69,18 @@ class TeamMemberOptions(BaseModel):
 
     model_ref: MemberModelRef | None = None
     fallback_model_ref: MemberModelRef | None = None
+    builtin_model: MemberBuiltinModel | None = None
     cli_agent: str | None = None
     worktree: MemberWorktreeOptions | None = None
+    lifetime: MemberLifetime | None = Field(
+        default=None,
+        description=(
+            "Retirement policy for a task-scoped member (scheduled dispatch only, "
+            "set by create_task's inline `member`). None = resident, the leader "
+            "retires it explicitly. 'shutdown' / 'dormant' name the state the "
+            "member settles into once the scheduler finds nothing left on its board."
+        ),
+    )
     permissions_override: dict[str, str] | None = Field(
         default=None,
         description=(
@@ -48,6 +89,7 @@ class TeamMemberOptions(BaseModel):
             "to tighten the base config. None when no override was specified."
         ),
     )
+    agent_template: MemberAgentTemplate | None = None
 
 
 def load_member_options(raw: str | None) -> TeamMemberOptions:
@@ -80,6 +122,7 @@ def _model_ref_from_mapping(value: Mapping[str, Any] | None) -> MemberModelRef |
     return MemberModelRef(
         model_name=value.get("model_name") if isinstance(value.get("model_name"), str) else None,
         model_index=value.get("model_index") if isinstance(value.get("model_index"), int) else None,
+        route_tag=value.get("route_tag") if isinstance(value.get("route_tag"), str) else None,
     )
 
 
@@ -112,16 +155,22 @@ def build_member_options(
     *,
     model_ref: Mapping[str, Any] | None = None,
     fallback_model_ref: Mapping[str, Any] | None = None,
+    builtin_model: MemberBuiltinModel | None = None,
     cli_agent: str | None = None,
     worktree: MemberWorktreeOptions | None = None,
     worktree_isolation: str | None = None,
     worktree_path: str | None = None,
     permissions_override: dict[str, str] | None = None,
+    lifetime: MemberLifetime | None = None,
+    agent_template: MemberAgentTemplate | None = None,
 ) -> str | None:
     """Build a TeamMember.options JSON string for new writes."""
     parsed = TeamMemberOptions()
+    parsed.agent_template = agent_template
+    parsed.lifetime = lifetime
     parsed.model_ref = _model_ref_from_mapping(model_ref)
     parsed.fallback_model_ref = _model_ref_from_mapping(fallback_model_ref)
+    parsed.builtin_model = builtin_model
     parsed.cli_agent = cli_agent
     if worktree is not None:
         parsed.worktree = worktree
@@ -153,6 +202,13 @@ def set_member_worktree_options(
     return dump_member_options(parsed)
 
 
+def set_member_builtin_model(raw_options: str | None, builtin_model: MemberBuiltinModel | None) -> str | None:
+    """Replace the built-in model section inside a TeamMember.options JSON string."""
+    parsed = load_member_options(raw_options)
+    parsed.builtin_model = builtin_model
+    return dump_member_options(parsed)
+
+
 def set_member_permissions_override(
     raw_options: str | None,
     *,
@@ -180,12 +236,22 @@ def get_member_fallback_model_ref(record: object) -> MemberModelRef | None:
 
 
 def promote_member_fallback_model(raw_options: str | None) -> str | None:
-    """Promote a member's fallback model to its active model reference."""
+    """Promote a member's fallback model to its active model reference.
+
+    The fallback is an external endpoint, so a built-in model chosen for the
+    CLI's own login no longer applies and is dropped.
+    """
     parsed = load_member_options(raw_options)
     if parsed.fallback_model_ref is None:
         return raw_options
     parsed.model_ref = parsed.fallback_model_ref.model_copy()
+    parsed.builtin_model = None
     return dump_member_options(parsed)
+
+
+def get_member_builtin_model(record: object) -> MemberBuiltinModel | None:
+    """Return the member's built-in CLI model selection from options."""
+    return get_member_options(record).builtin_model
 
 
 def get_member_cli_agent(record: object) -> str | None:
@@ -212,3 +278,13 @@ def _record_value(record: object, key: str) -> Any:
     if isinstance(record, Mapping):
         return record.get(key)
     return getattr(record, key, None)
+
+
+def get_member_agent_template(record: object) -> MemberAgentTemplate | None:
+    """Return the expert template the member was spawned from, or None."""
+    return get_member_options(record).agent_template
+
+
+def get_member_lifetime(record: object) -> MemberLifetime | None:
+    """Return the member's retirement policy from options (None = resident)."""
+    return get_member_options(record).lifetime

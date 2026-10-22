@@ -91,6 +91,8 @@ def test_build_card_probe_js_contains_card_extraction_terms() -> None:
 @pytest.mark.parametrize("error", [
     "### Error\nReferenceError: missingHelper is not defined",
     {"isError": True, "content": [{"type": "text", "text": "ReferenceError: missingHelper is not defined"}]},
+    {"result": "### Error\nReferenceError: visible is not defined"},
+    {"data": {"result": "### Error\nReferenceError: visible is not defined"}},
 ])
 def test_probe_reports_executor_error_without_repeating_identical_script(error) -> None:
     runtime = _make_runtime()
@@ -104,6 +106,17 @@ def test_probe_reports_executor_error_without_repeating_identical_script(error) 
     runtime._code_executor.assert_awaited_once()
 
 
+def test_empty_card_result_is_not_a_script_error_or_retried() -> None:
+    runtime = _make_runtime()
+    runtime._code_executor = AsyncMock(return_value={"ok": True, "cards": []})
+    result, _, retries = _run(runtime._execute_probe_json(
+        "async (page) => ({ok: true, cards: []})", artifact_kind="card_probe",
+    ))
+    assert result == {"ok": True, "cards": []}
+    assert retries == 0
+    runtime._code_executor.assert_awaited_once()
+
+
 @pytest.mark.parametrize("probe,registry", [
     ("probe_cards", "register_cards"), ("probe_interactives", "register_interactives"),
 ])
@@ -111,7 +124,7 @@ def test_failed_probe_keeps_existing_page_targets(probe, registry) -> None:
     runtime = _make_runtime()
     runtime.ensure_runtime_ready = AsyncMock()
     runtime._code_executor = AsyncMock(return_value="### Error\nReferenceError: unavailable helper")
-    page = runtime._ensure_page_state()
+    page = runtime.ensure_page_state()
     page.observe(url="https://example.test/current", title="Current page")
     previous = page.export()
     with patch.object(page, registry, wraps=getattr(page, registry)) as register:
@@ -468,7 +481,7 @@ def test_runtime_unwrap_mcp_result_field() -> None:
 
     raw = {"result": '### Result\n{"ok": true, "cards": []}'}
 
-    assert runtime._unwrap_mcp_text_result(raw) == '### Result\n{"ok": true, "cards": []}'
+    assert runtime.unwrap_mcp_text_result(raw) == '### Result\n{"ok": true, "cards": []}'
 
 
 def test_build_card_probe_js_has_cache_first_diagnostics() -> None:

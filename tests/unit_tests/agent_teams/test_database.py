@@ -25,6 +25,7 @@ from openjiuwen.agent_teams.schema.task import NewTaskSpec
 from openjiuwen.agent_teams.tools.database import (
     DatabaseConfig,
     DatabaseType,
+    MemberExecutionUpdateResult,
     TeamDatabase,
 )
 from openjiuwen.agent_teams.tools.database.engine import (
@@ -236,6 +237,84 @@ class TestTeamDatabaseInit:
             assert "max_review_rounds" in columns
             assert row["review_round"] == 0
             assert row["max_review_rounds"] is None
+        finally:
+            engine.dispose()
+
+    @pytest.mark.level1
+    def test_task_migration_adds_note_column_idempotently(self):
+        """A pre-F_118 task table gains ``note``; a table that has it is left alone."""
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE team_task_prenote (
+                        task_id TEXT PRIMARY KEY,
+                        team_name TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        assignee TEXT,
+                        reviewer TEXT,
+                        review_round INTEGER NOT NULL DEFAULT 0,
+                        max_review_rounds INTEGER,
+                        updated_at BIGINT
+                    )
+                    """
+                )
+                conn.exec_driver_sql(
+                    "INSERT INTO team_task_prenote (task_id, team_name, title, content, status) "
+                    "VALUES ('t1', 'team', 't', 'c', 'pending')"
+                )
+
+                _ensure_dynamic_table_indexes(conn, ["team_task_prenote"], {"team_task_prenote"})
+                _ensure_dynamic_table_indexes(conn, ["team_task_prenote"], {"team_task_prenote"})
+
+                columns = {col["name"] for col in inspect(conn).get_columns("team_task_prenote")}
+                row = conn.exec_driver_sql("SELECT note FROM team_task_prenote").mappings().one()
+
+            assert "note" in columns
+            assert row["note"] is None
+        finally:
+            engine.dispose()
+
+    @pytest.mark.level1
+    def test_task_migration_adds_summary_column_idempotently(self):
+        """A pre-F_119 task table (with ``note``) gains ``summary``; reruns are no-ops."""
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql(
+                    """
+                    CREATE TABLE team_task_presummary (
+                        task_id TEXT PRIMARY KEY,
+                        team_name TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        assignee TEXT,
+                        reviewer TEXT,
+                        review_round INTEGER NOT NULL DEFAULT 0,
+                        max_review_rounds INTEGER,
+                        note TEXT,
+                        updated_at BIGINT
+                    )
+                    """
+                )
+                conn.exec_driver_sql(
+                    "INSERT INTO team_task_presummary (task_id, team_name, title, content, status, note) "
+                    "VALUES ('t1', 'team', 't', 'c', 'completed', 'kept')"
+                )
+
+                _ensure_dynamic_table_indexes(conn, ["team_task_presummary"], {"team_task_presummary"})
+                _ensure_dynamic_table_indexes(conn, ["team_task_presummary"], {"team_task_presummary"})
+
+                columns = {col["name"] for col in inspect(conn).get_columns("team_task_presummary")}
+                row = conn.exec_driver_sql("SELECT summary, note FROM team_task_presummary").mappings().one()
+
+            assert "summary" in columns
+            assert row["summary"] is None
+            assert row["note"] == "kept"
         finally:
             engine.dispose()
 
@@ -719,8 +798,8 @@ class TestMemberOperations:
             execution_status="idle"
         )
 
-        success = await db.member.update_member_execution_status("member4", "team7", "starting")
-        assert success is True
+        result = await db.member.update_member_execution_status("member4", "team7", "starting")
+        assert result is MemberExecutionUpdateResult.UPDATED
 
         member = await db.member.get_member("member4", "team7")
         assert member.execution_status == "starting"
@@ -728,9 +807,9 @@ class TestMemberOperations:
     @pytest.mark.asyncio
     @pytest.mark.level0
     async def test_update_member_execution_status_not_found(self, db):
-        """Test updating execution status for non-existent member returns False"""
-        success = await db.member.update_member_execution_status("nonexistentmember", "team7", "running")
-        assert success is False
+        """Test updating execution status for non-existent member returns REJECTED"""
+        result = await db.member.update_member_execution_status("nonexistentmember", "team7", "running")
+        assert result is MemberExecutionUpdateResult.REJECTED
 
     @pytest.mark.asyncio
     @pytest.mark.level0
@@ -862,8 +941,9 @@ class TestTaskOperations:
             status="pending"
         )
 
-        success = await db.task.update_task("task_title", title="Updated Title")
-        assert success is True
+        updated = await db.task.update_task("task_title", title="Updated Title")
+        assert updated is not None
+        assert updated.title == "Updated Title"
 
         task = await db.task.get_task("task_title")
         assert task.title == "Updated Title"
@@ -886,8 +966,8 @@ class TestTaskOperations:
             status="pending"
         )
 
-        success = await db.task.update_task("task_content", content="Updated Content")
-        assert success is True
+        updated = await db.task.update_task("task_content", content="Updated Content")
+        assert updated is not None
 
         task = await db.task.get_task("task_content")
         assert task.title == "Original Title"
@@ -910,12 +990,13 @@ class TestTaskOperations:
             status="pending"
         )
 
-        success = await db.task.update_task(
+        updated = await db.task.update_task(
             "task_both",
             title="Updated Title",
             content="Updated Content"
         )
-        assert success is True
+        assert updated is not None
+        assert updated.title == "Updated Title"
 
         task = await db.task.get_task("task_both")
         assert task.title == "Updated Title"
@@ -924,9 +1005,9 @@ class TestTaskOperations:
     @pytest.mark.asyncio
     @pytest.mark.level0
     async def test_update_task_not_found(self, db):
-        """Test updating non-existent task returns False"""
-        success = await db.task.update_task("nonexistent_task", title="New Title")
-        assert success is False
+        """Test updating non-existent task returns None"""
+        updated = await db.task.update_task("nonexistent_task", title="New Title")
+        assert updated is None
 
     @pytest.mark.asyncio
     @pytest.mark.level0
@@ -945,9 +1026,9 @@ class TestTaskOperations:
             status="pending"
         )
 
-        # Update with same values - should still return True
-        success = await db.task.update_task("task_same", title="Same Title", content="Same Content")
-        assert success is True
+        # Update with same values - still returns the unchanged row
+        updated = await db.task.update_task("task_same", title="Same Title", content="Same Content")
+        assert updated is not None
 
         task = await db.task.get_task("task_same")
         assert task.title == "Same Title"
@@ -972,8 +1053,9 @@ class TestTaskOperations:
         )
 
         # Editing an in-progress task now succeeds.
-        success = await db.task.update_task("task_claimed", title="New Title")
-        assert success is True
+        updated = await db.task.update_task("task_claimed", title="New Title")
+        assert updated is not None
+        assert updated.status == "in_progress"
         task = await db.task.get_task("task_claimed")
         assert task.title == "New Title"
 
@@ -986,7 +1068,7 @@ class TestTaskOperations:
             status="in_review"
         )
         locked = await db.task.update_task("task_in_review", title="Nope")
-        assert locked is False
+        assert locked is None
         unchanged = await db.task.get_task("task_in_review")
         assert unchanged.title == "In Review Task"
 
@@ -3575,7 +3657,7 @@ async def test_update_member_status_invalid_transition_returns_false(db):
 
 @pytest.mark.asyncio
 @pytest.mark.level0
-async def test_update_member_execution_status_invalid_transition_returns_false(db):
+async def test_update_member_execution_status_invalid_transition_rejected(db):
     """The guarded CAS update rejects an illegal execution-status transition."""
     await db.team.create_team(team_name="team_inv2", display_name="T", leader_member_name="l")
     await db.member.create_member(
@@ -3587,9 +3669,54 @@ async def test_update_member_execution_status_invalid_transition_returns_false(d
         execution_status="idle",
     )
     # idle -> running skips the mandatory starting step; not a legal transition.
-    assert await db.member.update_member_execution_status("m1", "team_inv2", "running") is False
+    result = await db.member.update_member_execution_status("m1", "team_inv2", "running")
+    assert result is MemberExecutionUpdateResult.REJECTED
     member = await db.member.get_member("m1", "team_inv2")
     assert member.execution_status == "idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_update_member_execution_status_late_duplicate_starting_skipped(db):
+    """A late duplicate round-start STARTING is SKIPPED with the row untouched.
+
+    The racing writer already moved the member past IDLE, so the CAS guard
+    drops the duplicate STARTING — but the member is legitimately active, so
+    the caller learns nothing was written rather than seeing a failure.
+    """
+    await db.team.create_team(team_name="team_skip", display_name="T", leader_member_name="l")
+    await db.member.create_member(
+        member_name="m1",
+        team_name="team_skip",
+        display_name="M1",
+        agent_card=AgentCard(name="A").model_dump_json(),
+        status="ready",
+        execution_status="idle",
+    )
+    result = await db.member.update_member_execution_status("m1", "team_skip", "starting")
+    assert result is MemberExecutionUpdateResult.UPDATED
+    result = await db.member.update_member_execution_status("m1", "team_skip", "running")
+    assert result is MemberExecutionUpdateResult.UPDATED
+
+    result = await db.member.update_member_execution_status("m1", "team_skip", "starting")
+    assert result is MemberExecutionUpdateResult.SKIPPED
+    member = await db.member.get_member("m1", "team_skip")
+    assert member.execution_status == "running"
+
+    await db.member.create_member(
+        member_name="m2",
+        team_name="team_skip",
+        display_name="M2",
+        agent_card=AgentCard(name="A").model_dump_json(),
+        status="ready",
+        execution_status="idle",
+    )
+    result = await db.member.update_member_execution_status("m2", "team_skip", "starting")
+    assert result is MemberExecutionUpdateResult.UPDATED
+    result = await db.member.update_member_execution_status("m2", "team_skip", "starting")
+    assert result is MemberExecutionUpdateResult.SKIPPED
+    member = await db.member.get_member("m2", "team_skip")
+    assert member.execution_status == "starting"
 
 
 @pytest.mark.asyncio
@@ -3695,3 +3822,93 @@ async def test_dynamic_index_migration_rewrites_legacy_task_table(db):
     assert f"ix_{table}_status" in names
     for col in ("team_name", "assignee", "updated_at"):
         assert f"ix_{table}_{col}" not in names
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_reset_paused_member_execution_status_updates_only_targeted_active_rows(db: TeamDatabase) -> None:
+    """One pause cleanup leaves active and untargeted members unchanged."""
+    team_name = "pause_cleanup"
+    await db.team.create_team(
+        team_name=team_name,
+        display_name="Pause Cleanup",
+        leader_member_name="leader",
+    )
+    agent_card = AgentCard(name="TestAgent").model_dump_json()
+    cases = (
+        ("paused_running", "paused", "running"),
+        ("paused_idle", "paused", "idle"),
+        ("busy_running", "busy", "running"),
+        ("paused_excluded", "paused", "running"),
+        ("paused_null", "paused", None),
+    )
+    for member_name, status, execution_status in cases:
+        await db.member.create_member(
+            member_name=member_name,
+            team_name=team_name,
+            display_name=member_name,
+            agent_card=agent_card,
+            status=status,
+            execution_status=execution_status,
+        )
+
+    assert await db.member.reset_paused_member_execution_status(team_name, ()) == 0
+    updated = await db.member.reset_paused_member_execution_status(
+        team_name,
+        ("paused_running", "paused_idle", "busy_running", "paused_null"),
+    )
+
+    assert updated == 2
+    members = {member.member_name: member for member in await db.member.get_team_members(team_name)}
+    assert members["paused_running"].execution_status == "idle"
+    assert members["paused_idle"].execution_status == "idle"
+    assert members["busy_running"].execution_status == "running"
+    assert members["paused_excluded"].execution_status == "running"
+    assert members["paused_null"].execution_status == "idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_cold_recovery_sql_resets_execution_and_claims_only_observed_members(db: TeamDatabase) -> None:
+    """Cold recovery resets stale rounds and rejects changed or departed teammates."""
+    from openjiuwen.agent_teams.schema.status import MemberStatus
+
+    team_name = "cold_recovery"
+    await db.team.create_team(
+        team_name=team_name,
+        display_name="Cold Recovery",
+        leader_member_name="leader",
+    )
+    agent_card = AgentCard(name="TestAgent").model_dump_json()
+    cases = (
+        ("leader", "ready", "running"),
+        ("ready_member", "ready", "running"),
+        ("busy_member", "busy", "running"),
+        ("departed", "shutdown_requested", "running"),
+        ("untargeted", "ready", "running"),
+    )
+    for member_name, status, execution_status in cases:
+        await db.member.create_member(
+            member_name=member_name,
+            team_name=team_name,
+            display_name=member_name,
+            agent_card=agent_card,
+            status=status,
+            execution_status=execution_status,
+        )
+
+    assert await db.member.reset_cold_recovery_execution_status(team_name, ("leader",)) == 1
+    assert await db.member.claim_member_restart("ready_member", team_name, MemberStatus.READY)
+    assert not await db.member.claim_member_restart("busy_member", team_name, MemberStatus.READY)
+    assert await db.member.claim_member_restart("busy_member", team_name, MemberStatus.BUSY)
+    assert not await db.member.claim_member_restart("departed", team_name, MemberStatus.SHUTDOWN_REQUESTED)
+
+    members = {member.member_name: member for member in await db.member.get_team_members(team_name)}
+    assert members["leader"].execution_status == "idle"
+    assert members["ready_member"].status == "restarting"
+    assert members["ready_member"].execution_status == "idle"
+    assert members["busy_member"].status == "restarting"
+    assert members["busy_member"].execution_status == "idle"
+    assert members["departed"].status == "shutdown_requested"
+    assert members["departed"].execution_status == "running"
+    assert members["untargeted"].execution_status == "running"

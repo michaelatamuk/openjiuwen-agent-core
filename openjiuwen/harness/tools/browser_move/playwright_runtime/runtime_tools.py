@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List
 from openjiuwen.core.foundation.tool import Tool, ToolCard
 from openjiuwen.harness.tools.base_tool import ToolOutput
 
+from .execution_journal import execution_scope
+
 if TYPE_CHECKING:
     from .runtime import BrowserAgentRuntime
 
@@ -169,8 +171,10 @@ _BATCH_INTERACT_DESC = (
     "known targets, such as three or more form fields, click+type+choose autocomplete, dropdown or "
     "date-picker selection, filter panels, search submit plus result wait, or compact extraction. "
     "This is a first-class helper like the probe tools; do not route this through browser_custom_action. "
-    "Pass the current PageState generation_id and use target_id from probes for actions. "
+    "Pass the current PageState generation_id and use target_id or a current native AX ref for actions. "
     "Only read-only extraction and explicit wait operations accept a validated selector. "
+    "wait_for_sort_state accepts the same target_id/ref as click and checks its live selected state; "
+    "an explicit attribute requires an expected_value. Do not repeat successful steps after a later wait fails. "
     "Locator strategies are mutually exclusive. "
     "A one-step call is rewritten by the runtime to an equivalent official browser primitive when "
     "one exists, so it does not fail and require another model turn. Multi-step calls are preflighted "
@@ -188,7 +192,11 @@ _BATCH_INTERACT_PARAMS: Dict[str, Any] = {
                 "wait_for_selector, wait_for_text, wait_for_load_state, wait_for_url, "
                 "wait_for_first_card_title, wait_for_sort_state, wait_for_result_count, "
                 "wait_for_dom_text_change, wait_for_stable, wait_for_tab, extract_text, "
-                "extract_value, screenshot."
+                "extract_value, screenshot. Common waits: wait_for_selector + target_id/ref; "
+                "wait_for_text + text; wait_for_url + url_contains (also checks this action's popups). "
+                "wait_for_first_card_title/dom_text_change/sort_state/result_count require a bound target "
+                "or selector. If no expected change is known, inspect the page/tabs instead of guessing a wait. "
+                "Use optional=true for an advisory wait; its failure does not undo an earlier action ACK."
             ),
             "minItems": 1,
             "maxItems": 25,
@@ -391,7 +399,10 @@ _BATCH_INTERACT_PARAMS: Dict[str, Any] = {
                     },
                     "attribute": {
                         "type": "string",
-                        "description": "Attribute inspected by wait_for_sort_state; defaults to aria-sort.",
+                        "description": (
+                            "Optional sort-state attribute with expected_value. Without it, inspect the target's "
+                            "live ARIA/data-state/active class; reuse the clicked target_id or native ref."
+                        ),
                     },
                     "expected_value": {
                         "type": "string",
@@ -649,6 +660,8 @@ class BrowserListActionsTool(Tool):
 class BrowserProbeInteractivesTool(Tool):
     """Compact visible-interactive-element probe."""
 
+    accepts_tool_callback_context = True
+
     def __init__(self, runtime: "BrowserAgentRuntime", language: str = "cn") -> None:
         del language
         super().__init__(
@@ -661,7 +674,18 @@ class BrowserProbeInteractivesTool(Tool):
         self._runtime = runtime
 
     async def invoke(self, inputs: Dict[str, Any], **kwargs: Any) -> ToolOutput:
-        del kwargs
+        try:
+            context = kwargs.get("_tool_callback_context")
+            callback_inputs = getattr(context, "inputs", None)
+            call_id = str(getattr(getattr(callback_inputs, "tool_call", None), "id", "") or "")
+            if call_id.startswith("jev_"):
+                policy = getattr(self._runtime, "decision_policy", None)
+                if policy is None:
+                    raise ValueError("browser_policy_unavailable_at_execution")
+                await policy.validate_tool_call(callback_inputs, kwargs.get("session"), actual_arguments=inputs)
+        except Exception as exc:
+            return ToolOutput(success=False, error=str(exc), data={"ok": False, "executed": False,
+                              "execution_state": "rejected_before_dispatch", "error": str(exc)})
 
         try:
             max_items = int(inputs.get("max_items", 30))
@@ -700,6 +724,8 @@ class BrowserProbeInteractivesTool(Tool):
 class BrowserProbeCardsTool(Tool):
     """Compact repeated-card/listing probe."""
 
+    accepts_tool_callback_context = True
+
     def __init__(self, runtime: "BrowserAgentRuntime", language: str = "cn") -> None:
         del language
         super().__init__(
@@ -712,7 +738,18 @@ class BrowserProbeCardsTool(Tool):
         self._runtime = runtime
 
     async def invoke(self, inputs: Dict[str, Any], **kwargs: Any) -> ToolOutput:
-        del kwargs
+        try:
+            context = kwargs.get("_tool_callback_context")
+            callback_inputs = getattr(context, "inputs", None)
+            call_id = str(getattr(getattr(callback_inputs, "tool_call", None), "id", "") or "")
+            if call_id.startswith("jev_"):
+                policy = getattr(self._runtime, "decision_policy", None)
+                if policy is None:
+                    raise ValueError("browser_policy_unavailable_at_execution")
+                await policy.validate_tool_call(callback_inputs, kwargs.get("session"), actual_arguments=inputs)
+        except Exception as exc:
+            return ToolOutput(success=False, error=str(exc), data={"ok": False, "executed": False,
+                              "execution_state": "rejected_before_dispatch", "error": str(exc)})
 
         try:
             max_cards = int(inputs.get("max_cards", 12))
@@ -760,6 +797,9 @@ class BrowserProbeCardsTool(Tool):
 
 
 class BrowserBatchInteractTool(Tool):
+    # AbilityManager supplies the final callback context after all permission hooks.
+    accepts_tool_callback_context = True
+
     def __init__(self, runtime: "BrowserAgentRuntime", language: str = "cn") -> None:
         del language
         super().__init__(
@@ -772,31 +812,52 @@ class BrowserBatchInteractTool(Tool):
         self._runtime = runtime
 
     async def invoke(self, inputs: Dict[str, Any], **kwargs: Any) -> ToolOutput:
-        del kwargs
-
         steps = inputs.get("steps")
         session_id = (inputs.get("session_id") or "").strip() or _ctx_parent_session_id.get()
         request_id = (inputs.get("request_id") or "").strip() or _ctx_parent_request_id.get()
 
+        tracker = {"dispatched": False}
         try:
-            result = await self._runtime.batch_interact(
-                steps=steps,
-                generation_id=str(inputs.get("generation_id") or ""),
-                timeout_ms=inputs.get("timeout_ms"),
-                condition_timeout_ms=inputs.get("condition_timeout_ms"),
-                wait_after_each_ms=inputs.get("wait_after_each_ms"),
-                continue_on_error=bool(inputs.get("continue_on_error", False)),
-                global_timeout_ms=inputs.get("global_timeout_ms"),
-                session_id=session_id,
-                request_id=request_id,
-            )
+            context = kwargs.get("_tool_callback_context")
+            callback_inputs = getattr(context, "inputs", None)
+            call_id = str(getattr(getattr(callback_inputs, "tool_call", None), "id", "") or "")
+            strict_args = {}
+            if call_id.startswith("jev_"):
+                policy = getattr(self._runtime, "decision_policy", None)
+                if policy is None:
+                    raise ValueError("browser_policy_unavailable_at_execution")
+                await policy.validate_tool_call(callback_inputs, kwargs.get("session"), actual_arguments=inputs)
+                strict_args["allow_stale_recovery"] = False
+            with execution_scope(kwargs.get("session"), callback_inputs) as tracker:
+                result = await self._runtime.batch_interact(
+                    steps=steps,
+                    generation_id=str(inputs.get("generation_id") or ""),
+                    timeout_ms=inputs.get("timeout_ms"),
+                    condition_timeout_ms=inputs.get("condition_timeout_ms"),
+                    wait_after_each_ms=inputs.get("wait_after_each_ms"),
+                    continue_on_error=bool(inputs.get("continue_on_error", False)),
+                    global_timeout_ms=inputs.get("global_timeout_ms"),
+                    session_id=session_id,
+                    request_id=request_id,
+                    **strict_args,
+                )
             return ToolOutput(
                 success=bool(result.get("ok", True)),
                 data=result,
                 error=result.get("error"),
             )
         except Exception as exc:
-            return ToolOutput(success=False, error=str(exc))
+            return ToolOutput(
+                success=False,
+                error=str(exc),
+                data={
+                    "ok": False,
+                    "executed": None if tracker["dispatched"] else False,
+                    "state_changed": tracker["dispatched"],
+                    "error": str(exc),
+                    "execution_state": "dispatched_unknown" if tracker["dispatched"] else "rejected_before_dispatch",
+                },
+            )
 
     async def stream(self, inputs: Dict[str, Any], **kwargs: Any) -> AsyncIterator[Any]:
         del inputs, kwargs
@@ -843,8 +904,16 @@ def build_browser_runtime_tools(
     actions.
     """
 
-    return [
+    result = [
         BrowserProbeInteractivesTool(runtime, language),
         BrowserProbeCardsTool(runtime, language),
         BrowserBatchInteractTool(runtime, language),
     ]
+    from .phase_contract import BrowserPhaseTool
+
+    result.append(BrowserPhaseTool(runtime))
+    if getattr(runtime, "decision_policy", None) is not None:
+        from .policy_page_action import BrowserPageActionTool
+
+        result.append(BrowserPageActionTool(runtime))
+    return result

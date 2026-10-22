@@ -992,13 +992,19 @@ class BrowserService:
         except asyncio.CancelledError:
             pass
 
-    def _clear_task_scoped_state(self) -> None:
+    async def _clear_task_scoped_state(self) -> None:
         """Drop observers and task/session state without touching the profile."""
         self._browser_agent = None
+        current = asyncio.current_task()
+        pending = set()
         for tasks in self._inflight_tasks.values():
             for task in tuple(tasks):
-                if not task.done():
-                    task.cancel()
+                if task is not current and not task.done():
+                    pending.add(task)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         self._inflight_tasks.clear()
         self._locks.clear()
         self._sessions.clear()
@@ -1013,7 +1019,7 @@ class BrowserService:
             return False
         if not self._registry_acquired:
             await self._stop_heartbeat()
-            self._clear_task_scoped_state()
+            await self._clear_task_scoped_state()
             self.started = False
             self._registered_cdp_endpoint = ""
             self._connection_healthy = False
@@ -1037,7 +1043,7 @@ class BrowserService:
         self._registered_cdp_endpoint = ""
         self._connection_healthy = False
         self._last_heartbeat_ok = None
-        self._clear_task_scoped_state()
+        await self._clear_task_scoped_state()
 
         next_owner = release.next_heartbeat_owner
         if next_owner is not None and next_owner.started:
@@ -1546,7 +1552,10 @@ class BrowserService:
             _ctx_observer_request_id.reset(token_request)
         output_text = result.get("output") if isinstance(result, dict) else result
         parsed = extract_json_object(output_text)
+        exhausted = isinstance(result, dict) and result.get("termination_reason") == "max_iterations"
         if parsed:
+            if exhausted:
+                parsed["termination_reason"] = "max_iterations"
             self._update_progress_from_worker_result(
                 session_id=session_id,
                 request_id=request_id,
@@ -1556,7 +1565,7 @@ class BrowserService:
 
         output_str = str(output_text) if output_text is not None else ""
         output_lower = output_str.lower()
-        if MAX_ITERATION_MESSAGE.lower() in output_lower:
+        if exhausted or MAX_ITERATION_MESSAGE.lower() in output_lower:
             parsed = {
                 "ok": False,
                 "final": output_str,
@@ -1594,6 +1603,8 @@ class BrowserService:
     def _is_max_iteration_result(parsed: Dict[str, Any]) -> bool:
         if not isinstance(parsed, dict):
             return False
+        if parsed.get("termination_reason") == "max_iterations":
+            return True
         if str(parsed.get("error", "")).strip().lower() == "max_iterations_reached":
             return True
         marker = MAX_ITERATION_MESSAGE.lower()

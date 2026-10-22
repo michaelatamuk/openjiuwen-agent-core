@@ -3,9 +3,10 @@
 
 """Member table data access object."""
 
+from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from openjiuwen.agent_teams.schema.status import (
@@ -23,8 +24,10 @@ from openjiuwen.agent_teams.tools.database.engine import (
     retry_on_locked,
 )
 from openjiuwen.agent_teams.tools.member_options import (
+    MemberBuiltinModel,
     MemberWorktreeOptions,
     promote_member_fallback_model,
+    set_member_builtin_model,
     set_member_worktree_options,
 )
 from openjiuwen.agent_teams.tools.models import TeamMember
@@ -33,6 +36,14 @@ from openjiuwen.core.common.logging import team_logger
 
 _DEPARTED_STATUS_VALUES: tuple[str, ...] = tuple(status.value for status in MEMBER_DEPARTED_STATUSES)
 _UNREACHABLE_STATUS_VALUES: tuple[str, ...] = tuple(status.value for status in MEMBER_UNREACHABLE_STATUSES)
+
+
+class MemberExecutionUpdateResult(Enum):
+    """Outcome of a guarded execution-status CAS write."""
+
+    UPDATED = "updated"
+    SKIPPED = "skipped"
+    REJECTED = "rejected"
 
 # The human-member family: avatar-backed (``human_agent``) and passive
 # (``passive_human``). Spelled as literals to keep this module out of the
@@ -90,7 +101,7 @@ class MemberDao:
                 ``role=TeamRole.HUMAN_AGENT.value`` explicitly.
             options: JSON object for extensible member configuration.
                 Current shape: ``{"model_ref": {...},
-                "fallback_model_ref": {...}, "cli_agent": "...",
+                "fallback_model_ref": {...}, "builtin_model": {...}, "cli_agent": "...",
                 "worktree": {...}, "permissions_override": {...}}``.
         """
         async with self._sessions.write() as session:
@@ -323,6 +334,71 @@ class MemberDao:
             rows = (await session.execute(stmt)).all()
             return [(row.member_name, row.display_name, row.status) for row in rows]
 
+    async def list_retirable_members(self, team_name: str) -> list[tuple[str, str, str]]:
+        """Project ``(member_name, status, lifetime)`` for members that carry a
+        retirement policy and are idle (READY).
+
+        Feeds the scheduler's retirement scan (F_118). READY only: a BUSY
+        member is mid-round, and a retire request landing there would turn
+        the replies to whatever it is saying into stranded mail (the round
+        ends, the stream closes, nobody wakes it). The READY status event
+        re-triggers the scan the moment the round is over. The status filter
+        runs in SQL; ``lifetime`` lives inside the ``options`` JSON so the
+        policy filter is applied here, on the already-narrowed row set.
+        """
+        from openjiuwen.agent_teams.tools.member_options import load_member_options
+
+        async with self._sessions.read() as session:
+            stmt = select(
+                TeamMember.member_name,
+                TeamMember.status,
+                TeamMember.options,
+            ).where(
+                TeamMember.team_name == team_name,
+                TeamMember.status == MemberStatus.READY.value,
+            )
+            rows = (await session.execute(stmt)).all()
+        out: list[tuple[str, str, str]] = []
+        for row in rows:
+            lifetime = load_member_options(row.options).lifetime
+            if lifetime:
+                out.append((row.member_name, row.status, lifetime))
+        return out
+
+    async def get_member_lifetime(self, team_name: str, member_name: str) -> str | None:
+        """Return one member's retirement policy (``options.lifetime``) or None."""
+        from openjiuwen.agent_teams.tools.member_options import load_member_options
+
+        async with self._sessions.read() as session:
+            stmt = select(TeamMember.options).where(
+                TeamMember.team_name == team_name,
+                TeamMember.member_name == member_name,
+            )
+            row = (await session.execute(stmt)).first()
+        if row is None:
+            return None
+        return load_member_options(row.options).lifetime
+
+    async def delete_unstarted_member(self, member_name: str, team_name: str) -> bool:
+        """Delete a member row that nothing has touched yet (status UNSTARTED).
+
+        The only member-delete path in the DAO, and deliberately guarded: it
+        exists to roll back an inline member whose task batch failed to land
+        (``create_task`` wrote the row before ``add_graph``, F_118). A row that
+        has left UNSTARTED has a runtime, a mailbox or a task bound to it and
+        is never deleted here.
+        """
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                delete(TeamMember).where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                    TeamMember.status == MemberStatus.UNSTARTED.value,
+                )
+            )
+            await session.commit()
+            return result.rowcount == 1
+
     async def get_members_max_updated_at(self, team_name: str) -> int:
         """Probe MAX(``team_member.updated_at``) for the team.
 
@@ -467,13 +543,15 @@ class MemberDao:
         member_name: str,
         team_name: str,
         execution_status: str,
-    ) -> bool:
+    ) -> MemberExecutionUpdateResult:
         """Update member execution status via a single guarded CAS UPDATE.
 
         Mirror of ``update_member_status``: the transition validation is the
         ``WHERE execution_status IN (valid predecessors)`` guard, so the happy
-        path is one UPDATE with no in-lock SELECT; only rowcount=0 reads back
-        to log the precise rejection reason.
+        path is one UPDATE with no in-lock SELECT. On rowcount=0 the row is
+        read back to classify the outcome: a late duplicate round-start
+        STARTING on an already STARTING/RUNNING member is SKIPPED (row left
+        untouched), anything else is REJECTED.
         """
         valid_from = _valid_predecessor_values(ExecutionStatus(execution_status), EXECUTION_TRANSITIONS)
         async with self._sessions.write() as session:
@@ -489,12 +567,175 @@ class MemberDao:
             if result.rowcount == 1:
                 await session.commit()
                 team_logger.debug("Member %s execution status updated to %s", member_name, execution_status)
-                return True
+                return MemberExecutionUpdateResult.UPDATED
+
+            existing = await session.execute(
+                select(TeamMember.execution_status).where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                )
+            )
+            row = existing.first()
+            if (
+                row is not None
+                and execution_status == ExecutionStatus.STARTING.value
+                and row[0] in (ExecutionStatus.STARTING.value, ExecutionStatus.RUNNING.value)
+            ):
+                team_logger.debug(
+                    "Member %s already %s; late duplicate round-start STARTING skipped",
+                    member_name,
+                    row[0],
+                )
+                return MemberExecutionUpdateResult.SKIPPED
 
             await self._log_member_update_rejection(
                 session, member_name, team_name, TeamMember.execution_status, execution_status
             )
+            return MemberExecutionUpdateResult.REJECTED
+
+    async def reset_member_execution_status(
+        self,
+        member_name: str,
+        team_name: str,
+        execution_status: str,
+    ) -> bool:
+        """Reset member execution status without predecessor checks.
+
+        This is intentionally NOT a normal state-machine transition; it is
+        used only during recovery/restart when the previous execution context
+        has been cleaned up and the member is about to begin a brand-new task
+        lifecycle. Skipping the predecessor guard allows RUNNING/STARTING/etc.
+        to be forced back to IDLE, eliminating illegal-transition noise like
+        ``RUNNING -> STARTING`` on restart (issue #4318).
+        """
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                )
+                .values(execution_status=execution_status)
+            )
+            if result.rowcount == 1:
+                await session.commit()
+                team_logger.debug(
+                    "Member %s execution status reset to %s", member_name, execution_status
+                )
+                return True
+
+            team_logger.warning(
+                "Failed to reset execution status for member %s: rowcount=%s",
+                member_name,
+                result.rowcount,
+            )
             return False
+
+    async def reset_paused_member_execution_status(
+        self,
+        team_name: str,
+        member_names: tuple[str, ...],
+    ) -> int:
+        """Set stopped, paused members to IDLE in one lifecycle cleanup update.
+
+        This reset runs only after the member runtimes have stopped. It is
+        separate from round-driven transitions, which still use the guarded
+        execution status state machine.
+
+        Args:
+            team_name: Team owning the paused members.
+            member_names: Members successfully marked PAUSED for this pause.
+
+        Returns:
+            Number of paused member rows reset to IDLE.
+        """
+        if not member_names:
+            return 0
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.team_name == team_name,
+                    TeamMember.member_name.in_(member_names),
+                    TeamMember.status == MemberStatus.PAUSED.value,
+                    TeamMember.execution_status.is_distinct_from(ExecutionStatus.IDLE.value),
+                )
+                .values(execution_status=ExecutionStatus.IDLE.value)
+            )
+            await session.commit()
+            return result.rowcount
+
+    async def reset_cold_recovery_execution_status(
+        self,
+        team_name: str,
+        member_names: tuple[str, ...],
+    ) -> int:
+        """Reset execution snapshots before starting cold-recovered runtimes.
+
+        Args:
+            team_name: Team whose old runtimes have exited.
+            member_names: Members about to start in this process.
+
+        Returns:
+            Number of rows changed to IDLE.
+        """
+        if not member_names:
+            return 0
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.team_name == team_name,
+                    TeamMember.member_name.in_(member_names),
+                    TeamMember.execution_status.is_distinct_from(ExecutionStatus.IDLE.value),
+                )
+                .values(execution_status=ExecutionStatus.IDLE.value)
+            )
+            await session.commit()
+            return result.rowcount
+
+    async def claim_member_restart(
+        self,
+        member_name: str,
+        team_name: str,
+        expected_status: MemberStatus,
+    ) -> bool:
+        """Claim a teammate for restart and reset its execution snapshot.
+
+        A teammate can restart after a pause, a process restart, or an
+        explicit wake out of DORMANT. Matching the observed status prevents a
+        changed member from being restarted.
+
+        Args:
+            member_name: Member to restart.
+            team_name: Team owning the member.
+            expected_status: Status observed in the recovery roster.
+
+        Returns:
+            True if the row was claimed, False if it changed or departed.
+        """
+        if expected_status in {MemberStatus.SHUTDOWN_REQUESTED, MemberStatus.SHUTDOWN}:
+            return False
+
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                    TeamMember.status == expected_status.value,
+                )
+                .values(
+                    status=MemberStatus.RESTARTING.value,
+                    execution_status=ExecutionStatus.IDLE.value,
+                )
+            )
+            if result.rowcount != 1:
+                return False
+            await session.commit()
+            return True
 
     async def update_member_worktree(
         self,
@@ -523,6 +764,28 @@ class MemberDao:
                 isolation=isolation,
                 worktree_path=worktree_path,
             )
+            await session.commit()
+            return True
+
+    async def update_member_builtin_model(
+        self,
+        member_name: str,
+        team_name: str,
+        builtin_model: MemberBuiltinModel | None,
+    ) -> bool:
+        """Persist the built-in CLI model an external-CLI member runs on."""
+        async with self._sessions.write() as session:
+            result = await session.execute(
+                select(TeamMember).where(
+                    TeamMember.member_name == member_name,
+                    TeamMember.team_name == team_name,
+                )
+            )
+            member = result.scalar_one_or_none()
+            if member is None:
+                team_logger.error("Member %s not found in team %s", member_name, team_name)
+                return False
+            member.options = set_member_builtin_model(member.options, builtin_model)
             await session.commit()
             return True
 

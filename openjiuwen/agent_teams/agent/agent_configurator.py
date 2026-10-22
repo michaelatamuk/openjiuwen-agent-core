@@ -18,18 +18,24 @@ from openjiuwen.agent_teams.agent.blueprint import TeamAgentBlueprint
 from openjiuwen.agent_teams.agent.infra import TeamInfra
 from openjiuwen.agent_teams.agent.payload import SpawnPayloadBuilder
 from openjiuwen.agent_teams.agent.resources import PrivateAgentResources
+from openjiuwen.agent_teams.group_chat.tools import group_chat_prompt
 from openjiuwen.agent_teams.harness import TeamHarness
 from openjiuwen.agent_teams.messager import (
     Messager,
     create_messager,
 )
-from openjiuwen.agent_teams.paths import team_workspace_dir
 from openjiuwen.agent_teams.paths import (
     team_memory_dir as default_team_memory_dir,
 )
+from openjiuwen.agent_teams.paths import team_workspace_dir
 from openjiuwen.agent_teams.runtime.team_plan import is_team_plan_enabled
 from openjiuwen.agent_teams.schema.blueprint import TeamAgentSpec
-from openjiuwen.agent_teams.schema.deep_agent_spec import RailSpec, SysOperationSpec, WorkspaceSpec
+from openjiuwen.agent_teams.schema.deep_agent_spec import (
+    ProgressiveToolSpec,
+    RailSpec,
+    SysOperationSpec,
+    WorkspaceSpec,
+)
 from openjiuwen.agent_teams.schema.team import (
     TeamMemberSpec,
     TeamRole,
@@ -56,6 +62,24 @@ if TYPE_CHECKING:
     from openjiuwen.agent_teams.models.allocator import Allocation, ModelAllocator
     from openjiuwen.agent_teams.team_workspace.manager import TeamWorkspaceManager
     from openjiuwen.harness.tools.worktree import WorktreeManager
+
+
+async def _validate_member_worktree_isolation(
+    spec: TeamAgentSpec,
+    team_name: str,
+    member_name: str,
+) -> None:
+    """Check the project scope and Git repository before registering a member."""
+    from openjiuwen.agent_teams.worktree.session_scope import build_worktree_owner_scope
+    from openjiuwen.harness.tools.worktree.git import find_canonical_git_root
+
+    scope = build_worktree_owner_scope(
+        team_name=team_name,
+        member_name=member_name,
+        spec=spec,
+    )
+    if await find_canonical_git_root(scope.project_dir) is None:
+        raise RuntimeError(f"Team worktree isolation project_dir is not in a git repository: {scope.project_dir}")
 
 
 _TEAM_WORKTREE_BASH_DENY_PATTERNS = [
@@ -120,6 +144,93 @@ def _has_team_worktree_shell_guard(rails: list[Any]) -> bool:
         if all(pattern in deny_patterns for pattern in _TEAM_WORKTREE_BASH_DENY_PATTERNS):
             return True
     return False
+
+
+class _SwarmflowModelResolver:
+    """Resolves ``agent(model=...)`` hints against the live team pool.
+
+    Callable (same contract as the historical closure) so it flows unchanged
+    through inject_team_handles → rails → tool_factory → runner → backend.
+    ``pool_names`` exposes accepted names so the engine can fail fast on an
+    unknown hint before the start event is emitted.
+    """
+
+    def __init__(self, team_spec: Any) -> None:
+        self._spec = team_spec
+
+    def __call__(self, model_name: str) -> Any:
+        """Resolve a ``model`` hint to a worker ``TeamModelConfig``.
+
+        Returns a model *config* (not a built ``Model``): swarmflow workers
+        go through the spec build path, where ``DeepAgentSpec.model`` is a
+        ``TeamModelConfig`` resolved at construction. ``None`` (no hint)
+        falls back to the worker base spec's own model.
+
+        An explicit name that does not resolve RAISES instead of falling
+        back: a typo'd model would otherwise silently run on the default
+        model while the UI keeps showing the requested name. The engine's
+        pre-flight check rejects unknown hints before any side effect;
+        this raise backs the non-engine callers (CLI MCP tool set, tool
+        gateway) and the shrunk-pool window behind that check.
+        """
+        resolved = None
+        if self._spec is not None:
+            from openjiuwen.agent_teams.models.allocator import resolve_member_model
+
+            resolved = resolve_member_model(self._spec, model_name=model_name, model_index=None)
+        if resolved is None and model_name:
+            raise ValueError(
+                f"swarmflow model {model_name!r} not found in the team model pool; "
+                "an explicitly requested model never falls back to the default"
+            )
+        return resolved
+
+    def pool_names(self) -> list[str]:
+        """Accepted ``model`` hint names (live read; pool refresh stays visible)."""
+        if self._spec is None:
+            return []
+        return [e.model_name for e in (self._spec.model_pool or [])]
+
+
+def _derive_expert_binding(spec: TeamAgentSpec) -> Any:
+    """What the leader's ``spawn_expert`` needs from the team spec."""
+    from openjiuwen.agent_teams.experts.bound_group import bound_agent_group
+    from openjiuwen.agent_teams.rails.team_context import ExpertBinding
+
+    base = spec.agents.get("teammate") or spec.agents.get("leader")
+    workspace = base.workspace.root_path if base is not None and base.workspace is not None else None
+    return ExpertBinding(
+        bound_group=bound_agent_group(spec),
+        persona_workspace=workspace,
+        persona_language=base.language if base is not None else None,
+    )
+
+
+def _derive_swarmflow_worker_base_spec(
+    spec: TeamAgentSpec,
+    observability_rail_specs: list[Any],
+) -> Any:
+    """Worker base = teammate spec (leader fallback) + observability rails.
+
+    Workers are "a teammate without team tools": the raw agents[...] spec
+    carries teammate capabilities but not the team rails (those are injected
+    per member), so a worker built from it has no team tools by construction.
+    ``progressive_tool`` is only written when the team opts in, so a team that
+    leaves it off keeps the base spec exactly as configured.
+    """
+    base = spec.agents.get("teammate") or spec.agents.get("leader")
+    if base is None:
+        return None
+    update: dict[str, Any] = {"rails": list(base.rails or []) + observability_rail_specs}
+    if spec.progressive_tool:
+        update["progressive_tool"] = ProgressiveToolSpec(enabled=True)
+    return base.model_copy(update=update)
+
+
+def _derive_swarmflow_external_cli_agents(spec: TeamAgentSpec) -> tuple[Any, ...]:
+    """The swarmflow third-party allowlist lives on the blueprint spec only —
+    the runtime ``TeamSpec`` never carries ``external_cli_agents``."""
+    return tuple(spec.external_cli_agents)
 
 
 class AgentConfigurator:
@@ -260,7 +371,9 @@ class AgentConfigurator:
         on_team_built: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Phase 1: set spec/context, create messager, workspace manager, prepare team backend."""
-        agent_spec = self.resolve_agent_spec(spec, ctx.role, ctx.member_name)
+        agent_spec = self.resolve_agent_spec(
+            spec, ctx.role, ctx.member_name, agent_template_spec=ctx.agent_template_spec
+        )
         resolved_language = _resolve_language(agent_spec.language)
         self._blueprint = TeamAgentBlueprint(
             card=self._card,
@@ -340,10 +453,10 @@ class AgentConfigurator:
         )
 
     def create_worktree_manager(self, spec: TeamAgentSpec) -> WorktreeManager:
+        from openjiuwen.harness.tools.worktree import WorktreeCreatedEvent as HarnessWorktreeCreatedEvent
         from openjiuwen.harness.tools.worktree import (
             WorktreeManager,
         )
-        from openjiuwen.harness.tools.worktree import WorktreeCreatedEvent as HarnessWorktreeCreatedEvent
         from openjiuwen.harness.tools.worktree import WorktreeRemovedEvent as HarnessWorktreeRemovedEvent
 
         ws_mgr = self.workspace_manager
@@ -453,7 +566,9 @@ class AgentConfigurator:
             self._attach_workspace_cache(spec, ctx, resolved_language)
             return member_runtime
 
-        agent_spec = self.resolve_agent_spec(spec, ctx.role, ctx.member_name)
+        agent_spec = self.resolve_agent_spec(
+            spec, ctx.role, ctx.member_name, agent_template_spec=ctx.agent_template_spec
+        )
         resolved_language = self._blueprint.language if self._blueprint else _resolve_language(agent_spec.language)
         member_name = ctx.member_name
 
@@ -562,11 +677,7 @@ class AgentConfigurator:
         # context (platform-filled for projectless members, None for members
         # bound to a project). Surfaced to the team info body by the policy
         # rail only when set, so members with a project keep the bullet off.
-        team_outputs_dir: str | None = (
-            spec.build_context.team_outputs_dir
-            if spec.build_context is not None
-            else None
-        )
+        team_outputs_dir: str | None = spec.build_context.team_outputs_dir if spec.build_context is not None else None
 
         # Decide which team rails this member gets, as declarative RailSpecs.
         # Live handles ride on the build context's extras (injected below); only
@@ -574,14 +685,13 @@ class AgentConfigurator:
         # team config (predefined roster, plan-mode, reliability gating) stay
         # here; "can it build" gates (a missing handle) live in the factories.
         from openjiuwen.agent_teams.rails.elements import (
-            OBSERVABILITY,
-            TEAM_OBSERVABILITY,
             TEAM_PLAN_MODE,
             TEAM_POLICY,
             TEAM_RELIABILITY,
             TEAM_TOOL,
             TEAM_TOOL_APPROVAL,
             TEAM_WORKSPACE,
+            observability_rail_specs,
         )
         from openjiuwen.agent_teams.rails.registration import (
             ensure_harness_elements_registered,
@@ -592,19 +702,17 @@ class AgentConfigurator:
         ensure_harness_elements_registered()
 
         # Observability rail specs — shared by all agents (members + swarmflow
-        # workers). Two rails, always mounted as a pair: ``core.observability``
-        # owns the agent span itself (harness-level, team-agnostic) and
-        # ``core.team.observability`` layers the team identity onto it. Each
-        # provider checks is_initialized() — no-op when disabled.
-        observability_rail_specs = [
-            RailSpec(type=TEAM_OBSERVABILITY),
-            RailSpec(type=OBSERVABILITY),
-        ]
+        # workers + scheduled-mode temp reviewers). Two rails, always mounted
+        # as a pair: ``core.observability`` owns the agent span itself
+        # (harness-level, team-agnostic) and ``core.team.observability`` layers
+        # the team identity onto it. Each provider checks is_initialized() —
+        # no-op when disabled.
+        member_observability_rail_specs = observability_rail_specs()
 
         # Predefined teams pin their roster — strip every dynamic spawn tool
-        # (one per role_type) from the leader's tool set.
+        # (one per kind of member) from the leader's tool set.
         exclude = (
-            ["spawn_teammate", "spawn_human_agent", "spawn_bridge_agent", "spawn_external_cli"]
+            ["spawn_teammate", "spawn_human_agent", "spawn_bridge_agent"]
             if _resolve_team_mode(spec) == "predefined"
             else []
         )
@@ -615,6 +723,7 @@ class AgentConfigurator:
                 params={
                     "teammate_mode": teammate_mode,
                     "dispatch_mode": spec.dispatch_mode,
+                    "bootstrap_mode": spec.bootstrap_mode,
                     "lifecycle": spec.lifecycle,
                     "team_mode": _resolve_team_mode(spec),
                     "exclude_tools": exclude,
@@ -626,13 +735,16 @@ class AgentConfigurator:
             RailSpec(
                 type=TEAM_POLICY,
                 params={
-                    "prompt": ctx.prompt or "",
+                    "prompt": (ctx.prompt or "") + (
+                        group_chat_prompt(spec) if ctx.team_spec.conversation_mode == "group_chat" else ""
+                    ),
                     "display_name": ctx.display_name or "",
                     "member_workspace_path": workspace_root_path,
                     "lifecycle": spec.lifecycle,
                     "teammate_mode": teammate_mode,
                     "team_mode": _resolve_team_mode(spec),
                     "dispatch_mode": spec.dispatch_mode,
+                    "bootstrap_mode": spec.bootstrap_mode,
                     "base_prompt": agent_spec.system_prompt,
                     "team_workspace_path": team_workspace_path,
                     "team_outputs_dir": team_outputs_dir,
@@ -733,50 +845,41 @@ class AgentConfigurator:
                 project_dir=member_project_dir,
             )
         # Swarmflow worker-model resolver (leader + enable_swarmflow only). A
-        # positional pool lookup by ``agent(model=...)`` name hint; None when the
-        # team spec is absent so the worker falls back to the leader's model. The
-        # leader-only async ``swarmflow`` tool is gated on this being non-None.
+        # positional pool lookup by ``agent(model=...)`` name hint; no hint
+        # resolves to None so the worker falls back to the leader's model, but
+        # an explicit name that misses the pool raises (no silent downgrade).
+        # The leader-only async ``swarmflow`` tool is gated on this being non-None.
         swarmflow_model_resolver: Optional[Callable[[str], Any]] = None
         swarmflow_worker_base_spec = None
         swarmflow_human_base_spec = None
         swarmflow_concurrency_governor = None
         swarmflow_budget = None
+        swarmflow_external_cli_agents: tuple[Any, ...] = ()
+        swarmflow_expert_specs: dict[str, Any] = {}
         if ctx.role == TeamRole.LEADER and spec.enable_swarmflow:
-            team_spec_for_models = ctx.team_spec
+            # Callable class (same call contract as the historical closure) so
+            # the inject chain stays unchanged, plus pool_names for the
+            # engine's fail-fast model-hint check. The resolver-level
+            # ValueError raise from release/v0.1.19-2 is kept verbatim: it
+            # backs the non-engine callers (CLI MCP tool set, tool gateway)
+            # and the shrunk-pool window behind the engine's pre-flight.
+            swarmflow_model_resolver = _SwarmflowModelResolver(ctx.team_spec)
 
-            def swarmflow_model_resolver(model_name: str, _spec=team_spec_for_models) -> Any:
-                """Resolve an ``agent(model=...)`` name hint to a worker ``TeamModelConfig``.
-
-                Returns a model *config* (not a built ``Model``): swarmflow workers
-                go through the spec build path, where ``DeepAgentSpec.model`` is a
-                ``TeamModelConfig`` resolved at construction. ``None`` falls back to
-                the worker base spec's own model.
-                """
-                if _spec is None:
-                    return None
-                from openjiuwen.agent_teams.models.allocator import resolve_member_model
-
-                return resolve_member_model(_spec, model_name=model_name, model_index=None)
-
-            # Workers are "a teammate without team tools": derive each worker from
-            # the team's teammate spec (or the leader spec when no teammate exists).
-            # The raw agents[...] spec carries teammate capabilities but NOT the
-            # team rails (those are injected here, per member), so a worker built
-            # straight from it has no team tools by construction.
             base_specs = spec.agents
-            swarmflow_worker_base_spec = base_specs.get("teammate") or base_specs.get("leader")
+            swarmflow_worker_base_spec = _derive_swarmflow_worker_base_spec(spec, member_observability_rail_specs)
             # Human-session avatars derive from the human_agent spec; fall back to
-            # the worker base spec so human_session still works when no dedicated
+            # the raw worker base so human_session still works when no dedicated
             # human_agent spec is configured (it just lacks human-tuned desc).
-            swarmflow_human_base_spec = base_specs.get("human_agent") or swarmflow_worker_base_spec
-
-            # Workers also need the observability rail for agent spans.
-            if swarmflow_worker_base_spec is not None:
-                swarmflow_worker_base_spec = swarmflow_worker_base_spec.model_copy(
-                    update={
-                        "rails": list(swarmflow_worker_base_spec.rails or []) + observability_rail_specs,
-                    },
+            # Like the worker base, it mounts the observability rail pair so
+            # the avatar's records carry an agent span in the trajectory.
+            human_base = base_specs.get("human_agent") or base_specs.get("teammate") or base_specs.get("leader")
+            swarmflow_human_base_spec = (
+                human_base.model_copy(
+                    update={"rails": list(human_base.rails or []) + member_observability_rail_specs},
                 )
+                if human_base is not None
+                else None
+            )
 
             from openjiuwen.agent_teams.workflow.concurrency import (
                 ConcurrencyGovernor,
@@ -795,6 +898,25 @@ class AgentConfigurator:
             # governor's L3): concurrent runs draw down one pool. ``total=None``
             # keeps it unbounded while still giving scripts a live ``spent()``.
             swarmflow_budget = BudgetLedger(total=spec.swarmflow_budget)
+            swarmflow_external_cli_agents = _derive_swarmflow_external_cli_agents(spec)
+
+            from openjiuwen.agent_teams.workflow.backends.expert_specs import derive_swarmflow_expert_specs
+
+            # Experts are AgentGroup members already in the blueprint; a script
+            # picks one by member name. Derived once here, next to the worker
+            # base spec, so both ride the same rails and progressive_tool switch.
+            swarmflow_expert_specs = derive_swarmflow_expert_specs(spec, member_observability_rail_specs)
+
+        # The host's expert catalog backs the leader's expert tools; members
+        # never get it (spawning is a leader capability).
+        expert_catalog = None
+        expert_binding = None
+        if ctx.role == TeamRole.LEADER:
+            from openjiuwen.agent_teams.experts.catalog import get_process_expert_catalog
+
+            expert_catalog = get_process_expert_catalog()
+            if expert_catalog is not None:
+                expert_binding = _derive_expert_binding(spec)
 
         inject_team_handles(
             member_build_context.extras,
@@ -807,14 +929,18 @@ class AgentConfigurator:
             swarmflow_human_base_spec=swarmflow_human_base_spec,
             swarmflow_concurrency_governor=swarmflow_concurrency_governor,
             swarmflow_budget=swarmflow_budget,
+            swarmflow_external_cli_agents=swarmflow_external_cli_agents,
+            swarmflow_expert_specs=swarmflow_expert_specs,
             reliability_components=reliability_components,
             permissions_override=ctx.permissions_override,
             worktree_manager=self.worktree_manager,
+            expert_catalog=expert_catalog,
+            expert_binding=expert_binding,
         )
 
         # Fold the team rails into the spec rails (after the user rails, to keep
         # the init order consistent with the legacy mount order).
-        team_rail_specs.extend(observability_rail_specs)
+        team_rail_specs.extend(member_observability_rail_specs)
         base_rails = _apply_team_worktree_shell_guard(
             list(build_spec.rails or []),
             enabled=ctx.role in {TeamRole.LEADER, TeamRole.TEAMMATE, TeamRole.EXTERNAL_CLI},
@@ -881,6 +1007,21 @@ class AgentConfigurator:
             from openjiuwen.agent_teams.workflow.backends.budget_rail import SwarmflowBudgetRail
 
             self.harness.add_rail(SwarmflowBudgetRail(swarmflow_budget, workflow_budget=None))
+        organization_workspace_manager = getattr(self.team_backend, "organization_workspace_manager", None)
+        if organization_workspace_manager is not None and workspace_root_path:
+            organization_workspace_manager.mount_into_workspace(workspace_root_path)
+            from openjiuwen.agent_teams.organization.workspace_rail import (
+                OrganizationWorkspaceRail,
+            )
+
+            self.harness.add_rail(
+                OrganizationWorkspaceRail(
+                    organization_workspace_manager,
+                    team_id=resolved_team_name,
+                    member_name=member_name,
+                    summary_team=bool((spec.metadata or {}).get("summary_team")),
+                )
+            )
 
         # Team memory manager (only when explicitly enabled in the spec).
         self.memory_manager = self._build_memory_manager(spec, ctx, agent_spec, resolved_language, member_name)
@@ -949,10 +1090,25 @@ class AgentConfigurator:
         spec: TeamAgentSpec,
         role: TeamRole,
         member_name: Optional[str] = None,
+        *,
+        agent_template_spec: Optional[dict[str, Any]] = None,
     ):
+        """Select the ``DeepAgentSpec`` a member is built from.
+
+        A member's own ``agents[<member>]`` entry wins (predefined members,
+        already assembled by the host). A member spawned from an expert
+        template (``spawn_expert``) carries the template's capability
+        snapshot instead, applied to the shared base spec. Everyone else uses
+        the shared base for its role.
+        """
         if member_name and member_name in spec.agents:
             return spec.agents[member_name]
-        return spec.agents.get(role.value) or spec.agents.get("teammate") or spec.agents["leader"]
+        base = spec.agents.get(role.value) or spec.agents.get("teammate") or spec.agents["leader"]
+        if agent_template_spec:
+            from openjiuwen.agent_teams.experts.template_member import apply_template_snapshot
+
+            return apply_template_snapshot(base, agent_template_spec)
+        return base
 
     def setup_team_backend(
         self,
@@ -994,10 +1150,37 @@ class AgentConfigurator:
 
         team_name = (ctx.team_spec.team_name if ctx.team_spec else None) or "default"
         db = get_shared_db(ctx.db_config)
+        organization_id = None
+        if spec.metadata:
+            organization_id = spec.metadata.get("organization_id")
+        org_task_manager = None
+        org_message_service = None
+        organization_workspace_manager = None
+        if organization_id:
+            from openjiuwen.agent_teams.context import get_session_id
+            from openjiuwen.agent_teams.organization.pool import get_process_org_manager
+            from openjiuwen.agent_teams.organization.workspace import (
+                get_organization_workspace_manager,
+            )
+
+            organization_session_id = get_session_id() or "default"
+            org_manager = get_process_org_manager(
+                organization_id=str(organization_id),
+                db=db,
+                messager=messager,
+                session_id=organization_session_id,
+            )
+            org_task_manager = org_manager.task_pool
+            org_message_service = org_manager.message_service
+            organization_workspace_manager = get_organization_workspace_manager(
+                str(organization_id), organization_session_id
+            )
 
         is_leader = ctx.role == TeamRole.LEADER
         current_member_name = ctx.member_name or (ctx.team_spec.leader_member_name if ctx.team_spec else "")
-        current_agent_spec = self.resolve_agent_spec(spec, ctx.role, ctx.member_name)
+        current_agent_spec = self.resolve_agent_spec(
+            spec, ctx.role, ctx.member_name, agent_template_spec=ctx.agent_template_spec
+        )
         current_model_config = ctx.member_model or current_agent_spec.model
         current_model_name = None
         current_model_provider = None
@@ -1007,6 +1190,11 @@ class AgentConfigurator:
                 current_model_name = request_config.model_name
             provider = current_model_config.model_client_config.client_provider
             current_model_provider = provider.value if isinstance(provider, ProviderType) else provider
+
+        async def validate_worktree_isolation(member_name: str) -> None:
+            """Validate the member's worktree scope and repository before registration."""
+            await _validate_member_worktree_isolation(spec, team_name, member_name)
+
         agent_team = TeamBackend(
             team_name=team_name,
             member_name=current_member_name,
@@ -1015,7 +1203,7 @@ class AgentConfigurator:
             messager=messager,
             teammate_mode=MemberMode(str(spec.teammate_mode)),
             predefined_members=spec.predefined_members or None,
-            model_config_allocator=self.model_allocator.allocate if self.model_allocator else None,
+            model_allocator=self.model_allocator,
             leader_allocation=self.leader_allocation if is_leader else None,
             model_pool_provider=lambda: list(ctx.team_spec.model_pool) if ctx.team_spec is not None else [],
             current_model_name=current_model_name,
@@ -1025,6 +1213,7 @@ class AgentConfigurator:
             enable_bridge=spec.enable_bridge,
             dispatch_mode=spec.dispatch_mode,
             enable_task_verification=spec.enable_task_verification,
+            enable_member_messaging=spec.enable_member_messaging,
             enable_fork=spec.enable_fork,
             evolution_enabled=spec.evolution_enabled,
             member_workspace_prefix=spec.member_workspace_prefix,
@@ -1035,7 +1224,11 @@ class AgentConfigurator:
             on_member_started=self._on_teammate_created,
             on_member_restarted=on_member_restarted,
             on_member_stopped=on_member_stopped,
+            validate_worktree_isolation=validate_worktree_isolation,
             leader_member_name=ctx.team_spec.leader_member_name if ctx.team_spec else None,
+            org_task_manager=org_task_manager,
+            org_message_service=org_message_service,
+            organization_workspace_manager=organization_workspace_manager,
         )
 
         def _snapshot_length() -> int:
@@ -1046,6 +1239,8 @@ class AgentConfigurator:
                     return len(native.get_current_context())
             return 0
 
+        agent_team.conversation_mode = ctx.team_spec.conversation_mode if ctx.team_spec else "team"
+        agent_team.group_chat_spec = spec
         agent_team.set_snapshot_length(_snapshot_length)
 
         self.team_backend = agent_team
@@ -1063,8 +1258,13 @@ class AgentConfigurator:
         from openjiuwen.agent_teams.models import build_model_allocator, inherit_pool_ids
 
         merged = inherit_pool_ids(self.ctx.team_spec.model_pool, list(new_pool))
+        # Build and validate the replacement before mutating the live spec.
+        candidate_spec = self.ctx.team_spec.model_copy(update={"model_pool": merged})
+        new_allocator = build_model_allocator(self.spec, candidate_spec)
         self.ctx.team_spec.model_pool = merged
-        self.model_allocator = build_model_allocator(self.spec, self.ctx.team_spec)
+        self.model_allocator = new_allocator
+        if self.team_backend is not None:
+            self.team_backend.update_model_allocator(new_allocator)
 
     def attach_model_allocator(
         self,
@@ -1254,9 +1454,7 @@ class AgentConfigurator:
         # Pure in-team directory (same layout as the leader's): mkdir, no link.
         from openjiuwen.agent_teams.paths import team_member_workspace_dir
 
-        team_member_workspace_dir(team_name, member_name).mkdir(
-            parents=True, exist_ok=True
-        )
+        team_member_workspace_dir(team_name, member_name).mkdir(parents=True, exist_ok=True)
         # B-class identity md write + cache prime. ``resolved_language`` is
         # unused for member identity (no lang suffix); pass empty string.
         self._assemble_member_workspace(spec, ctx, "")

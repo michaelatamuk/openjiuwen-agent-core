@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -14,6 +15,7 @@ import yaml
 from openjiuwen.core.single_agent.schema.agent_card import AgentCard
 from openjiuwen.harness.schema.deep_agent_spec import BuiltinToolSpec, ModelSpec, RailSpec
 from openjiuwen.harness.schema.extension_spec import (
+    AgentRuntimeSpec,
     AgentTemplateSpec,
     McpServerSpec,
     MemorySpec,
@@ -228,6 +230,7 @@ def load_agent_template_package(manifest_path: str | Path) -> AgentTemplateSpec:
             description=description.strip(),
         ),
         model=_build_model_spec(payload.get("model"), base_dir=base_dir, package_root=package_root),
+        runtime=_build_runtime_spec(payload.get("runtime"), base_dir=base_dir, package_root=package_root),
         prompt_sections=_build_persona_prompt_sections(
             payload.get("persona"), base_dir=base_dir, package_root=package_root
         ),
@@ -240,6 +243,11 @@ def load_agent_template_package(manifest_path: str | Path) -> AgentTemplateSpec:
         subagents=subagents,
         metadata=dict(payload.get("metadata") or {}),
     )
+
+
+async def aload_agent_template_package(manifest_path: str | Path) -> AgentTemplateSpec:
+    """Async ``load_agent_template_package``, run in a worker thread."""
+    return await asyncio.to_thread(load_agent_template_package, manifest_path)
 
 
 def _load_plugin_manifest_json(manifest: Path) -> PluginSpec:
@@ -312,6 +320,11 @@ def _load_agent_subtemplate(subagent_dir: Path, *, package_root: Path) -> AgentT
             f"Subagent template {manifest} must not declare 'subagents' "
             "(only the root agent_template may declare direct subagents)"
         )
+    if "runtime" in payload:
+        raise ValueError(
+            f"Subagent template {manifest} must not declare 'runtime' "
+            "(only the root agent_template may select an external runtime)"
+        )
     agent_name = payload.get("agent_name")
     if not agent_name:
         raise ValueError(f"Subagent template {manifest} is missing required 'agent_name'")
@@ -349,7 +362,9 @@ def _first_display_description(value: Any) -> str:
 
 
 def _read_json_mapping(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    # Package manifests are edited on Windows too; tolerate the UTF-8 BOM that
+    # Notepad/PowerShell add instead of failing with JSONDecodeError.
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError(f"Manifest must contain a mapping: {path}")
     return payload
@@ -413,6 +428,29 @@ def _build_model_spec(model_ref: Any, *, base_dir: Path, package_root: Path) -> 
     if model_payload is None:
         raise ValueError(f"model file {model_path} is missing the outer 'model' key")
     return ModelSpec.model_validate(model_payload)
+
+
+def _build_runtime_spec(
+    runtime: Any,
+    *,
+    base_dir: Path,
+    package_root: Path,
+) -> AgentRuntimeSpec | None:
+    if runtime is None:
+        return None
+    spec = AgentRuntimeSpec.model_validate(runtime)
+    sdk_paths = [
+        str(
+            _resolve_new_manifest_path(
+                raw_path,
+                base_dir=base_dir,
+                package_root=package_root,
+                must_be_dir=False,
+            )
+        )
+        for raw_path in spec.sdk_paths
+    ]
+    return spec.model_copy(update={"sdk_paths": sdk_paths})
 
 
 def _build_prompt_section_specs(
@@ -485,6 +523,7 @@ def _build_rail_specs(items: Any, *, base_dir: Path, package_root: Path) -> list
 
 def _build_skill_specs(items: Any, *, base_dir: Path, package_root: Path) -> list[SkillSpec]:
     specs: list[SkillSpec] = []
+    seen: set[Path] = set()
     for raw_item in _as_list(items):
         item = {"dir": raw_item} if isinstance(raw_item, str) else raw_item
         if not isinstance(item, dict) or "dir" not in item:
@@ -492,6 +531,12 @@ def _build_skill_specs(items: Any, *, base_dir: Path, package_root: Path) -> lis
         directory = _resolve_new_manifest_path(
             str(item["dir"]), base_dir=base_dir, package_root=package_root, must_be_dir=True
         )
+        _resolve_new_manifest_path(
+            "SKILL.md", base_dir=directory, package_root=directory, must_be_dir=False
+        )
+        if directory in seen:
+            raise ValueError(f"duplicate skill directory: {directory}")
+        seen.add(directory)
         specs.append(
             SkillSpec(
                 dir=str(directory),
@@ -1078,6 +1123,7 @@ def _module_to_package_file(module_name: str, package_dir: Path) -> str | None:
 
 
 __all__ = [
+    "aload_agent_template_package",
     "find_agent_template_manifest",
     "find_plugin_manifest",
     "load_agent_template_package",

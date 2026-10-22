@@ -23,7 +23,9 @@ from openjiuwen.core.common.logging import LazyLogger, LogManager
 from openjiuwen.core.session.interaction.interaction import InteractionOutput
 from openjiuwen.core.session.interaction.interactive_input import InteractiveInput
 from openjiuwen.core.session.stream.base import OutputSchema
+from openjiuwen.core.single_agent.interrupt.state import PendingInterrupt, match_answers
 from openjiuwen.harness_protocol import (
+    TERMINAL_TURN_EVENT_KINDS,
     AbortMode,
     DeliveryMode,
     DynamicToolCallRequest,
@@ -53,6 +55,10 @@ from openjiuwen.harness_protocol import (
     ToolApprovalDecision,
     ToolApprovalRequest,
     ToolApprovalResponse,
+    ToolGateway,
+    ToolInvocation,
+    TurnEventKind,
+    TurnLifecycleEvent,
     UnsupportedHarnessCapabilityError,
     UserInputRequest,
     UserInputResponse,
@@ -64,6 +70,7 @@ logger = LazyLogger(lambda: LogManager.get_logger("harness_providers"))
 EventObserver = Callable[[HarnessEvent], Awaitable[None]]
 ProviderInteractionHandler = Callable[[ProviderInteractionRequest], Awaitable[ProviderInteractionResponse]]
 INTERACTIVE_INPUT_KIND = "interactive_input"
+TURN_LIFECYCLE = "turn_lifecycle"
 _END: Any = object()
 
 
@@ -103,6 +110,8 @@ class HarnessIOAdapter:
         harness: The protocol implementation to drive.
         event_observer: Optional coroutine invoked with every raw event before
             projection (lifecycle callbacks, telemetry bridges).
+        emit_turn_lifecycle: Project turn start and terminal events onto the
+            output queue when ``True``. Defaults to ``False`` for compatibility.
         auto_approve_tools: When ``True`` provider tool-approval requests are
             allowed without asking; when ``False`` they surface as
             ``__interaction__`` chunks resolved by ``{"approved": bool}``.
@@ -119,12 +128,14 @@ class HarnessIOAdapter:
         harness: HarnessProtocol,
         *,
         event_observer: EventObserver | None = None,
+        emit_turn_lifecycle: bool = False,
         auto_approve_tools: bool = True,
         stop_on_unsupported_force_abort: bool = False,
         provider_interaction_handler: ProviderInteractionHandler | None = None,
     ) -> None:
         self._harness = harness
         self._event_observer = event_observer
+        self._emit_turn_lifecycle = emit_turn_lifecycle
         self._auto_approve_tools = auto_approve_tools
         self._provider_interaction_handler = provider_interaction_handler
         self._stop_on_unsupported_force_abort = stop_on_unsupported_force_abort
@@ -134,6 +145,7 @@ class HarnessIOAdapter:
         self._output_index = 0
         self._output_text: dict[str, str] = {}
         self._pending: dict[str, _PendingInteraction] = {}
+        self._tool_gateway: ToolGateway | None = None
         self._lifecycle_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -166,7 +178,13 @@ class HarnessIOAdapter:
             return False
         if user_input.raw_inputs is not None:
             return len(self._pending) == 1
-        return any(key in self._pending for key in user_input.user_inputs)
+        return bool(self._matched_answers(user_input))
+
+    def _matched_answers(self, user_input: InteractiveInput) -> dict[str, Any]:
+        # A pending interaction is keyed by its request id; callers may answer
+        # it with update() or answer().
+        pending = [PendingInterrupt(request_id, request_id, "") for request_id in self._pending]
+        return match_answers(user_input, pending).answers
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -179,6 +197,9 @@ class HarnessIOAdapter:
             capabilities.add(HostCapability.TOOL_APPROVAL)
         if self._provider_interaction_handler is not None:
             capabilities.add(HostCapability.PROVIDER_INTERACTION)
+        if context.tools is not None:
+            capabilities.update({HostCapability.NATIVE_TOOL_GATEWAY, HostCapability.DYNAMIC_TOOL_CALL})
+        self._tool_gateway = context.tools
         interactions = context.interactions if context.interactions is not None else self
         return dataclasses.replace(
             context,
@@ -325,11 +346,35 @@ class HarnessIOAdapter:
         if isinstance(request, McpElicitationRequest):
             return McpElicitationResponse(request_id=request.request_id, status=InteractionResponseStatus.DECLINED)
         if isinstance(request, DynamicToolCallRequest):
+            gateway = self._tool_gateway
+            if gateway is None:
+                return DynamicToolCallResponse(
+                    request_id=request.request_id,
+                    status=InteractionResponseStatus.DECLINED,
+                    is_error=True,
+                    error_message="no native tool gateway is available",
+                )
+            try:
+                result = await gateway.invoke(
+                    ToolInvocation(
+                        call_id=request.call_id,
+                        name=request.tool_name,
+                        arguments=request.arguments,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - surface host tool failures to the provider
+                logger.exception("native tool %s failed", request.tool_name)
+                return DynamicToolCallResponse(
+                    request_id=request.request_id,
+                    status=InteractionResponseStatus.COMPLETED,
+                    is_error=True,
+                    error_message=str(exc) or type(exc).__name__,
+                )
             return DynamicToolCallResponse(
                 request_id=request.request_id,
-                status=InteractionResponseStatus.DECLINED,
-                is_error=True,
-                error_message="dynamic tool calls are not routed by the harness IO adapter",
+                status=InteractionResponseStatus.COMPLETED,
+                result=result.content,
+                is_error=result.is_error,
             )
         if isinstance(request, ProviderInteractionRequest):
             handler = self._provider_interaction_handler
@@ -375,9 +420,8 @@ class HarnessIOAdapter:
         if user_input.raw_inputs is not None and len(self._pending) == 1:
             request_id = next(iter(self._pending))
             answered = self._answer(request_id, user_input.raw_inputs)
-        for request_id, value in user_input.user_inputs.items():
-            if request_id in self._pending:
-                answered = self._answer(request_id, value) or answered
+        for request_id, value in self._matched_answers(user_input).items():
+            answered = self._answer(request_id, value) or answered
         return answered
 
     def _answer(self, request_id: str, value: Any) -> bool:
@@ -402,12 +446,31 @@ class HarnessIOAdapter:
                     chunk = self._project_output(payload)
                 elif isinstance(payload, ItemLifecycleEvent):
                     chunk = self._project_item(envelope.item_id, payload)
+                elif isinstance(payload, TurnLifecycleEvent) and self._emit_turn_lifecycle:
+                    chunk = self._project_turn_lifecycle(envelope.turn_id, payload)
                 else:
                     chunk = None
                 if chunk is not None:
                     await self._output_queue.put(chunk)
         finally:
             await cursor.aclose()
+
+    def _project_turn_lifecycle(
+        self, turn_id: str | None, event: TurnLifecycleEvent
+    ) -> OutputSchema | None:
+        if event.kind is not TurnEventKind.STARTED and event.kind not in TERMINAL_TURN_EVENT_KINDS:
+            return None
+        payload: dict[str, Any] = {"turn_id": turn_id or "", "kind": event.kind.value}
+        result = event.result
+        if result is not None:
+            if result.error is not None:
+                payload["error_message"] = result.error.message
+                payload["error_code"] = result.error.code
+            if result.termination is not None:
+                payload["termination_kind"] = result.termination.kind.value
+            if isinstance(result.final_output, str):
+                payload["final_output"] = result.final_output
+        return OutputSchema(type=TURN_LIFECYCLE, index=self._next_output_index(), payload=payload)
 
     def _project_output(self, output: OutputEvent) -> OutputSchema | None:
         value = json_value_to_builtin(output.content)
@@ -558,5 +621,6 @@ __all__ = [
     "HarnessIOAdapter",
     "INTERACTIVE_INPUT_KIND",
     "ProviderInteractionHandler",
+    "TURN_LIFECYCLE",
     "to_harness_input",
 ]

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import yaml
 
 from openjiuwen.symphony.flow import (
     RECIPE_GRADE_VERIFIED,
@@ -22,6 +23,10 @@ from openjiuwen.symphony.flow import (
     CapabilityPackager,
     LLMPackageReviewAgent,
     PackageReviewGate,
+    SkillAdapter,
+    SkillArtifactAdapter,
+    SkillPackAdapter,
+    SkillPackNotInstallableError,
     SymphonyFlowEngine,
     render_package,
 )
@@ -78,15 +83,52 @@ def _execution_graph(
             "nodes": {
                 "skill:web-search": {
                     "label": "skill",
-                    "metadata": {"version": "1.0.0"},
+                    "metadata": {
+                        "version": "1.0.0",
+                        "content_hash": "hash-search",
+                        "description": "Search trusted sources.",
+                        "credential": "must-not-flow",
+                        "inputs": [
+                            {
+                                "name": "query",
+                                "type": "text",
+                                "required": True,
+                                "description": "Research question",
+                                "default": "private query",
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "name": "sources",
+                                "type": "document-list",
+                                "description": "Collected sources",
+                            }
+                        ],
+                    },
                 },
                 "skill:summarize-paper": {
                     "label": "skill",
-                    "metadata": {"version": "1.0.0"},
+                    "metadata": {
+                        "version": "1.0.0",
+                        "description": "Summarize research material.",
+                        "inputs": [],
+                        "outputs": [{"name": "summary", "type": "text"}],
+                    },
                 },
                 "skill:write-report": {
                     "label": "skill",
-                    "metadata": {"version": "1.0.0"},
+                    "metadata": {
+                        "version": "1.0.0",
+                        "description": "Write the final report.",
+                        "inputs": [],
+                        "outputs": [
+                            {
+                                "name": "report",
+                                "type": "document",
+                                "description": "Final research report",
+                            }
+                        ],
+                    },
                 },
             },
             "edges": edges,
@@ -96,11 +138,8 @@ def _execution_graph(
 
 def _engine(tmp_path: Path) -> SymphonyFlowEngine:
     config = SymphonyFlowConfig(
-        min_edge_support=2,
-        min_edge_success_rate=0.8,
-        min_successes_candidate=3,
-        min_successes_verified=5,
-        min_pack_success_rate_verified=0.8,
+        min_successes=5,
+        min_pack_success_rate=0.8,
     )
     return SymphonyFlowEngine(tmp_path / "flow", config=config)
 
@@ -166,6 +205,27 @@ def test_ingest_and_distill_end_to_end(tmp_path: Path) -> None:
     assert recipe.quality["success_count"] == 5
     assert recipe.quality["pack_success_rate"] == 1.0
     assert set(recipe.provenance["evidence_trace_ids"]) == {f"trace-{index}" for index in range(1, 6)}
+    search_metadata = recipe.combination_structure["nodes"]["web-search"]["metadata"]
+    assert search_metadata == {
+        "capability_type": "skill",
+        "version": "1.0.0",
+        "description": "Search trusted sources.",
+        "inputs": [
+            {
+                "name": "query",
+                "type": "text",
+                "required": True,
+                "description": "Research question",
+            }
+        ],
+        "outputs": [
+            {
+                "name": "sources",
+                "type": "document-list",
+                "description": "Collected sources",
+            }
+        ],
+    }
 
     # 绕行子结构：单边 {web-search → summarize-paper}，证据不足以 active
     bypass_ids = [recipe_id_ for recipe_id_ in report.recipes_saved if recipe_id_ != recipe_id]
@@ -218,6 +278,50 @@ def test_unchanged_recipe_updates_current_quality_without_new_version(tmp_path: 
     assert packaged_recipe["provenance"]["evidence_count"] == 2
 
 
+def test_narrative_deferred_until_verified_threshold(tmp_path: Path) -> None:
+    """未达 min_successes 只落模板草稿（零 LLM）；首次达标才补叙事并升版本。"""
+
+    response = json.dumps(
+        {
+            "task_description": "research and write",
+            "trigger_conditions": "research task",
+            "example_requests": ["prepare a review"],
+            "execution_narrative": "search, summarize, then write",
+        }
+    )
+    llm = Mock(invoke=AsyncMock(return_value=response))
+    config = SymphonyFlowConfig(min_successes=3, min_pack_success_rate=0.8)
+    engine = SymphonyFlowEngine(tmp_path / "flow", config=config, llm_client=llm)
+
+    assert engine.ingest(_execution_graph("trace-1", query="first task"))
+    first = asyncio.run(engine.distill())
+    recipe_id = first.recipes_saved[0]
+    draft = engine.get_recipe(recipe_id)
+    assert draft is not None
+    assert draft.status == RECIPE_STATUS_DRAFT
+    assert draft.version == 1
+    assert draft.provenance["narrative_source"] == "template"
+    assert llm.invoke.await_count == 0
+    assert engine.list_candidates() == ()
+
+    assert engine.ingest(_execution_graph("trace-2", query="second task"))
+    second = asyncio.run(engine.distill())
+    assert second.recipes_saved == []  # 计数增长但仍未达标：仅刷新，无 LLM
+    assert llm.invoke.await_count == 0
+
+    assert engine.ingest(_execution_graph("trace-3", query="third task"))
+    third = asyncio.run(engine.distill())
+    verified = engine.get_recipe(recipe_id)
+    assert verified is not None
+    assert verified.status == RECIPE_STATUS_ACTIVE
+    assert verified.grade == RECIPE_GRADE_VERIFIED
+    assert verified.provenance["narrative_source"] == "llm"
+    assert llm.invoke.await_count == 1
+    candidates = engine.list_candidates()
+    assert len(candidates) == 1
+    assert candidates[0].version == 2
+
+
 def test_submit_replays_candidate_until_explicit_ack(tmp_path: Path) -> None:
     engine = SymphonyFlowEngine(tmp_path / "flow")
 
@@ -228,7 +332,8 @@ def test_submit_replays_candidate_until_explicit_ack(tmp_path: Path) -> None:
     assert first[0].recipe_id.startswith("recipe_")
     assert first[0].version == 1
     assert first == duplicate
-    assert first[0].name == "web-search → summarize-paper → write-report"
+    assert first[0].name == "write-report"
+    assert "→" not in first[0].name
     assert first[0].applicability
     assert first[0].structure
     assert first[0].execution_count == 1
@@ -294,11 +399,12 @@ def test_restart_distills_new_evidence_before_replaying_unacknowledged_candidate
     assert refreshed[0].execution_count == 2
     assert restarted.get_recipe(refreshed[0].recipe_id).version == 1
     assert restarted.store.read_distillation_fingerprint() == restarted.store.evidence_fingerprint()
-    assert llm.invoke.await_count == 2
+    # 结构未变：刷新计数不重跑 LLM 叙事
+    assert llm.invoke.await_count == 1
 
     replayed = asyncio.run(restarted.submit(_execution_graph("trace-2")))
     assert replayed == refreshed
-    assert llm.invoke.await_count == 2
+    assert llm.invoke.await_count == 1
     assert not restarted.store.recipe_version_path(refreshed[0].recipe_id, 2).exists()
 
 
@@ -313,13 +419,37 @@ def test_candidate_ack_persists_across_engine_instances(tmp_path: Path) -> None:
     assert restarted.get_candidate(candidate.recipe_id) == candidate
 
 
+def test_released_candidate_is_offered_again_after_restart(tmp_path: Path) -> None:
+    flow_dir = tmp_path / "flow"
+    engine = SymphonyFlowEngine(flow_dir)
+    candidate = asyncio.run(engine.submit(_execution_graph("trace-1")))[0]
+    assert engine.acknowledge_candidate(candidate.recipe_id, candidate.version)
+
+    assert engine.release_candidate(candidate.recipe_id, candidate.version) is True
+    assert engine.release_candidate(candidate.recipe_id, candidate.version) is False
+
+    restarted = SymphonyFlowEngine(flow_dir)
+    assert asyncio.run(restarted.start()) == (candidate,)
+
+
+def test_legacy_delivery_acknowledgement_does_not_hide_candidate(tmp_path: Path) -> None:
+    flow_dir = tmp_path / "flow"
+    engine = SymphonyFlowEngine(flow_dir)
+    candidate = asyncio.run(engine.submit(_execution_graph("trace-1")))[0]
+    legacy_path = flow_dir / "candidate_acknowledgements.json"
+    legacy_path.write_text(
+        json.dumps([f"{candidate.recipe_id}:v{candidate.version}"]),
+        encoding="utf-8",
+    )
+
+    restarted = SymphonyFlowEngine(flow_dir)
+    assert asyncio.run(restarted.start()) == (candidate,)
+
+
 def test_ack_uses_current_verified_state_when_immutable_version_was_candidate(tmp_path: Path) -> None:
     config = SymphonyFlowConfig(
-        min_edge_support=1,
-        min_edge_success_rate=0.8,
-        min_successes_candidate=1,
-        min_successes_verified=2,
-        min_pack_success_rate_verified=0.8,
+        min_successes=2,
+        min_pack_success_rate=0.8,
     )
     engine = SymphonyFlowEngine(tmp_path / "flow", config=config)
 
@@ -505,6 +635,104 @@ def test_review_and_prepare_install_approved(tmp_path: Path) -> None:
 
     # 完整性校验
     assert CapabilityPackager.verify_package_integrity(package)
+
+
+def test_skillpack_adapter_renders_complete_sdd0010_root(tmp_path: Path) -> None:
+    engine = _feed_verified_engine(tmp_path)
+    engine.gate = PackageReviewGate(review_agent=_ApprovingReviewAgent())
+    report = asyncio.run(engine.distill())
+    recipe_id = _verified_recipe_id(engine, report)
+    recipe = engine.get_recipe(recipe_id)
+    assert recipe is not None
+    package = CapabilityPackager.build_package(recipe)
+    assert package["materials"]["recipe"]["name"] == "write-report"
+    assert package["meta_name"] == "write-report"
+    assert "META = {'name': 'write-report'" in package["materials"]["swarmflow_script"]
+    packaged_search = package["materials"]["recipe"]["combination_structure"]["nodes"]["web-search"]["metadata"]
+    assert packaged_search == {
+        "version": "1.0.0",
+        "capability_type": "skill",
+        "description": "Search trusted sources.",
+        "inputs": [
+            {
+                "name": "query",
+                "type": "text",
+                "required": True,
+                "description": "Research question",
+            }
+        ],
+        "outputs": [
+            {
+                "name": "sources",
+                "type": "document-list",
+                "description": "Collected sources",
+            }
+        ],
+    }
+    artifact_dir = tmp_path / "skillpack"
+
+    outputs = SkillPackAdapter.render(package, artifact_dir)
+
+    assert isinstance(SkillPackAdapter(), SkillArtifactAdapter)
+    assert isinstance(SkillAdapter(), SkillArtifactAdapter)
+    assert outputs == [artifact_dir / "SKILL.md"]
+    assert [path.name for path in artifact_dir.iterdir()] == ["SKILL.md"]
+    text = outputs[0].read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    assert frontmatter == {
+        "name": package["meta_name"],
+        "kind": "skillpack",
+        "description": "[技能包] 基于 3 个能力协作完成的任务（web-search → summarize-paper → write-report）",
+        "skills": ["web-search", "summarize-paper", "write-report"],
+    }
+    assert "# write-report" in text
+    assert "`web-search`：Search trusted sources." in text
+    assert "`web-search.query`（text）：Research question" in text
+    assert "当前为线性流程，无可并行步骤。" in text
+    assert "将 `web-search` 的完整输出作为上下文输入" in text
+    assert "结果汇合：以 `write-report` 的输出作为最终结果" in text
+    assert "`report`：Final research report" in text
+    assert '"type": "skillpack_workflow"' in text
+    assert '"relation": "can_feed"' in text
+    assert "1.0.0" not in text
+    assert "hash-search" not in text
+
+
+def test_dependency_review_still_rejects_missing_member_version(tmp_path: Path) -> None:
+    engine = _feed_verified_engine(tmp_path)
+    report = asyncio.run(engine.distill())
+    recipe = engine.get_recipe(_verified_recipe_id(engine, report))
+    assert recipe is not None
+    package = CapabilityPackager.build_package(recipe)
+    nodes = package["materials"]["recipe"]["combination_structure"]["nodes"]
+    nodes["web-search"]["metadata"]["version"] = ""
+    package["integrity"] = content_hash(package["materials"])
+
+    review = PackageReviewGate().review_static(package)
+
+    dependency_check = next(check for check in review.checks if check.check == "dependencies")
+    assert dependency_check.result == "fail"
+    assert dependency_check.reasons == ["capability web-search missing version"]
+
+
+def test_skillpack_adapter_rejects_non_skill_and_non_chain_packages(tmp_path: Path) -> None:
+    engine = _feed_verified_engine(tmp_path)
+    report = asyncio.run(engine.distill())
+    recipe = engine.get_recipe(_verified_recipe_id(engine, report))
+    assert recipe is not None
+    package = CapabilityPackager.build_package(recipe)
+    nodes = package["materials"]["recipe"]["combination_structure"]["nodes"]
+    nodes["web-search"]["metadata"]["capability_type"] = "tool"
+
+    with pytest.raises(SkillPackNotInstallableError, match="not a Skill"):
+        SkillPackAdapter.render(package, tmp_path / "non-skill")
+
+    nodes["web-search"]["metadata"]["capability_type"] = "skill"
+    package["materials"]["recipe"]["combination_structure"]["edges"].append(
+        {"source": "web-search", "target": "write-report", "relation": "can_feed"}
+    )
+    with pytest.raises(SkillPackNotInstallableError, match="simple Skill chain"):
+        SkillPackAdapter.render(package, tmp_path / "branch")
 
 
 def test_approved_preparation_replaces_tampered_cached_artifact(tmp_path: Path) -> None:
@@ -714,11 +942,15 @@ def test_review_and_prepare_install_rejections(tmp_path: Path) -> None:
     plugin = asyncio.run(engine.review_and_prepare_install(recipe_id, recipe_version=1, target_kind=TARGET_KIND_PLUGIN))
     assert plugin.verdict == VERDICT_REJECTED
 
-    # 证据不足：结构无法达到 active/verified，install 准备必须拒绝
+    # 证据不足：低于 min_successes 只产出 draft，不会成为可安装候选
     lone = _engine(tmp_path / "lone")
     lone.ingest(_execution_graph("trace-lone"))
     report = asyncio.run(lone.distill())
-    assert report.recipes_saved == []  # support < 2 → 无合格结构
+    assert len(report.recipes_saved) == 1
+    lone_recipe = lone.get_recipe(report.recipes_saved[0])
+    assert lone_recipe is not None
+    assert lone_recipe.status == RECIPE_STATUS_DRAFT
+    assert lone.list_candidates() == ()
 
 
 def test_review_agent_rejection_never_calls_target_adapter(tmp_path: Path) -> None:
@@ -834,28 +1066,28 @@ def test_static_review_requires_permissions_and_license(tmp_path: Path) -> None:
 
 
 def test_stale_recipe_version_is_rejected(tmp_path: Path) -> None:
+    """结构未变时 recipe 内容恒定、版本不前进；请求不存在的版本被拒。"""
+
     engine = SymphonyFlowEngine(tmp_path / "flow")
     engine.ingest(_execution_graph("trace-1", query="first wording"))
     first = asyncio.run(engine.distill())
     recipe_id = first.recipes_saved[0]
     engine.ingest(_execution_graph("trace-2", query="second wording"))
     asyncio.run(engine.distill())
-    assert engine.get_recipe(recipe_id).version == 2
+    assert engine.get_recipe(recipe_id).version == 1
 
-    preparation = asyncio.run(engine.review_and_prepare_install(recipe_id, recipe_version=1))
+    preparation = asyncio.run(engine.review_and_prepare_install(recipe_id, recipe_version=2))
 
     assert preparation.verdict == VERDICT_REJECTED
-    assert "stale recipe version" in preparation.reasons[0]
+    # v2 从未产生过（结构未变不升版本），按不存在处理
+    assert "recipe not found" in preparation.reasons[0]
     assert preparation.package is None
 
 
 def test_branching_recipe_is_not_installable_in_v1(tmp_path: Path) -> None:
     config = SymphonyFlowConfig(
-        min_edge_support=1,
-        min_edge_success_rate=0.5,
-        min_successes_candidate=1,
-        min_successes_verified=1,
-        min_pack_success_rate_verified=0.5,
+        min_successes=1,
+        min_pack_success_rate=0.5,
     )
     engine = SymphonyFlowEngine(tmp_path / "flow", config=config)
     engine.ingest(_graph_with_edges("branch", [("s1", "s2", True), ("s1", "s3", True)]))
@@ -871,6 +1103,7 @@ def test_branching_recipe_is_not_installable_in_v1(tmp_path: Path) -> None:
 def test_narrative_prefers_symphony_llm_invoke(tmp_path: Path) -> None:
     response = json.dumps(
         {
+            "name": "research-report-generation",
             "task_description": "research then write",
             "trigger_conditions": "research request",
             "example_requests": ["write a report"],
@@ -886,7 +1119,29 @@ def test_narrative_prefers_symphony_llm_invoke(tmp_path: Path) -> None:
 
     llm.invoke.assert_awaited_once()
     assert recipe.provenance["narrative_source"] == "llm"
+    assert recipe.name == "research-report-generation"
     assert recipe.execution_narrative == "search, summarize, and write"
+
+
+def test_narrative_rejects_skill_chain_as_package_name(tmp_path: Path) -> None:
+    response = json.dumps(
+        {
+            "name": "web-search → summarize-paper → write-report",
+            "task_description": "research then write",
+            "trigger_conditions": "research request",
+            "example_requests": ["write a report"],
+            "execution_narrative": "search, summarize, and write",
+        }
+    )
+    engine = SymphonyFlowEngine(
+        tmp_path / "flow",
+        llm_client=Mock(invoke=AsyncMock(return_value=response)),
+    )
+
+    candidate = asyncio.run(engine.submit(_execution_graph("trace-1")))[0]
+
+    assert candidate.name == "write-report"
+    assert "→" not in candidate.name
 
 
 def test_package_redacts_raw_queries_examples_traces_and_credentials(tmp_path: Path) -> None:
@@ -1000,6 +1255,23 @@ def test_llm_review_agent_receives_only_canonical_redacted_package(tmp_path: Pat
     assert llm.invoke.await_args.kwargs == {"temperature": 0.0}
 
 
+def test_llm_review_agent_prompt_does_not_invent_skill_pack_blockers(tmp_path: Path) -> None:
+    engine = _feed_verified_engine(tmp_path)
+    report = asyncio.run(engine.distill())
+    package = CapabilityPackager.build_package(engine.get_recipe(_verified_recipe_id(engine, report)))
+    llm = Mock(invoke=AsyncMock(return_value='{"verdict":"approved"}'))
+    reviewer = LLMPackageReviewAgent(llm)
+
+    verdict = asyncio.run(reviewer.review(package))
+
+    system_prompt = llm.invoke.await_args.args[0][0]["content"]
+    assert verdict == VERDICT_APPROVED
+    assert "Proprietary license is explicitly allowed" in system_prompt
+    assert "credentials, permissions, and runtime configuration outside" in system_prompt
+    assert "timestamps" in system_prompt
+    assert "never infer missing facts" in system_prompt
+
+
 # 4.3.1 约定的执行图外层对象样本：含失败边、分支边与证据引用
 _DOCUMENTED_EXECUTION_GRAPH = {
     "trace_id": "trace_20260820_001",
@@ -1066,11 +1338,8 @@ def test_ingest_accepts_documented_execution_graph(tmp_path: Path) -> None:
     """4.3.1 文档格式的执行图可直接接入：失败边剔除成员、分支边保留。"""
 
     config = SymphonyFlowConfig(
-        min_edge_support=1,
-        min_edge_success_rate=0.5,
-        min_successes_candidate=1,
-        min_successes_verified=1,
-        min_pack_success_rate_verified=0.5,
+        min_successes=1,
+        min_pack_success_rate=0.5,
     )
     engine = SymphonyFlowEngine(tmp_path / "flow", config=config)
 
@@ -1099,11 +1368,8 @@ def test_non_success_evidence_does_not_reduce_pack_success_rate(tmp_path: Path) 
     """Flow only distills overall-success executions."""
 
     config = SymphonyFlowConfig(
-        min_edge_support=1,
-        min_edge_success_rate=0.5,
-        min_successes_candidate=1,
-        min_successes_verified=3,
-        min_pack_success_rate_verified=0.8,
+        min_successes=3,
+        min_pack_success_rate=0.8,
     )
     engine = SymphonyFlowEngine(tmp_path / "flow", config=config)
     for index in range(6):
@@ -1177,11 +1443,8 @@ def test_same_nodes_different_structures_split_groups(tmp_path: Path) -> None:
     """
 
     config = SymphonyFlowConfig(
-        min_edge_support=2,
-        min_edge_success_rate=0.8,
-        min_successes_candidate=2,
-        min_successes_verified=3,
-        min_pack_success_rate_verified=0.8,
+        min_successes=3,
+        min_pack_success_rate=0.8,
     )
     engine = SymphonyFlowEngine(tmp_path / "flow", config=config)
     engine.ingest(_graph_with_edges("t1", [("s1", "s2", True), ("s2", "s5", True)]))

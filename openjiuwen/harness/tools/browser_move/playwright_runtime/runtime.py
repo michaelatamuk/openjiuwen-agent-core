@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import re
 import time
 from collections import deque
 from typing import Any, Dict, Iterable, Optional
-from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlsplit
 from weakref import WeakSet
 
 from openjiuwen.core.common.exception.codes import StatusCode
@@ -34,7 +35,10 @@ from openjiuwen.harness.rails._multimodal import (
 )
 
 from ..controllers import ActionController, BaseController, validate_batch_steps
-from ..utils.parsing import extract_json_object
+from ..controllers.action import normalize_batch_steps
+from ..decision.intent import explicit_urls
+from ..utils.parsing import decode_mcp_result, extract_json_object
+from . import cart_verification, execution_journal
 from .browser_capabilities import (
     CORE_BROWSER_TOOL_NAMES,
 )
@@ -50,18 +54,30 @@ from .browser_working_context import (
     latest_browser_user_request,
 )
 from .config import BrowserInstanceConfig, BrowserRunGuardrails
-from .page_state import CARD_EVIDENCE_FIELDS, BrowserPageState, BrowserTarget
+from .evidence import (
+    author_is_action_label,
+    evidence_subject,
+    merge_evidence_slot,
+    observed_sort,
+    requires_destination_page,
+    retain_acceptance,
+    same_page_url,
+    source_observations,
+    today_temperature_fields,
+)
+from .page_state import CARD_EVIDENCE_FIELDS, BrowserPageState, BrowserTarget, decode_ax_text, navigation_destination
+from .phase_contract import unresolved_writes
 from .probe_semantics import normalize_card_probe_payload
 from .probes import (
     build_browser_state_metadata_js,
     build_card_probe_js,
     build_interactive_probe_js,
 )
-from .semantic_state import SemanticStateTracker, price_interval_signature
+from .semantic_state import SemanticStateTracker
 from .service import MAX_ITERATION_MESSAGE, BrowserService, BrowserTaskProgressState
 from .site_profiles import (
     get_selector_cache,
-    infer_profile_evidence_entity,
+    normalize_profile_evaluate_fields,
     site_profiles_for_url,
 )
 from .status_logging import BrowserSubagentStatusLogger, is_browser_subagent_status_log_enabled
@@ -82,8 +98,6 @@ _BROWSER_SIMPLE_TASK_DEADLINE_S = 240.0
 _BROWSER_COMPLEX_TASK_DEADLINE_S = 600.0
 _BROWSER_MODEL_RETRY_LIMIT = 1
 _BROWSER_MODEL_PROTOCOL_RETRY_LIMIT = 1
-_BROWSER_REPLAN_DENIAL_LIMIT = 3
-_BROWSER_READ_ONLY_RECOVERY_LIMIT = 1
 _BROWSER_TASK_RESUME_LIMIT = 1
 _BROWSER_TERMINAL_SYNTHESIS_KEY = "terminal_synthesis_started"
 _BROWSER_OBSERVATION_MESSAGE_MAX_CHARS = 12_000
@@ -97,6 +111,8 @@ _BROWSER_BOUNDED_OBSERVATION_TOOL_TOKENS = (
 _BROWSER_RUNTIME_TOOL_NAMES = frozenset(
     {
         "browser_batch_interact",
+        "browser_page_action",
+        "browser_phase",
         "browser_probe_interactives",
         "browser_probe_cards",
         "browser_custom_action",
@@ -129,12 +145,6 @@ _BROWSER_TOOL_ERROR_PREFIX_RE = re.compile(
 )
 _BROWSER_TIMEOUT_ERROR_RE = re.compile(
     r"\b(?:timed?\s*out|timeout(?:error)?|deadline\s+exceeded)\b",
-    re.IGNORECASE,
-)
-_BROWSER_OUTPUT_REQUEST_CUE_RE = re.compile(
-    r"(?:返回|告诉我|提取|获取|输出|给出|列出|汇报|报告|比较|对比|"
-    r"return|tell\s+me|extract|retrieve|output|provide|list|report|compare)"
-    r"[^。；;.!?\n]{0,240}",
     re.IGNORECASE,
 )
 _BROWSER_EXPLICIT_REF_RE = re.compile(
@@ -191,6 +201,8 @@ _BATCH_EXPLICIT_SELECTOR_OPS = frozenset(
 )
 _BATCH_SAFE_GENERATION_REFRESH_OPS = frozenset(
     {
+        "extract_text",
+        "extract_value",
         "wait_for_selector",
         "wait_for_text",
         "wait_for_load_state",
@@ -215,13 +227,15 @@ _BROWSER_NON_RETRYABLE_BLOCKER_TOKENS = frozenset(
         "payment_required",
         "security_verification",
         "task_deadline_exhausted",
+        "browser_subagent_cancelled",
     }
 )
 _BROWSER_FIELD_ALIASES: Dict[str, tuple[str, ...]] = {
     "title": ("title", "name", "标题", "名称", "电影", "商品"),
     "url": ("url", "link", "href", "primary link", "primary_link", "链接", "网址"),
     "price": ("price", "cost", "价格", "价钱", "费用"),
-    "rating": ("rating", "score", "评分", "星级"),
+    "rating": ("rating", "score", "评分"),
+    "hotel_stars": ("hotel stars", "star classification", "星级"),
     "product_rating": ("product rating", "item rating", "商品评分", "宝贝评分"),
     "shop_rating": ("shop rating", "seller rating", "store rating", "店铺评分", "卖家评分"),
     "author": ("author", "creator", "writer", "作者", "博主", "发布者", "回答者"),
@@ -254,7 +268,6 @@ _BROWSER_FIELD_ALIASES: Dict[str, tuple[str, ...]] = {
     "address": ("address", "location", "地址", "地点"),
 }
 # Inferred display fields are advisory; these distinctions require typed evidence.
-_BROWSER_STRICT_EVIDENCE_FIELDS = frozenset({"rating", "product_rating", "shop_rating", "sort_state"})
 _BROWSER_EVALUATE_FIELD_ALIASES = {
     "article_title": "title",
     "page_title": "title",
@@ -448,6 +461,8 @@ class BrowserAgentRuntime:
         self._selector_primary_links = self._page_state.selector_primary_links
         self._last_observed_url = ""
         self._semantic_state_tracker = SemanticStateTracker()
+        self._task_turn = None
+        self._post_observation: Optional[Dict[str, Any]] = None
         _ACTIVE_BROWSER_RUNTIMES.add(self)
 
     @property
@@ -482,7 +497,7 @@ class BrowserAgentRuntime:
     def code_executor(self) -> Any:
         return self._code_executor
 
-    def _ensure_page_state(self) -> BrowserPageState:
+    def ensure_page_state(self) -> BrowserPageState:
         """Create PageState lazily for compatibility with lightweight test runtimes."""
         page_state = getattr(self, "_page_state", None)
         if isinstance(page_state, BrowserPageState):
@@ -499,24 +514,24 @@ class BrowserAgentRuntime:
 
     @property
     def page_id(self) -> str:
-        return self._ensure_page_state().page_id
+        return self.ensure_page_state().page_id
 
     @property
     def generation_id(self) -> str:
-        return self._ensure_page_state().generation_id
+        return self.ensure_page_state().generation_id
 
     def export_page_state(self) -> Dict[str, Any]:
-        return self._ensure_page_state().export()
+        return self.ensure_page_state().export()
 
     def set_task_requested_fields(self, fields: Iterable[str]) -> None:
         """Keep PageState projection scoped to fields requested by this task."""
 
-        self._ensure_page_state().set_requested_fields(fields)
+        self.ensure_page_state().set_requested_fields(fields)
 
     def resolve_model_target_id(self, target_id: str) -> BrowserTarget:
         """Resolve or safely refresh a runtime-owned model target."""
 
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         normalized = str(target_id or "").strip()
         target = page_state.get_target(normalized)
         if target is None:
@@ -536,89 +551,73 @@ class BrowserAgentRuntime:
     def target_recovery_state(self, target_id: str) -> Dict[str, Any]:
         """Return bounded current-generation recovery details for one target."""
 
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         return {
             "current_generation": page_state.generation_id,
             "candidate_fresh_targets": page_state.recovery_candidates(target_id, limit=5),
         }
 
     def _advance_page_generation(self) -> None:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         page_state.advance()
         self._page_generation = page_state.generation
 
-    def _observe_page_url(self, url: Any, *, force_navigation: bool = False) -> None:
+    def observe_page_url(self, url: Any, *, force_navigation: bool = False) -> None:
         normalized = str(url or "").strip()
         changed = bool(
             normalized
             and (
-                (self._last_observed_url and normalized != self._last_observed_url)
+                (self._last_observed_url and not same_page_url(normalized, self._last_observed_url))
                 or (not self._last_observed_url and bool(self._reference_generations))
             )
         )
         if force_navigation or changed:
             self._advance_page_generation()
-        self._ensure_page_state().observe(url=normalized)
+        self.ensure_page_state().observe(url=normalized)
         if normalized:
             self._last_observed_url = normalized
 
     @classmethod
     def extract_result_url(cls, value: Any) -> str:
+        return cls.extract_result_page(value).get("url", "")
+
+    @classmethod
+    def extract_result_page(cls, value: Any) -> Dict[str, str]:
+        """Decode one current-page record; never pair metadata from different tabs."""
         if isinstance(value, dict):
-            direct = value.get("url")
-            if direct:
-                return str(direct)
-            page = value.get("page")
-            if isinstance(page, dict) and page.get("url"):
-                return str(page["url"])
-            for key in ("page", "page_state", "result", "content", "text"):
-                nested = value.get(key)
-                resolved = cls.extract_result_url(nested)
+            if value.get("url"):
+                return {"url": str(value.get("url")), "title": str(value.get("title") or "")}
+            for key in ("result", "content", "text", "page", "page_state"):
+                resolved = cls.extract_result_page(value.get(key))
                 if resolved:
                     return resolved
         elif isinstance(value, (list, tuple)):
             for nested in value:
-                resolved = cls.extract_result_url(nested)
+                resolved = cls.extract_result_page(nested)
                 if resolved:
                     return resolved
         elif isinstance(value, str):
+            current_tab = re.search(
+                r"^\s*-\s*\d+:\s*\(current\)\s*\[(.*?)\]\((https?://[^\r\n]+)\)\s*$",
+                value, re.MULTILINE,
+            )
+            if current_tab:
+                return {"url": current_tab.group(2), "title": current_tab.group(1)}
             match = re.search(
                 r"^\s*(?:-\s+)?Page\s+URL\s*:\s*(https?://[^\s<>\"]+)",
                 value,
                 re.IGNORECASE | re.MULTILINE,
             )
             if match is not None:
-                return match.group(1).rstrip(".,;)")
-        return ""
+                title = re.search(r"^\s*(?:-\s+)?Page\s+Title\s*:\s*([^\r\n]+)",
+                                  value, re.IGNORECASE | re.MULTILINE)
+                return {"url": match.group(1).rstrip(".,;)"), "title": title.group(1).strip() if title else ""}
+        return {}
 
     @classmethod
-    def _extract_result_title(cls, value: Any) -> str:
-        if isinstance(value, dict):
-            direct = value.get("title")
-            if direct:
-                return str(direct)
-            page = value.get("page")
-            if isinstance(page, dict) and page.get("title"):
-                return str(page["title"])
-            for key in ("page", "page_state", "result", "content", "text"):
-                nested = value.get(key)
-                resolved = cls._extract_result_title(nested)
-                if resolved:
-                    return resolved
-        elif isinstance(value, (list, tuple)):
-            for nested in value:
-                resolved = cls._extract_result_title(nested)
-                if resolved:
-                    return resolved
-        elif isinstance(value, str):
-            match = re.search(
-                r"^\s*(?:-\s+)?Page\s+Title\s*:\s*([^\r\n]+)",
-                value,
-                re.IGNORECASE | re.MULTILINE,
-            )
-            if match is not None:
-                return match.group(1).strip()
-        return ""
+    def extract_result_title(cls, value: Any) -> str:
+        """Extract the current page title from structured or native MCP results."""
+        return cls.extract_result_page(value).get("title", "")
 
     @classmethod
     def classify_tool_result(cls, value: Any) -> Dict[str, Any]:
@@ -699,6 +698,11 @@ class BrowserAgentRuntime:
                     continue
                 if _BROWSER_TOOL_ERROR_PREFIX_RE.match(item["text"]):
                     return True, denied, item["text"].strip()
+        for key in ("result", "data"):
+            if isinstance(value.get(key), (dict, str)):
+                nested = BrowserAgentRuntime.classify_tool_result(value[key])
+                if not nested["success"]:
+                    return True, denied or nested["denied"], error_text or nested["error"]
         return failure, denied, error_text
 
     @classmethod
@@ -706,7 +710,7 @@ class BrowserAgentRuntime:
         return bool(cls.classify_tool_result(value)["success"])
 
     def _register_snapshot_refs(self, value: Any, *, replace: bool = False) -> None:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         registered = page_state.replace_ax_snapshot(value) if replace else page_state.register_ax_snapshot(value)
         if registered:
             return
@@ -716,7 +720,7 @@ class BrowserAgentRuntime:
             page_state.reference_generations[str(ref_value)] = page_state.generation
 
     def validate_reference_values(self, values: Iterable[str]) -> None:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         stale_values: set[str] = set()
         for ref_value in values:
             ref_generation = page_state.reference_generations.get(ref_value)
@@ -739,10 +743,22 @@ class BrowserAgentRuntime:
         tool_result: Any,
     ) -> None:
         normalized_name = str(tool_name or "").strip().lower()
+        if normalized_name.endswith(("browser_recall_offload", "browser_runtime_health",
+                                     "browser_list_custom_actions")):
+            return  # Saved text may contain an old URL/AX tree; it is never a live page capture.
         if not self.tool_result_succeeded(tool_result):
             return
-        result_url = self.extract_result_url(tool_result)
-        result_title = self._extract_result_title(tool_result)
+        metadata = tool_result
+        if "browser_evaluate" in normalized_name and isinstance(tool_result, dict):
+            # Evaluated business data can contain url/title without navigating.
+            metadata = {
+                key: tool_result[key] for key in ("page", "page_state", "content", "text") if key in tool_result
+            }
+            if isinstance(tool_result.get("result"), str):
+                metadata["result"] = tool_result["result"]
+        page_metadata = self.extract_result_page(metadata)
+        result_url = page_metadata.get("url", "")
+        result_title = page_metadata.get("title", "")
         navigation_like = _contains_any_token(
             normalized_name,
             ("browser_navigate", "browser_navigate_back", "browser_tabs"),
@@ -753,8 +769,8 @@ class BrowserAgentRuntime:
                 "select",
                 "close",
             }
-        self._observe_page_url(result_url, force_navigation=navigation_like)
-        self._ensure_page_state().observe(url=result_url, title=result_title)
+        self.observe_page_url(result_url, force_navigation=navigation_like)
+        self.ensure_page_state().observe(url=result_url, title=result_title)
         if "browser_snapshot" in normalized_name or "browser_find" in normalized_name:
             self._register_snapshot_refs(tool_result)
 
@@ -769,14 +785,19 @@ class BrowserAgentRuntime:
                 self._annotate_probe_generation(nested)
 
     def register_card_primary_links(self, result: Dict[str, Any]) -> None:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         cards = result.get("cards")
         if not isinstance(cards, list):
             return
         for card in cards:
             if not isinstance(card, dict):
                 continue
-            href = str(card.get("primary_link") or card.get("href") or "").strip()
+            href = navigation_destination(
+                card.get("primary_link") or card.get("href"), page_state.url,
+                role=str(card.get("role") or ""), kind=str(card.get("kind") or ""),
+            )
+            if card.get("recommended_action") == "click":
+                href = ""
             if not href:
                 continue
             for key in ("selector_hint", "primary_link_selector_hint"):
@@ -797,21 +818,21 @@ class BrowserAgentRuntime:
             parsed = tool_args
         if not isinstance(parsed, dict):
             return ""
-        explicit = str(parsed.get("primary_link") or parsed.get("href") or parsed.get("url") or "").strip()
-        if explicit:
-            return explicit
         target_id = str(parsed.get("target_id") or parsed.get("target") or "").strip()
         if target_id.startswith("t_g"):
             try:
                 target = self.resolve_model_target_id(target_id)
             except ValueError:
                 target = None
-            if target is not None and target.href:
-                return target.href
+            if target is not None:
+                return target.navigation_url
+        explicit = str(parsed.get("primary_link") or parsed.get("href") or parsed.get("url") or "").strip()
+        if explicit:
+            return navigation_destination(explicit, self.ensure_page_state().url)
         for key in ("selector", "target"):
             selector = str(parsed.get(key) or "").strip()
             generation_and_href = self._selector_primary_links.get(selector)
-            if generation_and_href and generation_and_href[0] == self._ensure_page_state().generation:
+            if generation_and_href and generation_and_href[0] == self.ensure_page_state().generation:
                 return generation_and_href[1]
         return ""
 
@@ -877,11 +898,11 @@ class BrowserAgentRuntime:
         return result
 
     @staticmethod
-    def _unwrap_mcp_text_result(raw: Any) -> Any:
+    def unwrap_mcp_text_result(raw: Any) -> Any:
         """Extract text payload from common MCP tool-result shapes."""
         if isinstance(raw, dict):
             if raw.get("__browser_compact_rpc__") is True:
-                return BrowserAgentRuntime._unwrap_mcp_text_result(raw.get("payload"))
+                return BrowserAgentRuntime.unwrap_mcp_text_result(raw.get("payload"))
 
             content = raw.get("content")
             if isinstance(content, list):
@@ -906,9 +927,8 @@ class BrowserAgentRuntime:
     @classmethod
     def _compact_run_code_payload(cls, payload: Any) -> Any:
         """Keep the JSON result and discard generic run-code page-state text."""
-        unwrapped = cls._unwrap_mcp_text_result(payload)
-        parsed = extract_json_object(unwrapped)
-        if isinstance(parsed, dict):
+        parsed = decode_mcp_result(payload)
+        if isinstance(parsed, (dict, list)):
             return json.dumps(
                 parsed,
                 ensure_ascii=False,
@@ -1023,7 +1043,7 @@ class BrowserAgentRuntime:
 
         return await self._get_playwright_mcp_tool("browser_run_code"), "browser_run_code"
 
-    async def _call_playwright_run_code_unsafe(self, js_code: str) -> Any:
+    async def call_playwright_run_code_unsafe(self, js_code: str) -> Any:
         """Execute a compact runtime RPC over the registered Playwright transport."""
         total_started_at = time.perf_counter()
         resolution_started_at = time.perf_counter()
@@ -1060,7 +1080,7 @@ class BrowserAgentRuntime:
             },
         }
 
-    async def _call_playwright_tool(self, tool_name: str, inputs: Dict[str, Any]) -> Any:
+    async def call_playwright_tool(self, tool_name: str, inputs: Dict[str, Any]) -> Any:
         """Invoke one registered Playwright MCP tool and unwrap its result data."""
         tool = await self._get_playwright_mcp_tool(tool_name)
         result = await tool.invoke(inputs)
@@ -1082,29 +1102,34 @@ class BrowserAgentRuntime:
             return
 
         async def _direct_code_executor(js_code: str):
-            return await self._call_playwright_run_code_unsafe(js_code)
+            if execution_journal.active_policy_call("browser_batch_interact"):
+                return await self.call_fixed_with_observation(js_code)
+            return await self.call_playwright_run_code_unsafe(js_code)
 
         self._code_executor = _direct_code_executor
         self._controller.bind_code_executor(_direct_code_executor)
         self._controller.register_builtin_actions()
 
-    async def capture_browser_state(self, *, action_group_id: str = "") -> Dict[str, Any]:
+    async def capture_browser_state(
+        self, *, action_group_id: str = "", include_decision: bool = False
+    ) -> Dict[str, Any]:
         """Capture a fresh, non-cached browser observation for the next model call."""
         await self.ensure_runtime_ready()
+        if include_decision and self._has_post_observation():
+            return await self.capture_reconciliation_browser_state(
+                action_group_id=action_group_id, include_decision=True,
+            )
 
         dom = ""
         dom_error = None
         snapshot_captured = False
         snapshot_audit: Dict[str, Any] = {}
         try:
-            raw_snapshot = await self._call_playwright_tool("browser_snapshot", {})
-            raw_snapshot = self._unwrap_mcp_text_result(raw_snapshot)
+            raw_snapshot = await self.call_playwright_tool("browser_snapshot", {})
+            raw_snapshot = self.unwrap_mcp_text_result(raw_snapshot)
             snapshot_audit = write_browser_agent_audit_artifact("ax_snapshot", raw_snapshot)
             snapshot_captured = True
-            if isinstance(raw_snapshot, str):
-                dom = raw_snapshot
-            elif raw_snapshot is not None:
-                dom = json.dumps(raw_snapshot, ensure_ascii=False)
+            dom = decode_ax_text(raw_snapshot)
         except Exception as exc:
             dom_error = f"browser_snapshot failed: {exc}"
             logger.warning(
@@ -1113,12 +1138,22 @@ class BrowserAgentRuntime:
                 exc_info=True,
             )
 
-        metadata, metadata_error = await self._capture_browser_metadata()
+        if include_decision:
+            metadata, metadata_error = await self.capture_browser_metadata(include_decision=True)
+        else:
+            metadata, metadata_error = await self.capture_browser_metadata()
 
-        self._observe_page_url(metadata.get("url"))
-        self._ensure_page_state().observe(title=metadata.get("title"))
+        self.observe_page_url(metadata.get("url"))
+        self.ensure_page_state().observe(title=metadata.get("title"))
+        self._invalidate_changed_listing(metadata)
         if snapshot_captured:
             self._register_snapshot_refs(dom, replace=True)
+        decision_probe = metadata.pop("decision_probe", None)
+        if include_decision:
+            self.ensure_page_state().decision_snapshot = {}
+            if (isinstance(decision_probe, dict) and decision_probe.get("ok") is True
+                    and decision_probe.get("url") == metadata.get("url")):
+                self.ensure_page_state().register_interactives(decision_probe)
         page_state = self.export_page_state()
 
         errors = [error for error in (dom_error, metadata_error) if error]
@@ -1128,7 +1163,7 @@ class BrowserAgentRuntime:
         semantic_state.update(
             {
                 "url": metadata.get("url") or "",
-                "field_coverage": sorted(self._ensure_page_state().field_coverage),
+                "field_coverage": sorted(self.ensure_page_state().field_coverage),
             }
         )
         semantic_tracker = self._ensure_semantic_state_tracker()
@@ -1161,18 +1196,85 @@ class BrowserAgentRuntime:
             "semantic_progress": semantic_progress,
             "field_coverage": semantic_state.get("field_coverage") or [],
             "page_state": page_state,
-            "dom": "",
+            "dom": await self.project_native_observation(dom, "browser_snapshot"),
             "dom_error": dom_error,
             "audit": {"ax_snapshot": snapshot_audit} if snapshot_audit else {},
+            "decision_observation": self.ensure_page_state().export_decision_observation() if include_decision else {},
         }
 
-    async def capture_reconciliation_browser_state(self, *, action_group_id: str) -> Dict[str, Any]:
+    def _invalidate_changed_listing(self, metadata: Dict[str, Any]) -> None:
+        current = metadata.get("semantic_state") or {}
+        page = self.ensure_page_state()
+        # Reuse only while the already acquired live view agrees; no extra probe RPC.
+        read_view = {k: metadata.get(k) for k in ("url", "page_position")}
+        read_fields = ("form_values", "selected_filters", "first_card_title", "result_count")
+        read_view["semantic"] = {key: current.get(key) for key in read_fields}
+        cached = page.card_probe_cache
+        if cached and cached.get("view") != read_view:
+            page.card_probe_cache = {}
+        elif cached:
+            cached["view"] = copy.deepcopy(read_view)
+        before = page.observed_selected_filters
+        if before is None:
+            before = self._ensure_semantic_state_tracker().current_state.get("selected_filters")
+        after = current.get("selected_filters")
+        if before is not None and after is not None and before != after:
+            page.invalidate_listing(advance_revision=not page.pending_interaction)
+        # This is the first observed state after admission. A later independent
+        # change gets a new revision even if its URL does not change.
+        if after is not None:
+            page.observed_selected_filters = copy.deepcopy(after)
+        page.pending_interaction = False
+        page.observation_metadata = {k: metadata.get(k) for k in ("url", "title", "tabs", "page_position")}
+        page.observation_metadata["read_view"] = read_view
+
+    async def project_native_observation(self, text: str, tool_name: str) -> str:
+        """Keep native AX useful; persist the original before selecting an excerpt."""
+        if len(text) <= 6000:
+            return text
+        persist = getattr(self, "persist_observation", None)
+        if not callable(persist):
+            return text
+        try:
+            handle = await persist(text, tool_name)
+        except (OSError, ValueError) as exc:
+            logger.warning("Browser native observation recall unavailable: %s", exc)
+            return text
+        lines = text.splitlines()
+        controls = []
+        for index, line in enumerate(lines):
+            if re.search(r"- (?:textbox|searchbox|combobox|button|tab|radio|checkbox)\b", line):
+                controls.append(index)
+        headings = [index for index, line in enumerate(lines) if re.search(r"- heading\b", line)]
+        priority = controls + list(range(min(8, len(lines)))) + headings
+        for index in controls + headings:
+            priority.extend(range(max(0, index - 1), min(len(lines), index + 2)))
+        priority.extend(range(len(lines)))
+        indices: set[int] = set()
+        size = 0
+        for index in priority:
+            if index not in indices and size + len(lines[index]) + 1 <= 6000:
+                indices.add(index)
+                size += len(lines[index]) + 1
+        excerpt = "\n".join(lines[index] for index in sorted(indices))
+        return f'{excerpt}\n<persisted-output handle="{handle}">Native AX; recall for omitted text.</persisted-output>'
+
+    async def capture_reconciliation_browser_state(self, *, action_group_id: str,
+                                                   include_decision: bool = False) -> Dict[str, Any]:
         """Reconcile an ambiguous mutation without capturing a full AX snapshot."""
 
         await self.ensure_runtime_ready()
-        metadata, metadata_error = await self._capture_browser_metadata()
-        self._observe_page_url(metadata.get("url"))
-        self._ensure_page_state().observe(title=metadata.get("title"))
+        decision_kwargs = {"include_decision": True} if include_decision else {}
+        metadata, metadata_error = await self.capture_browser_metadata(**decision_kwargs)
+        self.observe_page_url(metadata.get("url"))
+        self.ensure_page_state().observe(title=metadata.get("title"))
+        self._invalidate_changed_listing(metadata)
+        decision_probe = metadata.pop("decision_probe", None)
+        if include_decision:
+            self.ensure_page_state().decision_snapshot = {}
+            if (isinstance(decision_probe, dict) and decision_probe.get("ok") is True
+                    and decision_probe.get("url") == metadata.get("url")):
+                self.ensure_page_state().register_interactives(decision_probe)
         page_state = self.export_page_state()
         semantic_state = metadata.get("semantic_state")
         if not isinstance(semantic_state, dict):
@@ -1213,10 +1315,16 @@ class BrowserAgentRuntime:
             "dom": "",
             "dom_error": None,
             "reconciliation_only": True,
+            "capture_source": metadata.get("capture_source", "reconciliation_rpc"),
+            "decision_observation": self.ensure_page_state().export_decision_observation() if include_decision else {},
         }
 
     async def capture_compact_browser_state(self, *, action_group_id: str) -> Dict[str, Any]:
         """Merge completed read-only observations without another browser round trip."""
+        if self._has_post_observation():
+            return await self.capture_reconciliation_browser_state(
+                action_group_id=action_group_id, include_decision=True,
+            )
         page_state = self.export_page_state()
         semantic_tracker = self._ensure_semantic_state_tracker()
         semantic_state = semantic_tracker.current_state
@@ -1239,14 +1347,15 @@ class BrowserAgentRuntime:
             "error": None,
             "url": page_state.get("url") or "",
             "title": page_state.get("title") or "",
-            "tabs": [],
-            "page_position": {},
+            "tabs": self.ensure_page_state().observation_metadata.get("tabs") or [],
+            "page_position": self.ensure_page_state().observation_metadata.get("page_position") or {},
             "semantic_state": semantic_state,
             "semantic_progress": semantic_progress,
             "field_coverage": semantic_state["field_coverage"],
             "page_state": page_state,
             "dom": "",
             "dom_error": None,
+            "decision_observation": self.ensure_page_state().export_decision_observation(),
         }
 
     def _with_semantic_provenance(
@@ -1261,12 +1370,27 @@ class BrowserAgentRuntime:
         semantic_progress["semantic_state"] = semantic_state
         return semantic_state
 
-    async def _capture_browser_metadata(self) -> tuple[Dict[str, Any], Optional[str]]:
+    async def capture_browser_metadata(
+        self, *, include_decision: bool = False
+    ) -> tuple[Dict[str, Any], Optional[str]]:
         """Capture the bounded metadata used for semantic reconciliation."""
-
+        if include_decision and self._has_post_observation():
+            metadata = self._post_observation["metadata"]
+            self._post_observation = None
+            return {**copy.deepcopy(metadata), "capture_source": "post_action_rpc"}, None
         try:
-            raw_metadata = await self._call_playwright_run_code_unsafe(build_browser_state_metadata_js())
-            raw_metadata = self._unwrap_mcp_text_result(raw_metadata)
+            decision_probe = ""
+            if include_decision:
+                decision_probe = build_interactive_probe_js(
+                    max_items=100,
+                    generation_id=self.generation_id, decision_mode=True,
+                    intent=getattr(getattr(self, "decision_policy", None), "current_intent", ""),
+                    site_profiles=site_profiles_for_url(self.ensure_page_state().url),
+                )
+            raw_metadata = await self.call_playwright_run_code_unsafe(
+                build_browser_state_metadata_js(decision_probe=decision_probe)
+            )
+            raw_metadata = self.unwrap_mcp_text_result(raw_metadata)
             metadata = extract_json_object(raw_metadata)
             if not metadata:
                 return {}, "Could not parse browser state metadata result JSON"
@@ -1281,10 +1405,131 @@ class BrowserAgentRuntime:
             )
             return {}, f"browser state metadata capture failed: {exc}"
 
+    def _has_post_observation(self) -> bool:
+        cached = getattr(self, "_post_observation", None)
+        page = self.ensure_page_state()
+        return bool(cached and time.monotonic() - cached["at"] <= 5
+                    and cached["scope"] == (page.page_id, page.generation_id, page.interaction_revision, page.url))
+
+    def clear_post_observation(self) -> None:
+        self._post_observation = None
+
+    def retain_post_observation(self, parsed: Dict[str, Any]) -> None:
+        metadata = parsed.pop("_runtime_observation", None)
+        if not isinstance(metadata, dict) or metadata.get("ok") is False:
+            return
+        if parsed.get("decision_snapshot") and not metadata.get("decision_probe"):
+            metadata["decision_probe"] = copy.deepcopy(parsed)
+        probe = metadata.get("decision_probe") or {}
+        if not probe.get("ok") or probe.get("url") != metadata.get("url"):
+            return
+        self.observe_page_url(metadata.get("url"))
+        page = self.ensure_page_state()
+        page.observe(title=metadata.get("title"))
+        self._invalidate_changed_listing(metadata)
+        page.register_interactives(probe)
+        self._post_observation = {
+            "at": time.monotonic(), "metadata": metadata,
+            "scope": (page.page_id, page.generation_id, page.interaction_revision, page.url),
+        }
+
+    def _fixed_observation_script(self, js_code: str, *, reuse_probe: bool = False) -> str:
+        probe = "" if reuse_probe else build_interactive_probe_js(
+            max_items=100, generation_id=self.generation_id, decision_mode=True,
+            intent=getattr(getattr(self, "decision_policy", None), "current_intent", ""),
+            site_profiles=site_profiles_for_url(self.ensure_page_state().url),
+        )
+        metadata = build_browser_state_metadata_js(decision_probe=probe)
+        # Only runtime-owned operations enter here, after ordinary admission.
+        # A probe failure must never discard or replay the action's receipt.
+        return ("async (page) => { const result = await (" + js_code + ")(page); "
+                "try { if (result && typeof result === 'object' && (!result.url || result.url === page.url()) "
+                "&& !result.page_binding?.tab_switched) { let timer; try { "
+                "result._runtime_observation = await Promise.race([(" + metadata + ")(page), "
+                "new Promise(resolve => {timer = setTimeout(() => resolve(null), 2000);})]); "
+                "} finally {clearTimeout(timer);} } } catch (_) {} return result; }")
+
+    async def call_fixed_with_observation(self, js_code: str) -> Any:
+        self._post_observation = None
+        raw = await self.call_playwright_run_code_unsafe(self._fixed_observation_script(js_code))
+        parsed = decode_mcp_result(raw)
+        if isinstance(parsed, dict) and "_runtime_observation" in parsed:
+            self.retain_post_observation(parsed)
+            if isinstance(raw, dict) and raw.get("__browser_compact_rpc__"):
+                return {**raw, "payload": parsed}
+            return parsed
+        return raw
+
+    async def enrich_action_capabilities(self, inputs: Any) -> None:
+        """Populate missing facts from exact registered targets for either model.
+
+        Reuse captured facts when present. This read is bounded and cannot turn
+        an unknown business effect into a local action based on model arguments.
+        """
+        tool = str(getattr(inputs, "tool_name", ""))
+        args = execution_journal.arguments(inputs)
+        if not execution_journal.is_write(tool, args):
+            return
+        steps = args.get("steps") if tool.endswith("browser_batch_interact") else [args]
+        page = self.ensure_page_state()
+        generation = page.generation_id
+        targets = {}
+        try:
+            for step in (steps or [])[:30]:
+                raw = str(step.get("ref") or step.get("target") or "")
+                target = page.resolve_target(
+                    generation_id=generation, target_id=step.get("target_id", ""),
+                    ref=raw if re.fullmatch(r"(?:f\d+)?e\d+", raw) else "",
+                    selector=step.get("selector") or (raw if raw and not re.fullmatch(r"(?:f\d+)?e\d+", raw) else ""),
+                )
+                if target is None or target.decision_state.get("node_guard"):
+                    continue
+                if target.source == "ax" and target.ref and not target.selector:
+                    target = await self._materialize_ax_target(target)
+                if target.selector:
+                    targets[target.selector] = target
+            if not targets:
+                return
+            raw = await self.call_playwright_run_code_unsafe(build_interactive_probe_js(
+                generation_id=generation, decision_mode=True, target_selectors=list(targets),
+                site_profiles=site_profiles_for_url(page.url),
+            ))
+            data = extract_json_object(self.unwrap_mcp_text_result(raw))
+            if page.generation_id != generation or data.get("url") != page.url:
+                return
+            for item in data.get("capabilities") or []:
+                target = targets.get(item.get("selector"))
+                if target is not None and (item.get("decision_state") or {}).get("node_guard"):
+                    target.decision_state = dict(item["decision_state"])
+                    target.kind = str(item.get("kind") or target.kind)
+                    target.role = str(item.get("role") or target.role)
+                    target.href = str(item.get("href") or target.href)
+        except Exception as exc:
+            # The normal tool validates stale targets. Missing capability proof
+            # stays conservative; cancellation still propagates.
+            logger.debug("Browser capability enrichment unavailable: %s", type(exc).__name__)
+
     async def acquire_task_resources(self) -> None:
         """Acquire one task reference before invoking a reusable subagent."""
+        if getattr(self, "_task_turn", None) is not None:
+            return
+        from .service_registry import BROWSER_SERVICE_REGISTRY
+
+        turn = BROWSER_SERVICE_REGISTRY.task_turn(self._service.lifecycle_identity)
+        await turn.__aenter__()
+        self._task_turn = turn
         _ACTIVE_BROWSER_RUNTIMES.add(self)
-        self._service.acquire_task_binding()
+        try:
+            self._service.acquire_task_binding()
+        except BaseException:
+            self._task_turn = None
+            await turn.__aexit__(None, None, None)
+            raise
+
+    @property
+    def task_resources_acquired(self) -> bool:
+        """Whether this task owns the shared browser's execution turn."""
+        return getattr(self, "_task_turn", None) is not None
 
     async def ensure_started(self) -> None:
         await self.ensure_runtime_ready()
@@ -1370,11 +1615,12 @@ class BrowserAgentRuntime:
                 "function": function,
             }
         )
-        if getattr(result, "success", None) is False:
-            error = str(getattr(result, "error", "") or "").strip()
+        outcome = self.classify_tool_result(result)
+        if not outcome["success"]:
+            error = str(outcome["error"] or "").strip()
             raise ValueError(error or f"Failed to resolve AX ref {ref_value} for batch execution")
         selector = f'[{attribute}="{marker_value}"]'
-        self._ensure_page_state().update_target_locator(
+        self.ensure_page_state().update_target_locator(
             target.target_id,
             {"selector": selector},
         )
@@ -1388,12 +1634,15 @@ class BrowserAgentRuntime:
         option: bool = False,
         allow_navigation_rewrite: bool = False,
     ) -> None:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         prefix = "option_" if option else ""
         target_id = str(
             step.get(f"{prefix}target_id") or (step.get("choose_target_id") if option else "") or ""
         ).strip()
         ref_value = str(step.get(f"{prefix}ref") or (step.get("choose_ref") if option else "") or "").strip()
+        ref_match = _BROWSER_EXPLICIT_REF_RE.fullmatch(ref_value)
+        if ref_match:
+            ref_value = ref_match.group(1)
         selector = str(step.get(f"{prefix}selector") or (step.get("choose_selector") if option else "") or "").strip()
         op = str(step.get("op") or "").strip().lower()
 
@@ -1411,22 +1660,14 @@ class BrowserAgentRuntime:
         )
         if target is None:
             return
-        if target.href and target.source in {"card", "card_primary_link"} and op == "click":
-            if allow_navigation_rewrite:
-                for key in _BATCH_MODEL_LOCATOR_KEYS:
-                    step.pop(key, None)
-                step["resolved_target_id"] = target.target_id
-                step["_navigate_url"] = target.href
-                return
-            raise ValueError(
-                f"Target {target.target_id} has primary_link={target.href}; "
-                "call browser_navigate directly instead of clicking it in a batch"
-            )
-        requires_actionability = op in _BATCH_MUTATING_TARGET_OPS and target.source != "ax"
-        if requires_actionability:
-            is_unavailable = not target.visible or not target.enabled or not target.actionable
-            if is_unavailable:
-                raise ValueError(f"PageState target {target.target_id} is not actionable in {target.generation_id}")
+        if target.navigation_url and op == "click" and allow_navigation_rewrite:
+            for key in _BATCH_MODEL_LOCATOR_KEYS:
+                step.pop(key, None)
+            step["resolved_target_id"] = target.target_id
+            step["_navigate_url"] = target.navigation_url
+            return
+        # The preceding step may enable/reveal this control. Live DOM checks run
+        # immediately before the operation inside the compact Batch RPC.
         if target.locator.get("ref"):
             target = await self._materialize_ax_target(target)
 
@@ -1461,6 +1702,12 @@ class BrowserAgentRuntime:
             step["resolved_option_target_id"] = target.target_id
             return
 
+        if op == "wait_for_sort_state":
+            step.setdefault("expected_label", target.text or target.name)
+            if "text" in step:
+                step.setdefault("expected_value", step["text"])
+        if op == "wait_for_first_card_title" and "text" in step:
+            step.setdefault("expected_text", step["text"])
         for key in _BATCH_MODEL_LOCATOR_KEYS:
             step.pop(key, None)
         step.update(locator)
@@ -1475,73 +1722,33 @@ class BrowserAgentRuntime:
     ) -> list[Dict[str, Any]]:
         resolved_steps = [dict(step) for step in steps]
         for step in resolved_steps:
-            await self._resolve_batch_target(
-                step,
-                generation_id=generation_id,
-                allow_navigation_rewrite=allow_navigation_rewrite,
-            )
-            option_target_keys = (
-                "option_target_id",
-                "choose_target_id",
-                "option_ref",
-                "choose_ref",
-                "option_selector",
-                "choose_selector",
-            )
-            if _has_non_empty_mapping_value(step, option_target_keys):
+            if step.get("_target_error"):
+                continue
+            try:
                 await self._resolve_batch_target(
                     step,
                     generation_id=generation_id,
-                    option=True,
+                    allow_navigation_rewrite=allow_navigation_rewrite,
                 )
+                option_target_keys = (
+                    "option_target_id",
+                    "choose_target_id",
+                    "option_ref",
+                    "choose_ref",
+                    "option_selector",
+                    "choose_selector",
+                )
+                if _has_non_empty_mapping_value(step, option_target_keys):
+                    await self._resolve_batch_target(
+                        step,
+                        generation_id=generation_id,
+                        option=True,
+                    )
+            except ValueError as exc:
+                if not step.get("optional"):
+                    raise
+                step["_target_error"] = str(exc)
         return resolved_steps
-
-    async def _validate_safe_read_locators(self, steps: list[Dict[str, Any]]) -> None:
-        """Validate model-provided read locators once before batch execution."""
-        checks: list[Dict[str, Any]] = []
-        for index, step in enumerate(steps):
-            operation = str(step.get("op") or "").strip().lower()
-            selector = str(step.get("selector") or "").strip()
-            resolved_target_id = str(step.get("resolved_target_id") or "").strip()
-            if operation not in _BATCH_SAFE_READ_SELECTOR_OPS:
-                continue
-            if not selector or resolved_target_id:
-                continue
-            checks.append({"index": index, "selector": selector})
-        if not checks:
-            return
-        script = f"""() => {{
-          const checks = {json.dumps(checks, ensure_ascii=False)};
-          const results = checks.map((check) => {{
-            let nodes = [];
-            try {{ nodes = Array.from(document.querySelectorAll(check.selector)); }}
-            catch (error) {{
-              return {{...check, match_count: 0, visible: false, error: String(error)}};
-            }}
-            const element = nodes[0];
-            const visible = Boolean(element && element.isConnected &&
-              element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
-            return {{...check, match_count: nodes.length, visible}};
-          }});
-          return JSON.stringify({{ok: true, results}});
-        }}"""
-        raw = await self._call_playwright_run_code_unsafe(script)
-        parsed = extract_json_object(self._unwrap_mcp_text_result(raw))
-        results = parsed.get("results") if isinstance(parsed, dict) else None
-        if not isinstance(results, list):
-            raise ValueError("Could not validate safe batch read locators")
-        invalid = [
-            item
-            for item in results
-            if not isinstance(item, dict) or item.get("match_count") != 1 or item.get("visible") is not True
-        ]
-        if invalid:
-            first = invalid[0] if isinstance(invalid[0], dict) else {}
-            raise ValueError(
-                "Read-only batch selector must match exactly one visible element: "
-                f"step={first.get('index')}, selector={first.get('selector')}, "
-                f"match_count={first.get('match_count')}"
-            )
 
     async def _refresh_stale_batch_targets(
         self,
@@ -1551,26 +1758,34 @@ class BrowserAgentRuntime:
     ) -> tuple[list[Dict[str, Any]], str]:
         """Refresh stale Probe target IDs without reviving refs or CSS."""
 
-        page_state = self._ensure_page_state()
-        if str(generation_id or "").strip() == page_state.generation_id:
-            return [dict(step) for step in steps], ""
-
+        page_state = self.ensure_page_state()
         refreshed_steps = [dict(step) for step in steps]
+        for step in refreshed_steps:
+            step.pop("_target_error", None)
+        if str(generation_id or "").strip() == page_state.generation_id:
+            return refreshed_steps, ""
+
         refreshed_any = False
         target_alias_groups = (
             ("target_id",),
             ("option_target_id", "choose_target_id"),
         )
         for step in refreshed_steps:
-            step_refreshed = await self._refresh_stale_batch_step(
-                step,
-                page_state=page_state,
-                target_alias_groups=target_alias_groups,
-            )
-            refreshed_any = refreshed_any or step_refreshed
+            try:
+                step_refreshed = await self._refresh_stale_batch_step(
+                    step,
+                    page_state=page_state,
+                    target_alias_groups=target_alias_groups,
+                )
+                refreshed_any = refreshed_any or step_refreshed
+            except ValueError as exc:
+                if not step.get("optional"):
+                    raise
+                step["_target_error"] = str(exc)
 
         condition_only = all(
-            str(step.get("op") or "").strip().lower() in _BATCH_SAFE_GENERATION_REFRESH_OPS for step in refreshed_steps
+            step.get("_target_error") or str(step.get("op") or "").strip().lower() in _BATCH_SAFE_GENERATION_REFRESH_OPS
+            for step in refreshed_steps
         )
         if not refreshed_any and not condition_only:
             raise ValueError(
@@ -1628,7 +1843,7 @@ class BrowserAgentRuntime:
         require_actionable: bool,
     ) -> str:
         """Refresh a stable Probe locator after observation-only generation churn."""
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         stale = page_state.get_target(target_id)
         if stale is None:
             raise ValueError(f"Unknown PageState target_id: {target_id}")
@@ -1664,8 +1879,8 @@ class BrowserAgentRuntime:
           const actionable = Boolean(visible && enabled && hit && (hit === element || element.contains(hit)));
           return JSON.stringify({{ok: true, match_count: nodes.length, visible, enabled, actionable}});
         }}"""
-        raw = await self._call_playwright_run_code_unsafe(script)
-        validation = extract_json_object(self._unwrap_mcp_text_result(raw))
+        raw = await self.call_playwright_run_code_unsafe(script)
+        validation = extract_json_object(self.unwrap_mcp_text_result(raw))
         valid = (
             (
                 validation.get("ok") is True
@@ -1689,7 +1904,7 @@ class BrowserAgentRuntime:
         )
 
     def _batch_recovery_candidates(self, steps: Any) -> list[Dict[str, Any]]:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
         candidates: list[Dict[str, Any]] = []
         seen: set[str] = set()
         for step in steps if isinstance(steps, list) else []:
@@ -1781,6 +1996,7 @@ class BrowserAgentRuntime:
             )
             return None
         try:
+            execution_journal.mark_dispatched()
             tool_result = await tool.invoke(tool_args)
             success = self.tool_result_succeeded(tool_result)
             error = str(getattr(tool_result, "error", "") or "").strip()
@@ -1811,7 +2027,7 @@ class BrowserAgentRuntime:
         runtime_url = self.extract_result_url(payload)
         if tool_name == "browser_navigate" and success:
             runtime_url = runtime_url or str(tool_args.get("url") or "")
-        runtime_title = self._extract_result_title(payload)
+        runtime_title = self.extract_result_title(payload)
         step_result = {
             "index": 0,
             "op": op,
@@ -1832,6 +2048,9 @@ class BrowserAgentRuntime:
             "error": error or None,
             "action": "browser_batch_interact",
             "execution_mode": "primitive",
+            "executed": True if success else None,
+            "execution_state": "acknowledged" if success else "dispatched_unknown",
+            "state_changed": op not in _SINGLE_BATCH_CONDITION_OPS,
             "generation_id": self.generation_id,
             "steps": [step_result],
             "extracted": {},
@@ -1856,8 +2075,10 @@ class BrowserAgentRuntime:
         global_timeout_ms: Any = None,
         session_id: str = "",
         request_id: str = "",
+        allow_stale_recovery: bool = True,
     ) -> Dict[str, Any]:
-        page_state = self._ensure_page_state()
+        page_state = self.ensure_page_state()
+        steps = self.normalize_model_batch_steps(steps)
         validation_errors = validate_batch_steps(steps)
         validation_errors.extend(self._validate_batch_target_contract(steps))
         if validation_errors:
@@ -1865,36 +2086,44 @@ class BrowserAgentRuntime:
                 "ok": False,
                 "status": "failed",
                 "error": f"batch_validation_failed: {validation_errors[0]}",
+                "executed": False,
+                "state_changed": False,
                 "validation_errors": validation_errors,
                 "page_state": page_state.export(),
             }
         recovered_generation = ""
         try:
-            refreshed_steps, recovered_generation = await self._refresh_stale_batch_targets(
-                steps,
-                generation_id=generation_id,
-            )
+            if allow_stale_recovery:
+                refreshed_steps, recovered_generation = await self._refresh_stale_batch_targets(
+                    steps,
+                    generation_id=generation_id,
+                )
+            else:
+                page_state.validate_generation(generation_id)
+                refreshed_steps = steps
             effective_generation_id = page_state.generation_id
             page_state.validate_generation(effective_generation_id)
             await self.ensure_runtime_ready()
             resolved_steps = await self._resolve_batch_steps(
                 refreshed_steps,
                 generation_id=effective_generation_id,
-                allow_navigation_rewrite=len(refreshed_steps) == 1,
+                allow_navigation_rewrite=allow_stale_recovery and len(refreshed_steps) == 1,
             )
-            await self._validate_safe_read_locators(resolved_steps)
         except ValueError as exc:
             return {
                 "ok": False,
                 "status": "failed",
                 "error": f"batch_target_validation_failed: {exc}",
+                "executed": False,
+                "state_changed": False,
                 "generation_id": page_state.generation_id,
                 "current_generation": page_state.generation_id,
                 "candidate_fresh_targets": self._batch_recovery_candidates(steps),
                 "page_state": page_state.export(),
             }
         result = None
-        if len(resolved_steps) == 1:
+        if (len(resolved_steps) == 1 and not resolved_steps[0].get("_target_error")
+                and not execution_journal.active_policy_call()):
             result = await self._run_single_batch_primitive(resolved_steps[0])
         if result is None:
             self._controller.bind_runtime(self)
@@ -1916,20 +2145,68 @@ class BrowserAgentRuntime:
             runtime_page = result.pop("_runtime_page", {})
             runtime_url = runtime_page.get("url") if isinstance(runtime_page, dict) else ""
             runtime_title = runtime_page.get("title") if isinstance(runtime_page, dict) else ""
+            binding = runtime_page.get("binding") if isinstance(runtime_page, dict) else None
+            if isinstance(binding, dict) and binding.get("tab_switched"):
+                # bringToFront alone does not select the MCP session's active tab.
+                try:
+                    selected = await self.call_playwright_tool(
+                        "browser_tabs", {"action": "select", "index": binding.get("tab_index")},
+                    )
+                except Exception as exc:
+                    selected = {"ok": False, "error": str(exc)[:500]}
+                actual = self.extract_result_page(selected)
+                if not self.tool_result_succeeded(selected) or actual.get("url") != runtime_url:
+                    result.update(ok=False, status="partial", error="browser_tab_binding_mismatch")
+                    result["recovery_hint"] = "Select the action popup before continuing; do not repeat executed steps."
+                    runtime_url, runtime_title = actual.get("url", ""), actual.get("title", "")
+                    binding = {**binding, "mcp_selected": False}
+                else:
+                    binding = {**binding, "mcp_selected": True}
+            if isinstance(binding, dict):
+                result["page_binding"] = {
+                    **binding, "url": str(runtime_page.get("url") or ""), "mcp_current_url": runtime_url,
+                }
             if result.get("execution_mode") != "primitive":
-                self._observe_page_url(runtime_url)
-            self._ensure_page_state().observe(
+                self.observe_page_url(runtime_url)
+            self.ensure_page_state().observe(
                 url=runtime_url,
                 title=runtime_title,
             )
             extracted = result.get("extracted")
             if isinstance(extracted, dict):
-                self._ensure_page_state().add_field_coverage(extracted.keys())
+                self.ensure_page_state().add_field_coverage(extracted.keys())
             result["generation_id"] = self.generation_id
             if recovered_generation:
                 result["generation_recovered_from"] = recovered_generation
             result["page_state"] = self.export_page_state()
         return result
+
+    def normalize_model_batch_steps(self, steps: Any) -> Any:
+        """Repair a target-less sorting wait only from its explicit preceding click."""
+        normalized = normalize_batch_steps(steps)
+        if not isinstance(normalized, list):
+            return normalized
+        for index, step in enumerate(normalized):
+            if not isinstance(step, dict) or index == 0:
+                continue
+            if step.get("op") not in {"wait_for_sort_state", "wait_for_dom_text_change"}:
+                continue
+            if any(step.get(key) for key in ("target_id", "ref", "selector", "role", "text")):
+                continue
+            previous = normalized[index - 1]
+            if not isinstance(previous, dict) or previous.get("op") != "click" or not previous.get("target_id"):
+                continue
+            try:
+                target = self.resolve_model_target_id(previous["target_id"])
+            except ValueError:
+                continue
+            if target.kind not in {"sort", "sort_tab", "sort_option"} or not target.actionable:
+                continue
+            step["op"] = "wait_for_sort_state"
+            step["target_id"] = target.target_id
+            step["expected_label"] = target.name or target.text
+            step.pop("previous_text", None)
+        return normalized
 
     @staticmethod
     def _validate_batch_target_contract(steps: Any) -> list[str]:
@@ -1939,13 +2216,13 @@ class BrowserAgentRuntime:
             if not isinstance(step, dict):
                 continue
             op = str(step.get("op") or "").strip().lower()
-            if op in _BATCH_MUTATING_TARGET_OPS and not str(step.get("target_id") or "").strip():
-                errors.append(f"steps[{index}] op={op} requires target_id from the current PageState")
+            if op in _BATCH_MUTATING_TARGET_OPS and not any(step.get(key) for key in ("target_id", "ref")):
+                errors.append(f"steps[{index}] op={op} requires target_id or native ref from the current PageState")
             if op not in _BATCH_SAFE_READ_SELECTOR_OPS:
                 continue
-            read_target_keys = [key for key in ("target_id", "selector") if str(step.get(key) or "").strip()]
+            read_target_keys = [key for key in ("target_id", "ref", "selector") if str(step.get(key) or "").strip()]
             if len(read_target_keys) != 1:
-                errors.append(f"steps[{index}] op={op} requires exactly one of target_id or selector")
+                errors.append(f"steps[{index}] op={op} requires exactly one of target_id, ref or selector")
         return errors
 
     async def run_custom_action(
@@ -1977,16 +2254,18 @@ class BrowserAgentRuntime:
 
         last_raw: Any = ""
         for attempt in range(2):
-            last_raw = await self._code_executor(js_code)
+            code = self._fixed_observation_script(js_code, reuse_probe=artifact_kind == "interactive_probe")
+            last_raw = await self._code_executor(code)
             if not self.tool_result_succeeded(last_raw):
                 return (
-                    {"ok": False, "error": str(self._unwrap_mcp_text_result(last_raw))[:1_000]},
+                    {"ok": False, "error": str(self.unwrap_mcp_text_result(last_raw))[:1_000]},
                     write_browser_agent_audit_artifact(artifact_kind, last_raw),
                     attempt,
                 )
-            last_raw = self._unwrap_mcp_text_result(last_raw)
+            last_raw = self.unwrap_mcp_text_result(last_raw)
             parsed = extract_json_object(last_raw)
             if parsed:
+                self.retain_post_observation(parsed)
                 return (
                     parsed,
                     write_browser_agent_audit_artifact(artifact_kind, last_raw),
@@ -2021,8 +2300,9 @@ class BrowserAgentRuntime:
             max_items=effective_max_items,
             viewport_only=viewport_only,
             query=query,
-            site_profiles=site_profiles_for_url(self._ensure_page_state().url),
+            site_profiles=site_profiles_for_url(self.ensure_page_state().url),
             generation_id=self.generation_id,
+            decision_mode=True,
         )
 
         try:
@@ -2044,33 +2324,52 @@ class BrowserAgentRuntime:
                 "error": parsed.get("error") or "Could not parse browser_probe_interactives result JSON",
                 "audit": raw_audit,
                 "elements": [],
-                "page_state": self._ensure_page_state().export_summary(),
+                "page_state": self.ensure_page_state().export_summary(),
             }
 
         parsed.setdefault("ok", True)
         parsed.setdefault("error", None)
         parsed.setdefault("elements", [])
-        self._observe_page_url(parsed.get("url"))
+        self.observe_page_url(parsed.get("url"))
         self._annotate_probe_generation(parsed)
-        page_state = self._ensure_page_state()
-        page_state.register_interactives(parsed)
+        page_state = self.ensure_page_state()
+        matches = page_state.register_interactives(parsed)
         exported = page_state.export()
+        # Node identity/fingerprints belong to the executor, including on recall.
+        public_observation = {key: value for key, value in parsed.items() if key != "decision_snapshot"}
+        public_observation["elements"] = [
+            {key: value for key, value in item.items() if key != "decision_state"}
+            for item in parsed["elements"] if isinstance(item, dict)
+        ]
         return {
             "ok": bool(parsed.get("ok")),
             "error": parsed.get("error"),
             "url": parsed.get("url") or exported.get("url"),
             "title": parsed.get("title") or exported.get("title"),
             "generation_id": exported["generation_id"],
-            "count": len(exported["interactives"]),
-            "elements": exported["interactives"],
+            "count": len(matches),
+            "elements": matches,
             "page_state": page_state.export_summary(),
             "diagnostics": {
                 "query": str(query or "")[:160],
                 "query_widened": bool(parsed.get("query_widened")),
                 "total_candidates": int(parsed.get("total_candidates") or 0),
                 "parse_retry_count": parse_retry_count,
+                "recovery": "Use a local native snapshot/find for this query." if not matches else "",
+                "unresolved_candidates": [
+                    {
+                        "name": str(item.get("accessible_name") or item.get("text") or "")[:120],
+                        "reason": item.get("actionability_reason") or (
+                            "not_actionable" if not item.get("actionable") else "selector_not_unique"
+                        ),
+                    }
+                    for item in parsed["elements"][:5]
+                    if isinstance(item, dict) and not item.get("target_id")
+                ],
             },
             "audit": raw_audit,
+            "local_excerpt": str(parsed.get("local_excerpt") or "")[:1200] if not matches else "",
+            "_raw_observation": public_observation,
         }
 
     async def probe_cards(
@@ -2092,11 +2391,20 @@ class BrowserAgentRuntime:
                 "page_state": self.export_page_state(),
             }
 
-        site_profiles = site_profiles_for_url(self._ensure_page_state().url)
+        site_profiles = site_profiles_for_url(self.ensure_page_state().url)
         selector_cache = get_selector_cache()
         selector_cache_records = selector_cache.export_for_probe()
 
         effective_max_cards = min(12, max(1, int(max_cards)))
+        page_state = self.ensure_page_state()
+        scope = (page_state.page_id, page_state.generation_id, page_state.interaction_revision, page_state.url,
+                 effective_max_cards, viewport_only, include_buttons, query)
+        cached = page_state.card_probe_cache
+        if (cached.get("scope") == scope and not page_state.listing_stale
+                and time.monotonic() - cached["at"] <= 5):
+            result = copy.deepcopy(cached["result"])
+            result["diagnostics"]["observation_reused"] = True
+            return result
         js_code = build_card_probe_js(
             max_cards=effective_max_cards,
             viewport_only=viewport_only,
@@ -2126,17 +2434,17 @@ class BrowserAgentRuntime:
                 "error": parsed.get("error") or "Could not parse browser_probe_cards result JSON",
                 "audit": raw_audit,
                 "cards": [],
-                "page_state": self._ensure_page_state().export_summary(),
+                "page_state": self.ensure_page_state().export_summary(),
             }
 
         parsed.setdefault("ok", True)
         parsed.setdefault("error", None)
         parsed.setdefault("cards", [])
-        self._observe_page_url(parsed.get("url"))
+        self.observe_page_url(parsed.get("url"))
         self._annotate_probe_generation(parsed)
         normalize_card_probe_payload(parsed)
-        page_state = self._ensure_page_state()
-        page_state.register_cards(parsed)
+        page_state = self.ensure_page_state()
+        cards = page_state.register_cards(parsed)
         self.register_card_primary_links(parsed)
         parsed["page_state"] = page_state.export()
 
@@ -2159,22 +2467,30 @@ class BrowserAgentRuntime:
                 )
 
         exported = page_state.export()
-        return {
+        result = {
             "ok": bool(parsed.get("ok")),
             "error": parsed.get("error"),
             "url": parsed.get("url") or exported.get("url"),
             "title": parsed.get("title") or exported.get("title"),
             "generation_id": exported["generation_id"],
-            "count": len(exported["cards"]),
+            "count": len(cards),
             "observed_count": int(parsed.get("observed_count") or 0),
-            "cards": exported["cards"],
+            "cards": cards,
             "page_state": page_state.export_summary(),
             "diagnostics": {
                 **(parsed.get("diagnostics") or parsed.get("cache_diagnostics") or {}),
                 "parse_retry_count": parse_retry_count,
+                "returned_count": len(cards),
+                "count_scope": "current_probe",
             },
             "audit": raw_audit,
+            "local_excerpt": str(parsed.get("local_excerpt") or "")[:1200] if not cards else "",
+            "_raw_observation": parsed,
         }
+        result["state_changed"] = False  # Reading/receiving observations is not a page mutation.
+        page_state.card_probe_cache = {"scope": scope, "at": time.monotonic(), "result": copy.deepcopy(result),
+                                      "view": copy.deepcopy(page_state.observation_metadata.get("read_view"))}
+        return result
 
     async def list_actions(self) -> Dict[str, Any]:
         return {
@@ -2201,11 +2517,17 @@ class BrowserAgentRuntime:
 
     async def release_task_resources(self) -> None:
         """Release task bindings while preserving Chrome and its profile."""
-        fully_released = await self._service.release_task_binding()
-        if fully_released:
-            self._advance_page_generation()
-            self._last_observed_url = ""
-            self._ensure_semantic_state_tracker().reset()
+        try:
+            fully_released = await self._service.release_task_binding()
+            if fully_released:
+                self._advance_page_generation()
+                self._last_observed_url = ""
+                self._ensure_semantic_state_tracker().reset()
+        finally:
+            turn = getattr(self, "_task_turn", None)
+            self._task_turn = None
+            if turn is not None:
+                await turn.__aexit__(None, None, None)
 
     async def reset(self) -> None:
         """Release the current browser and restart lazily on the next task."""
@@ -2309,9 +2631,10 @@ async def reset_managed_browser_runtime(
 class BrowserRuntimeRail(AgentRail):
     """Rail that makes direct browser sessions resumable and completion-aware."""
 
-    def __init__(self, runtime: BrowserAgentRuntime) -> None:
+    def __init__(self, runtime: BrowserAgentRuntime, *, recall_tool: Any = None) -> None:
         super().__init__()
         self._runtime = runtime
+        self._recall_tool = recall_tool
         self._status_logger = BrowserSubagentStatusLogger() if is_browser_subagent_status_log_enabled() else None
         browser_agent_log_info(
             "[BROWSER_SUBAGENT_BOOT] enabled=%s logger=%s",
@@ -2339,6 +2662,17 @@ class BrowserRuntimeRail(AgentRail):
             )
 
     async def before_invoke(self, ctx: AgentCallbackContext) -> None:
+        if not self._runtime.task_resources_acquired:
+            await self._runtime.acquire_task_resources()
+            ctx.extra["_browser_owns_task_turn"] = True
+        try:
+            await self._start_browser_invoke(ctx)
+        except BaseException:
+            if ctx.extra.pop("_browser_owns_task_turn", False):
+                await self._runtime.release_task_resources()
+            raise
+
+    async def _start_browser_invoke(self, ctx: AgentCallbackContext) -> None:
         if isinstance(getattr(ctx, "extra", None), dict):
             ctx.extra[_BROWSER_LOG_CONTEXT_TOKEN_KEY] = set_browser_agent_log_context(True)
             try:
@@ -2357,6 +2691,7 @@ class BrowserRuntimeRail(AgentRail):
         session = getattr(ctx, "session", None)
         if session is None:
             return
+        self._bind_observation_recall(session)
         self._hydrate_service_progress_from_session(session)
         query = getattr(getattr(ctx, "inputs", None), "query", None)
         task_text = str(query or "").strip()
@@ -2365,8 +2700,18 @@ class BrowserRuntimeRail(AgentRail):
                 session,
                 task_text,
                 resume=bool(ctx.extra.get("_browser_resume_requested")),
+                original_goal=self._browser_run_context(ctx).get("browser_original_user_goal"),
             )
             self._bind_shared_task_deadline(ctx, session, state)
+
+    def _bind_observation_recall(self, session: Any) -> None:
+        if self._recall_tool is None:
+            return
+
+        async def persist(content: str, name: str) -> str:
+            return await self._recall_tool.persist_observation(session, content, name)
+
+        self._runtime.persist_observation = persist
 
     async def before_model_call(self, ctx: AgentCallbackContext) -> None:
         self._emit_status("before_model_call", ctx)
@@ -2382,6 +2727,7 @@ class BrowserRuntimeRail(AgentRail):
                     session,
                     task_text,
                     resume=bool(ctx.extra.get("_browser_resume_requested")),
+                    original_goal=self._browser_run_context(ctx).get("browser_original_user_goal"),
                 )
                 self._bind_shared_task_deadline(ctx, session, state)
             self._sync_semantic_progress(session)
@@ -2390,6 +2736,14 @@ class BrowserRuntimeRail(AgentRail):
 
         if self._finish_if_task_deadline_exhausted(ctx, session, state):
             return
+
+        model = getattr(self._runtime, "llm_model", None)
+        client_config = getattr(model, "model_client_config", None)
+        limit = getattr(model, "_browser_first_chunk_limit", None)
+        if isinstance(limit, (int, float)) and client_config is not None:
+            remaining = min(float(state.get("deadline_at") or time.time() + limit) - time.time(),
+                            float(state.get("invocation_remaining_s", limit + 15)))
+            client_config.stream_first_chunk_timeout = max(0.1, min(limit, remaining - 15))
 
         if self._prepare_terminal_synthesis(ctx, session, state):
             return
@@ -2439,9 +2793,6 @@ class BrowserRuntimeRail(AgentRail):
         extra.setdefault(_BROWSER_ACTION_GROUP_RESULTS_KEY, {})[action_group_id] = {
             "expected": call_ids,
             "completed": [],
-            "read_only": all(
-                self._is_read_only_recovery(call.name, call.arguments) for call in tool_calls
-            ),
         }
 
     @staticmethod
@@ -2555,7 +2906,11 @@ class BrowserRuntimeRail(AgentRail):
         extra = getattr(ctx, "extra", None)
         deadline = float(extra.get(_BROWSER_TASK_DEADLINE_KEY) or 0.0) if isinstance(extra, dict) else 0.0
         remaining_s = deadline - time.monotonic() if deadline else 0.0
-        if ctx.retry_attempt < _BROWSER_MODEL_RETRY_LIMIT and remaining_s > 5.0:
+        state = ctx.session.get_state(_BROWSER_PHASE_STATE_KEY) if getattr(ctx, "session", None) is not None else {}
+        state = state if isinstance(state, dict) else {}
+        first_chunk_timeout = isinstance(exception, TimeoutError) or "first_chunk" in str(exception).lower()
+        retry_budget = ctx.retry_attempt < _BROWSER_MODEL_RETRY_LIMIT and remaining_s > 20.0
+        if retry_budget and not first_chunk_timeout and not unresolved_writes(state):
             ctx.request_retry(delay_seconds=min(0.5, max(0.0, remaining_s - 5.0)))
             return
         ctx.request_force_finish(self._structured_model_failure(ctx, exception))
@@ -2623,19 +2978,23 @@ class BrowserRuntimeRail(AgentRail):
             "output": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             "result_type": "error",
             "error": "model_provider_unavailable",
+            "authoritative_browser_result": self._authoritative_terminal_payload(state),
             "progress_state": self._load_progress_state(session).to_dict() if session is not None else {},
         }
 
     @classmethod
-    def _authoritative_terminal_payload(cls, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _authoritative_terminal_payload(cls, state: dict[str, Any]) -> dict[str, Any]:
+        """Execution facts plus worker judgment; never certify business semantics."""
         status = str(state.get("status") or "partial").strip().lower()
-        missing = cls._missing_completion_requirements(state)
-        unverified = cls._advisory_missing_fields(state) if status == "completed" else set()
-        missing = [field for field in missing if field not in unverified]
+        explicit = state.get("requirements_source") == "explicit"
+        missing = list(dict.fromkeys([
+            *cls._missing_completion_requirements(state), *cls._business_missing_requirements(state),
+        ]))
+        unavailable = cls._unavailable_evidence_slots(state)
+        missing = list(dict.fromkeys([*missing, *(slot["field"] for slot in unavailable)]))
+        if status == "completed" and missing:
+            status = "partial"
         blockers = [str(item) for item in state.get("blockers") or [] if str(item).strip()]
-        missing_slots = [slot for slot in cls._missing_evidence_slots(state) if slot["field"] not in unverified]
-        unavailable_slots = cls._unavailable_evidence_slots(state)
-        retryable = cls._terminal_result_retryable(state, missing)
         deadline_started_at = float(state.get("deadline_started_at") or 0.0)
         deadline_at = float(state.get("deadline_at") or 0.0)
         now = time.time()
@@ -2643,24 +3002,30 @@ class BrowserRuntimeRail(AgentRail):
             "status": status,
             "task_id": state.get("task_id"),
             "current_phase": state.get("current_phase"),
+            "worker_reported_status": state.get("worker_reported_status"),
             "missing_fields": missing[:32],
-            "unverified_fields": sorted(unverified)[:32],
-            "missing_slots": missing_slots[:12],
-            "unavailable_slots": unavailable_slots[:12],
-            "requested_slots": [
-                dict(slot)
-                for slot in (state.get("required_evidence_slots") or [])[:12]
-                if isinstance(slot, dict)
-            ],
+            "missing_slots": cls._missing_evidence_slots(state)[:12] if explicit else [],
+            "unavailable_slots": unavailable[:12],
+            "requested_slots": list(state.get("required_evidence_slots") or [])[:12] if explicit else [],
+            "evidence": list(state.get("evidence_slots") or [])[-12:] if explicit else [],
+            "observations": cls._task_observations(state)[-6:],
+            "execution": execution_journal.project(state),
+            "verification_scope": "execution_and_observations",
+            "completion_basis": "worker_judgment",
             "blockers": blockers[:10],
-            "field_coverage": list(state.get("field_coverage") or [])[:32],
-            "evidence": list(state.get("evidence_slots") or [])[-12:],
-            "observations": cls._task_observations(state)[-3:],
+            "unconfirmed_blockers": list(state.get("worker_reported_blockers") or []),
+            "reporting_guidance": (
+                "Execution receipts describe dispatch/ACK, not business success. Status preserves execution "
+                "limits and the worker's completion judgment; the summary is the worker's interpretation. "
+                "Use source observations, and distinguish observed content from hypotheses about causes. "
+                "Blocker lists are not exhaustive; an empty list does not rule out a page obstacle. "
+                "Do not contradict source restrictions or report an incomplete status as completed. "
+                "Missing field projections do not require another read. Never replay uncertain effects."
+            ),
             "current_page": dict(state.get("last_page") or {}),
-            "requested_result_count": int(state.get("requested_result_count") or 0),
-            "observed_result_count": int(state.get("observed_result_count") or 0),
-            "terminal_reason": state.get("terminal_reason"),
-            "retryable": retryable,
+            "terminal_reason": "runtime_completion_requirements_missing"
+            if state.get("status") == "completed" and missing else state.get("terminal_reason"),
+            "retryable": cls._terminal_result_retryable({**state, "status": status}, missing),
             "recommended_recovery": cls._recommended_recovery(state, missing),
             "resume_count": int(state.get("resume_count") or 0),
             "deadline": {
@@ -2670,6 +3035,11 @@ class BrowserRuntimeRail(AgentRail):
                 "invocation_remaining_s": float(state.get("invocation_remaining_s") or 0.0),
             },
         }
+
+    @staticmethod
+    def _business_missing_requirements(state: Dict[str, Any]) -> list[str]:
+        """Only unresolved execution effects are a generic completion veto."""
+        return ["unknown_browser_write"] if unresolved_writes(state) else []
 
     @classmethod
     def _terminal_result_retryable(
@@ -2683,8 +3053,6 @@ class BrowserRuntimeRail(AgentRail):
         blockers = " ".join(str(item or "").strip().lower() for item in state.get("blockers") or [])
         if any(token in blockers for token in _BROWSER_NON_RETRYABLE_BLOCKER_TOKENS):
             return False
-        if "phase_budget_exhausted" in blockers:
-            return False
         requirements = missing if missing is not None else cls._missing_completion_requirements(state)
         unresolved_slots = cls._missing_evidence_slots(state)
         if requirements and not unresolved_slots and cls._unavailable_evidence_slots(state):
@@ -2697,7 +3065,10 @@ class BrowserRuntimeRail(AgentRail):
                 or state.get("terminal_reason") in {
                     "model_provider_unavailable",
                     "model_tool_protocol_error",
+                    "browser_execution_error",
                     "runtime_completion_requirements_missing",
+                    "no_task_observation",
+                    "worker_reported_incomplete",
                     "runtime_blocked",
                     "semantic_replan_denial_budget_exhausted",
                     "task_invocation_slice_exhausted",
@@ -2707,6 +3078,8 @@ class BrowserRuntimeRail(AgentRail):
 
     @staticmethod
     def _recommended_recovery(state: Dict[str, Any], missing: list[str]) -> str:
+        if unresolved_writes(state):
+            return "read_and_reconcile_before_business_retry"
         reported = str(state.get("worker_reported_next_action") or "").strip()
         if reported:
             return reported[:200]
@@ -2714,6 +3087,7 @@ class BrowserRuntimeRail(AgentRail):
         if reason in {
             "model_provider_unavailable",
             "model_tool_protocol_error",
+            "browser_execution_error",
             "task_invocation_slice_exhausted",
         }:
             return "retry_model_step_from_current_page"
@@ -2722,7 +3096,7 @@ class BrowserRuntimeRail(AgentRail):
                 return "finish_with_explicit_unknown_fields"
         if missing:
             return "collect_missing_evidence_from_current_page"
-        return "replan_from_current_page"
+        return "continue_from_current_page"
 
     @classmethod
     def _structured_terminal_result(cls, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -2752,7 +3126,7 @@ class BrowserRuntimeRail(AgentRail):
             except (ValueError, AttributeError):
                 previous = None
             if isinstance(previous, dict):
-                model_summary = str(previous.get("summary") or state.get("last_worker_final") or "")
+                model_summary = str(state.get("last_worker_final") or previous.get("summary") or "")
         if str(model_summary or "").strip():
             payload["summary"] = str(model_summary).strip()[:8_000]
         return (
@@ -2771,7 +3145,10 @@ class BrowserRuntimeRail(AgentRail):
         if self._finish_if_task_deadline_exhausted(ctx, session, state):
             return
         try:
-            self._prepare_tool_call(ctx)
+            decision_policy = getattr(self._runtime, "decision_policy", None)
+            if decision_policy is not None:
+                decision_policy.check_tool_call_binding(ctx.inputs, session)
+            await self._prepare_tool_call(ctx)
         except (ValueError, BaseError) as exc:
             self._deny_tool_call(ctx, exc)
 
@@ -2788,30 +3165,6 @@ class BrowserRuntimeRail(AgentRail):
         state = session.get_state(_BROWSER_PHASE_STATE_KEY)
         state = state if isinstance(state, dict) else {}
         reported_status = str(payload.get("status") or "").strip().lower()
-        if not reported_status:
-            missing = self._missing_completion_requirements(state)
-            blockers = [str(item) for item in state.get("blockers") or [] if str(item).strip()]
-            runtime_ready = bool(
-                state.get("structured_evidence")
-                or state.get("evidence_slots")
-                or state.get("field_coverage")
-            )
-            if not blockers and not missing and runtime_ready:
-                payload["status"] = "completed"
-                reported_status = "completed"
-            elif missing and not self._missing_evidence_slots(state) and self._unavailable_evidence_slots(state):
-                payload["status"] = "partial"
-                reported_status = "partial"
-            else:
-                self._deny_tool_call(
-                    ctx,
-                    ValueError(
-                        "browser_progress did not include a terminal status and runtime evidence is "
-                        "not yet complete. Continue this browser task and collect only the unresolved "
-                        "requirements before finishing."
-                    ),
-                )
-                return True
         if reported_status not in _BROWSER_TERMINAL_STATUSES:
             self._deny_tool_call(
                 ctx,
@@ -2827,7 +3180,7 @@ class BrowserRuntimeRail(AgentRail):
         ctx.request_force_finish(self._structured_terminal_result(state))
         return True
 
-    def _prepare_tool_call(self, ctx: AgentCallbackContext) -> None:
+    async def _prepare_tool_call(self, ctx: AgentCallbackContext) -> None:
         inputs = getattr(ctx, "inputs", None)
         tool_name = str(getattr(inputs, "tool_name", "") or "")
         if tool_name.strip().lower() == "browser_progress":
@@ -2839,6 +3192,10 @@ class BrowserRuntimeRail(AgentRail):
             inputs.tool_name = canonical_tool_name
             tool_name = canonical_tool_name
         tool_args = getattr(inputs, "tool_args", None)
+        if tool_name == "browser_batch_interact":
+            tool_args = self._coerce_tool_args(tool_args)
+            tool_args["steps"] = self._runtime.normalize_model_batch_steps(tool_args.get("steps"))
+            inputs.tool_args = tool_args
         tool_name, tool_args = self._rewrite_primary_link_click(inputs, tool_name, tool_args)
         evidence_fields = self._runtime_evidence_fields(tool_args)
         normalized_args = self._normalize_playwright_ref_args(tool_name, tool_args)
@@ -2863,17 +3220,40 @@ class BrowserRuntimeRail(AgentRail):
         self._validate_model_tool_args(ctx, tool_name, normalized_args)
         session = getattr(ctx, "session", None)
         self._sync_semantic_progress(session)
-        group = self._tool_action_group(ctx)
-        action_class = self._consume_phase_budget(
-            session,
-            tool_name,
-            normalized_args,
-            current_page_state=self._runtime.export_page_state(),
-            replan_group_admitted=bool(group.get("read_only") and group.get("trial_admitted")),
+        enrich = getattr(self._runtime, "enrich_action_capabilities", None)
+        if callable(enrich):
+            deadline = float(execution_journal.task_state(session).get("deadline_at") or 0)
+            remaining = deadline - time.time() if deadline else 5.0
+            try:
+                await asyncio.wait_for(enrich(inputs), timeout=max(0.001, min(5.0, remaining)))
+            except asyncio.TimeoutError:
+                browser_agent_log_info("[BROWSER_CAPABILITY] unavailable reason=observation_timeout")
+            if deadline and time.time() >= deadline:
+                raise ValueError("browser_task_deadline_exhausted_during_observation")
+        execution_journal.prepare(session, inputs, self._runtime, effect_adapter=cart_verification.prepare_effects)
+        try:
+            action_class = self._consume_phase_budget(
+                session, tool_name, normalized_args,
+                current_page_state=self._runtime.export_page_state(),
+            )
+        except (ValueError, BaseError):
+            execution_journal.record_result(session, inputs, {"denied": True}, {"executed": False})
+            raise
+        coerced_args = self._coerce_tool_args(normalized_args)
+        waits = coerced_args.get("op") == "wait" or "browser_wait_for" in tool_name or any(
+            isinstance(step, dict) and str(step.get("op", "")).startswith(("wait", "sleep"))
+            for step in coerced_args.get("steps", [])
         )
-        state = session.get_state(_BROWSER_PHASE_STATE_KEY) if session is not None else None
-        if isinstance(state, dict) and state.get("replan_trial_pending") and group.get("read_only"):
-            group["trial_admitted"] = True
+        if waits:
+            self._runtime.ensure_page_state().card_probe_cache = {}
+        interacts = execution_journal.is_write(tool_name, coerced_args) or not self._is_read_only_recovery(
+            tool_name, normalized_args
+        )
+        tab_select = tool_name.endswith("browser_tabs") and coerced_args.get("action") == "select"
+        if tool_name != "browser_phase" and (interacts or tab_select):
+            page = self._runtime.ensure_page_state()
+            if callable(getattr(page, "mark_interaction", None)):
+                page.mark_interaction()
         extra = getattr(ctx, "extra", None)
         if isinstance(extra, dict):
             tool_call_id = self._tool_call_id(inputs)
@@ -2882,23 +3262,33 @@ class BrowserRuntimeRail(AgentRail):
                 "started_at": time.perf_counter(),
                 "action_class": action_class,
                 "evidence_fields": evidence_fields,
+                "source_url": str((self._runtime.export_page_state() or {}).get("url") or ""),
+                "selected_url": self._selected_navigation_url(tool_name, normalized_args),
             }
 
-    @staticmethod
-    def _tool_action_group(ctx: AgentCallbackContext) -> Dict[str, Any]:
-        extra = getattr(ctx, "extra", None) or {}
-        call_id = BrowserRuntimeRail._tool_call_id(getattr(ctx, "inputs", None))
-        group_id = (extra.get(_BROWSER_ACTION_GROUP_BY_CALL_KEY) or {}).get(call_id)
-        return (extra.get(_BROWSER_ACTION_GROUP_RESULTS_KEY) or {}).get(group_id, {})
 
     @classmethod
     def _validate_model_tool_args(cls, ctx: AgentCallbackContext, tool_name: str, tool_args: Any) -> None:
-        """Validate locally before reserving a browser strategy trial."""
+        """Validate schema and tool availability before dispatch."""
+        if tool_name == "browser_phase":
+            from .phase_contract import validate_request
+
+            validate_request(cls._coerce_tool_args(tool_args))
         manager = getattr(getattr(ctx, "agent", None), "ability_manager", None)
         get_tool = getattr(manager, "get", None)
         tool = get_tool(tool_name) if callable(get_tool) else None
         if callable(get_tool) and tool is None:
             raise build_error(StatusCode.AGENT_TOOL_NOT_FOUND, error_msg=f"Tool {tool_name} is not registered")
+        if tool is not None and "browser" in tool_name and isinstance(getattr(tool, "properties", None), dict):
+            cap = 30.0 if any(token in tool_name for token in ("navigate", "batch_interact", "page_action")) else 15.0
+            properties = dict(tool.properties)
+            resilience = dict(properties.get("resilience") or {})
+            configured = resilience.get("timeout_s")
+            if isinstance(configured, (int, float)) and configured > 0:
+                cap = min(cap, configured)
+            resilience["timeout_s"] = cap
+            properties["resilience"] = resilience
+            tool.properties = properties
         schema = getattr(tool, "input_params", None)
         if isinstance(schema, dict):
             SchemaUtils.validate_with_schema(cls._coerce_tool_args(tool_args), schema)
@@ -2952,6 +3342,14 @@ class BrowserRuntimeRail(AgentRail):
 
     async def on_tool_exception(self, ctx: AgentCallbackContext) -> None:
         self._emit_status("on_tool_exception", ctx)
+        inputs, session = getattr(ctx, "inputs", None), getattr(ctx, "session", None)
+        receipt = execution_journal.record_result(session, inputs, {"success": False}, {})
+        state = execution_journal.task_state(session)
+        cart_verification.record_effects(state, self._tool_call_id(inputs))
+        execution_journal.save(session, state)
+        policy = getattr(self._runtime, "decision_policy", None)
+        if policy is not None:
+            policy.record_execution(inputs, session, {"success": False, **receipt})
 
     async def after_tool_call(self, ctx: AgentCallbackContext) -> None:
         self._emit_status("after_tool_call", ctx)
@@ -2960,6 +3358,25 @@ class BrowserRuntimeRail(AgentRail):
         tool_result = self._normalize_tool_result(getattr(inputs, "tool_result", None))
         inputs.tool_result = tool_result
         outcome = BrowserAgentRuntime.classify_tool_result(tool_result)
+        receipt = execution_journal.record_result(getattr(ctx, "session", None), inputs, outcome, tool_result)
+        session = getattr(ctx, "session", None)
+        state = execution_journal.task_state(session)
+        cart_verification.record_effects(state, self._tool_call_id(inputs))
+        execution_journal.save(session, state)
+        if isinstance(tool_result, dict):
+            tool_result.update(receipt)
+        policy = getattr(self._runtime, "decision_policy", None)
+        if policy is not None:
+            policy.record_execution(inputs, getattr(ctx, "session", None), {
+                **outcome, **receipt,
+            })
+        if tool_name == "browser_phase":
+            self._set_tool_message_outcome(inputs, success=bool(outcome["success"]),
+                                          executed=receipt["executed"], state_changed=False,
+                                          denied=bool(outcome["denied"]))
+            self._consume_tool_call_timing(ctx, inputs)
+            self._mark_action_group_call_completed(ctx, {"executed": receipt["executed"], "state_changed": False})
+            return
         if outcome["denied"] or (isinstance(tool_result, dict) and tool_result.get("executed") is False):
             self._set_tool_message_outcome(
                 inputs,
@@ -2968,16 +3385,53 @@ class BrowserRuntimeRail(AgentRail):
                 state_changed=False,
                 denied=True,
             )
+            self._consume_tool_call_timing(ctx, inputs)
             return
 
         session = getattr(ctx, "session", None)
+        tool_msg = getattr(inputs, "tool_msg", None)
+        content = getattr(tool_msg, "content", None)
+        raw_observation = tool_result.pop("_raw_observation", None) if isinstance(tool_result, dict) else None
+        if raw_observation is not None and tool_msg is not None:
+            content = json.dumps(raw_observation, ensure_ascii=False, default=str)
+            tool_msg.content = json.dumps(tool_result, ensure_ascii=False, default=str)
+        if self._recall_tool is not None and session is not None and isinstance(content, str):
+            needs_recall = len(content) > _BROWSER_OBSERVATION_MESSAGE_MAX_CHARS or "probe_" in tool_name
+            if needs_recall and _contains_any_token(tool_name, _BROWSER_BOUNDED_OBSERVATION_TOOL_TOKENS):
+                try:
+                    handle = await self._recall_tool.persist_observation(session, content, tool_name)
+                    tool_msg.metadata = {**(tool_msg.metadata or {}), "browser_raw_handle": handle}
+                except (OSError, ValueError) as exc:
+                    logger.warning("Browser observation recall unavailable: %s", exc)
+        if raw_observation is not None:
+            handle = (getattr(tool_msg, "metadata", None) or {}).get("browser_raw_handle")
+            if not handle:
+                # Preserve recoverability if task-scoped storage is unavailable.
+                tool_result["raw_observation"] = raw_observation
+                if tool_msg is not None:
+                    tool_msg.content = json.dumps(tool_result, ensure_ascii=False, default=str)
+        if session is not None and self._recall_tool is not None:
+            self._bind_observation_recall(session)
+        state = session.get_state(_BROWSER_PHASE_STATE_KEY) if session is not None else {}
+        if outcome["success"] and self._probe_source_mismatch(state, tool_result, tool_name):
+            inputs.tool_result = {
+                "ok": False, "error": "browser_observation_source_mismatch",
+                "expected_url": state["last_page"]["url"], "observed_url": tool_result.get("url"),
+                "recovery_hint": "Refresh the current page with a native snapshot before using this Probe result.",
+            }
+            self._set_tool_message_outcome(inputs, success=False, executed=True, state_changed=False, denied=False)
+            self._consume_tool_call_timing(ctx, inputs)
+            self._mark_action_group_call_completed(ctx, {"executed": True, "state_changed": False})
+            return
         if outcome["success"] and isinstance(tool_result, dict):
             self._enrich_probe_result_contract(session, inputs, tool_name, tool_result)
-        state_changed = self._result_may_have_changed_browser_state(tool_name, tool_result, outcome)
+        state_changed = self._result_may_have_changed_browser_state(
+            tool_name, tool_result, outcome, getattr(inputs, "tool_args", None)
+        )
         self._set_tool_message_outcome(
             inputs,
             success=bool(outcome["success"]),
-            executed=True,
+            executed=receipt["executed"],
             state_changed=state_changed,
             denied=False,
         )
@@ -3010,10 +3464,12 @@ class BrowserRuntimeRail(AgentRail):
         )
         progress_delta.update(
             {
-                "executed": True,
+                "executed": receipt["executed"],
+                "execution_state": receipt["execution_state"],
                 "denied": False,
                 "state_changed": state_changed,
                 "ambiguous": bool(not outcome["success"] and state_changed),
+                "call_id": self._tool_call_id(inputs),
             }
         )
         action_class, elapsed_ms = self._consume_tool_call_timing(ctx, inputs)
@@ -3035,6 +3491,21 @@ class BrowserRuntimeRail(AgentRail):
         self._persist_service_progress_to_session(session)
         self._mark_action_group_call_completed(ctx, progress_delta)
 
+    def _selected_navigation_url(self, tool_name: str, args: Any) -> str:
+        """Capture the observed link before navigation replaces its registry."""
+        args = self._coerce_tool_args(args)
+        if "browser_navigate" in tool_name or (tool_name == "browser_page_action" and args.get("op") == "navigate"):
+            return str(args.get("url") or "")
+        steps = args.get("steps", []) if tool_name == "browser_batch_interact" else [{**args, "op": "click"}]
+        links = []
+        for step in steps:
+            if step.get("op") != "click":
+                continue
+            control = execution_journal.step_control(self._runtime, step)
+            if control.get("href"):
+                links.append(str(control["href"]))
+        return links[0] if len(links) == 1 else ""
+
     def _tool_evidence_args(self, ctx: AgentCallbackContext, inputs: Any) -> Dict[str, Any]:
         args = dict(self._coerce_tool_args(getattr(inputs, "tool_args", None)))
         extra = getattr(ctx, "extra", None)
@@ -3042,6 +3513,10 @@ class BrowserRuntimeRail(AgentRail):
         call_state = runtime_states.get(self._tool_call_id(inputs)) if isinstance(runtime_states, dict) else None
         if isinstance(call_state, dict) and call_state.get("evidence_fields"):
             args["_runtime_evidence_fields"] = list(call_state["evidence_fields"])
+        if isinstance(call_state, dict) and call_state.get("source_url"):
+            args["_runtime_source_url"] = call_state["source_url"]
+        if isinstance(call_state, dict) and call_state.get("selected_url"):
+            args["_runtime_selected_url"] = call_state["selected_url"]
         return args
 
     @classmethod
@@ -3094,7 +3569,7 @@ class BrowserRuntimeRail(AgentRail):
             if has_conflict:
                 page_state["classification_conflict"] = True
         state["last_card_probe"] = {
-            "url": str(tool_result.get("url") or "")[:500],
+            "url": str(tool_result.get("url") or ""),
             "generation_id": str(tool_result.get("generation_id") or ""),
             "classifications": current_classes,
         }
@@ -3166,6 +3641,18 @@ class BrowserRuntimeRail(AgentRail):
         started_at = call_state.get("started_at") if isinstance(call_state, dict) else None
         action_class = str(call_state.get("action_class") or "") if isinstance(call_state, dict) else ""
         elapsed_ms = int(max(0.0, (time.perf_counter() - started_at) * 1000)) if started_at else 0
+        if started_at:
+            result = getattr(inputs, "tool_result", None)
+            result = result if isinstance(result, dict) else {}
+            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+            browser_agent_log_info("[BROWSER_TIMING] %s", json.dumps({
+                "component": "tool_lifecycle", "call_id": self._tool_call_id(inputs),
+                "tool": str(getattr(inputs, "tool_name", "")), "elapsed_ms": elapsed_ms,
+                "executor_ms": metrics.get("executor_elapsed_ms"),
+                "wait_ms": sum(c.get("elapsed_ms", 0) for c in result.get("conditions") or []
+                               if isinstance(c, dict) and type(c.get("elapsed_ms", 0)) in {int, float}),
+                "execution_state": result.get("execution_state"),
+            }))
         return action_class, elapsed_ms
 
     @staticmethod
@@ -3173,7 +3660,7 @@ class BrowserRuntimeRail(AgentRail):
         inputs: Any,
         *,
         success: bool,
-        executed: bool,
+        executed: bool | None,
         state_changed: bool,
         denied: bool,
     ) -> None:
@@ -3181,6 +3668,9 @@ class BrowserRuntimeRail(AgentRail):
         if tool_msg is None:
             return
         metadata = dict(tool_msg.metadata) if isinstance(tool_msg.metadata, dict) else {}
+        result = getattr(inputs, "tool_result", None)
+        if isinstance(result, dict) and result.get("execution_state"):
+            metadata["execution_state"] = result["execution_state"]
         metadata.update(
             {
                 "success": success,
@@ -3207,6 +3697,11 @@ class BrowserRuntimeRail(AgentRail):
         if len(content) <= _BROWSER_OBSERVATION_MESSAGE_MAX_CHARS:
             return
 
+        handle = (getattr(tool_msg, "metadata", None) or {}).get("browser_raw_handle")
+        if not handle:
+            # A storage failure must not silently discard the only available observation.
+            return
+
         audit = write_browser_agent_audit_artifact("large_browser_observation", tool_result)
         payload = {
             "ok": BrowserAgentRuntime.tool_result_succeeded(tool_result),
@@ -3214,6 +3709,7 @@ class BrowserRuntimeRail(AgentRail):
             "tool": str(tool_name or "").rsplit("_", 1)[-1],
             "truncated": True,
             "original_chars": len(content),
+            "recall_handle": handle,
             "preview_head": content[:6_000],
             "preview_tail": content[-2_000:],
             "note": (
@@ -3243,8 +3739,15 @@ class BrowserRuntimeRail(AgentRail):
         tool_name: str,
         tool_result: Any,
         outcome: Dict[str, Any],
+        tool_args: Any = None,
     ) -> bool:
         if not cls._tool_may_change_browser_state(tool_name):
+            return False
+        args = cls._coerce_tool_args(tool_args)
+        tab_select = tool_name.endswith("browser_tabs") and args.get("action") == "select"
+        if not tab_select and not execution_journal.is_write(tool_name, args) and cls._is_read_only_recovery(
+            tool_name, args
+        ):
             return False
         if outcome.get("success"):
             return True
@@ -3346,6 +3849,7 @@ class BrowserRuntimeRail(AgentRail):
             "browser_probe_interactives",
             "browser_snapshot",
             "browser_find",
+            "browser_phase",
         )
         return not _contains_any_token(normalized, observation_tokens)
 
@@ -3429,6 +3933,7 @@ class BrowserRuntimeRail(AgentRail):
             "browser_tabs",
             "browser_snapshot",
             "browser_find",
+            "browser_evaluate",
             "browser_probe_",
             "browser_batch_interact",
         )
@@ -3436,6 +3941,8 @@ class BrowserRuntimeRail(AgentRail):
             return
 
         page_state = self._runtime.export_page_state()
+        if not isinstance(page_state, dict):
+            return
         already_embedded = isinstance(tool_result, dict) and isinstance(
             tool_result.get("page_state"),
             dict,
@@ -3443,28 +3950,35 @@ class BrowserRuntimeRail(AgentRail):
         if isinstance(tool_result, dict) and not already_embedded:
             tool_result["page_state"] = page_state
 
-        if already_embedded:
-            return
         tool_msg = getattr(inputs, "tool_msg", None)
         content = getattr(tool_msg, "content", None)
         if tool_msg is None or not isinstance(content, str):
             return
-        if _contains_any_token(normalized_name, ("browser_snapshot", "browser_find")):
-            compact_observation = {
-                "ok": True,
-                "observation": "compact_page_state",
-                "page_state": page_state,
-                "audit": write_browser_agent_audit_artifact("direct_ax_observation", tool_result),
-            }
-            tool_msg.content = json.dumps(
-                compact_observation,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
+        summary = {key: value for key, value in page_state.items() if key not in {"cards", "interactives"}}
+        # The current-state processor owns the sole full PageState projection.
+        # Tool messages contain new data, not cached cards from previous actions.
+        if isinstance(tool_result, dict):
+            projected = dict(tool_result)
+            projected["page_state"] = summary
+            if "probe_interactives" in normalized_name:
+                visible_keys = {
+                    "target_id", "generation_id", "role", "accessible_name", "text", "kind", "region",
+                    "match_count", "visible", "enabled", "actionable", "selected", "selected_source", "href",
+                    "requires_scroll", "in_viewport", "actionability_reason",
+                }
+                projected["elements"] = [
+                    {key: (value[:160] if isinstance(value, str) and key != "href" else value)
+                     for key, value in item.items() if key in visible_keys}
+                    for item in tool_result.get("elements", [])[:30] if isinstance(item, dict)
+                ]
+            handle = (getattr(tool_msg, "metadata", None) or {}).get("browser_raw_handle")
+            if handle:
+                projected["recall_handle"] = handle
+            tool_msg.content = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
             return
         marker = (
             f"\n<{_BROWSER_PAGE_STATE_TAG}>"
-            f"{json.dumps(page_state, ensure_ascii=False, separators=(',', ':'))}"
+            f"{json.dumps(summary, ensure_ascii=False, separators=(',', ':'))}"
             f"</{_BROWSER_PAGE_STATE_TAG}>"
         )
         if f"<{_BROWSER_PAGE_STATE_TAG}>" not in content:
@@ -3588,9 +4102,13 @@ class BrowserRuntimeRail(AgentRail):
             self._emit_status("after_invoke", ctx)
             extra = getattr(ctx, "extra", None)
             if isinstance(extra, dict):
-                token = extra.pop(_BROWSER_LOG_CONTEXT_TOKEN_KEY, None)
-                if token is not None:
-                    reset_browser_agent_log_context(token)
+                try:
+                    if extra.pop("_browser_owns_task_turn", False):
+                        await self._runtime.release_task_resources()
+                finally:
+                    token = extra.pop(_BROWSER_LOG_CONTEXT_TOKEN_KEY, None)
+                    if token is not None:
+                        reset_browser_agent_log_context(token)
 
     def _finalize_terminal_invoke(
         self,
@@ -3605,6 +4123,10 @@ class BrowserRuntimeRail(AgentRail):
         if status not in _BROWSER_TERMINAL_STATUSES:
             return False
         output, payload = self._render_authoritative_terminal_output(state, model_summary)
+        status = payload["status"]
+        if state.get("status") != status:
+            state.update(status=status, terminal_reason=payload.get("terminal_reason"))
+            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
         progress_state = self._load_progress_state(session)
         result["output"] = output
         result["result_type"] = "answer" if status == "completed" else "error"
@@ -3612,7 +4134,7 @@ class BrowserRuntimeRail(AgentRail):
         result["progress_state"] = progress_state.to_dict()
         result["authoritative_browser_result"] = payload
         if status == "completed":
-            self._clear_progress_state(session)
+            self._clear_progress_state(session, preserve_task=True)
         else:
             result["failure_summary"] = self._runtime.service.build_failure_summary(
                 task=self._load_task_text(session),
@@ -3672,6 +4194,10 @@ class BrowserRuntimeRail(AgentRail):
         parsed, changed = self._normalize_playwright_target_payload(parsed)
         if normalized_name.endswith("browser_snapshot") and "element" in parsed:
             parsed.pop("element")
+            changed = True
+        if normalized_name.endswith("browser_snapshot") and "filename" in parsed:
+            # Keep native AX readable. The existing task-scoped recall persists large results.
+            parsed.pop("filename")
             changed = True
         if normalized_name.endswith("browser_evaluate"):
             if "field" in parsed:
@@ -3829,7 +4355,7 @@ class BrowserRuntimeRail(AgentRail):
         payload: Dict[str, Any],
         final: str,
     ) -> None:
-        """Validate a worker completion request against authoritative runtime state."""
+        """Preserve worker judgment unless an execution or explicit output contract fails."""
 
         state = session.get_state(_BROWSER_PHASE_STATE_KEY)
         if not isinstance(state, dict):
@@ -3851,43 +4377,48 @@ class BrowserRuntimeRail(AgentRail):
             session.update_state({_BROWSER_PHASE_STATE_KEY: state})
             return
 
-        runtime_blockers = [str(item) for item in state.get("blockers") or [] if str(item).strip()]
-        advisory_fields = cls._advisory_missing_fields(state) if final.strip() else set()
-        missing_fields = [
-            field for field in cls._missing_completion_requirements(state) if field not in advisory_fields
-        ]
-        unavailable_slots = cls._unavailable_evidence_slots(state)
-        phases = state.get("phases") if isinstance(state.get("phases"), dict) else {}
-        completed_phase_count = sum(
-            1 for details in phases.values() if isinstance(details, dict) and details.get("status") == "completed"
-        )
-        evidence_available = cls._has_task_evidence(state)
-        runtime_ready = bool(completed_phase_count or evidence_available)
-        if state.get("replan_required"):
-            runtime_blockers = list(dict.fromkeys([*runtime_blockers, "semantic_replan_required"]))
+        if cls._has_unfinished_tool_intent(final):
+            state["status"] = "partial"
+            state["next_action_class"] = "finish"
+            state["terminal_reason"] = "model_tool_protocol_error"
+            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
+            return
 
+        runtime_blockers = [str(item) for item in state.get("blockers") or [] if str(item).strip()]
+        missing_fields = cls._missing_completion_requirements(state)
+        contract_missing = cls._business_missing_requirements(state)
+        missing_fields = list(dict.fromkeys([*missing_fields, *contract_missing]))
+        unavailable_slots = cls._unavailable_evidence_slots(state)
+        evidence_available = cls._has_task_evidence(state)
+        has_typed_answer = any(
+            isinstance(record, dict) and (record.get("value") not in (None, "", [], {}) or record.get("values"))
+            for record in [*(state.get("evidence_slots") or []), *(state.get("structured_evidence") or [])]
+        )
         completion_requirements_met = (
-            bool(final.strip() or evidence_available)
+            bool(final.strip() or has_typed_answer)
             and not runtime_blockers
             and not missing_fields
             and not unavailable_slots
-            and runtime_ready
+            and evidence_available
         )
         if reported_status == "completed" and completion_requirements_met:
             state["status"] = "completed"
+            state["replan_required"] = False
+            state["replan_trial_pending"] = False
             state["next_action_class"] = "finish"
-            state["terminal_reason"] = "runtime_completion_validated"
+            state["terminal_reason"] = "worker_completed_with_observations"
         elif reported_status in _BROWSER_TERMINAL_STATUSES:
-            state["status"] = "blocked" if runtime_blockers else "partial"
+            state["status"] = "blocked" if runtime_blockers or reported_status == "blocked" else "partial"
             state["next_action_class"] = "finish"
-            state["terminal_reason"] = (
-                "runtime_blocked" if runtime_blockers else "runtime_completion_requirements_missing"
+            state["terminal_reason"] = "runtime_blocked" if runtime_blockers else (
+                "worker_reported_incomplete" if reported_status != "completed"
+                else "no_task_observation" if not evidence_available
+                else "runtime_completion_requirements_missing"
             )
             if runtime_blockers:
                 state["blockers"] = runtime_blockers[:10]
-            elif missing_fields:
-                state["blockers"] = [f"missing_required_field:{field}" for field in missing_fields[:10]]
         session.update_state({_BROWSER_PHASE_STATE_KEY: state})
+
 
     @staticmethod
     def _is_max_iteration_result(result: Dict[str, Any]) -> bool:
@@ -3936,9 +4467,25 @@ class BrowserRuntimeRail(AgentRail):
             }
         )
 
-    def _ensure_task_state(self, session: Any, task: str, *, resume: bool = False) -> Dict[str, Any]:
+    @staticmethod
+    def _retire_inferred_requirements(state: dict[str, Any]) -> None:
+        """Retire old inferred checklists while preserving their source records."""
+        if state.get("requirements_source") != "inferred":
+            return
+        state.update(requirements_source="observations", required_fields=[], required_evidence_slots=[],
+                     requested_result_count=0, field_coverage=[])
+        state.pop("acceptance_evidence", None)
+        state["blockers"] = [b for b in state.get("blockers") or []
+                             if not str(b).startswith(("missing_required_field:", "missing_evidence_slot:"))]
+
+    def _ensure_task_state(
+        self, session: Any, task: str, *, resume: bool = False, original_goal: str | None = None,
+    ) -> Dict[str, Any]:
         normalized_task = str(task or "").strip()
         state = session.get_state(_BROWSER_PHASE_STATE_KEY)
+        if isinstance(state, dict) and state.get("requirements_source") == "inferred":
+            self._retire_inferred_requirements(state)
+            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
         if isinstance(state, dict) and str(state.get("task") or "").strip() == normalized_task:
             self._runtime.set_task_requested_fields(state.get("required_fields") or [])
             return state
@@ -3948,7 +4495,11 @@ class BrowserRuntimeRail(AgentRail):
             return resumed
         self._runtime.reset_semantic_task()
         self._runtime.service.clear_progress_state(session.get_session_id())
-        state = self._build_phase_state(normalized_task)
+        from ..decision.intent import normalize_goal
+
+        goal = normalize_goal(original_goal or normalized_task) or normalized_task
+        state = self._build_phase_state(goal)
+        state["task"] = normalized_task
         self._runtime.set_task_requested_fields(state.get("required_fields") or [])
         session.update_state(
             {
@@ -4042,19 +4593,14 @@ class BrowserRuntimeRail(AgentRail):
             return False
         status = str(state.get("status") or "in_progress").strip().lower()
         if status not in _BROWSER_TERMINAL_STATUSES:
-            missing = cls._missing_completion_requirements(state)
             evidence_available = cls._has_task_evidence(state)
-            if evidence_available and not missing and not state.get("blockers"):
-                state["status"] = "completed"
-                state["terminal_reason"] = "task_deadline_completed_from_evidence"
-            else:
-                state["status"] = "partial" if evidence_available else "blocked"
-                blockers = list(state.get("blockers") or [])
-                blocker = "task_deadline_exhausted" if shared_exhausted else "task_invocation_slice_exhausted"
-                if blocker not in blockers:
-                    blockers.append(blocker)
-                state["blockers"] = blockers[:10]
-                state["terminal_reason"] = blocker
+            state["status"] = "partial" if evidence_available else "blocked"
+            blockers = list(state.get("blockers") or [])
+            blocker = "task_deadline_exhausted" if shared_exhausted else "task_invocation_slice_exhausted"
+            if blocker not in blockers:
+                blockers.append(blocker)
+            state["blockers"] = blockers[:10]
+            state["terminal_reason"] = blocker
             state["next_action_class"] = "finish"
             state["deadline_remaining_s"] = (
                 0.0 if shared_exhausted else round(max(0.0, deadline_at - time.time()), 3)
@@ -4090,16 +4636,19 @@ class BrowserRuntimeRail(AgentRail):
     ) -> Dict[str, Any]:
         if str(state.get("resume_instruction") or "").strip() == resume_instruction:
             return state
+        self._retire_inferred_requirements(state)
         missing = self._missing_completion_requirements(state)
-        if not self._terminal_result_retryable(state, missing):
+        # Reaching this method requires an explicit same-task resume request. Let
+        # the caller correct worker judgment without a runtime business classifier.
+        resumable = {**state, "status": "partial"} if state.get("status") == "completed" else state
+        if not self._terminal_result_retryable(resumable, missing):
             return state
 
         state["resume_count"] = int(state.get("resume_count") or 0) + 1
         state["resume_instruction"] = resume_instruction[:2_000]
+        state.pop("last_worker_final", None)
         state["status"] = "in_progress"
-        state["next_action_class"] = (
-            "collect_missing_evidence" if missing else "materially_different_strategy"
-        )
+        state["next_action_class"] = "continue_from_current_page"
         state["terminal_reason"] = ""
         state.pop(_BROWSER_TERMINAL_SYNTHESIS_KEY, None)
         state["replan_required"] = False
@@ -4115,15 +4664,20 @@ class BrowserRuntimeRail(AgentRail):
             "missing_evidence_slot:",
             "model_provider_unavailable",
             "model_tool_protocol_error",
+            "browser_execution_error",
             "task_invocation_slice_exhausted",
         )
-        state["blockers"] = [
-            blocker
-            for blocker in state.get("blockers") or []
-            if not str(blocker).strip().lower().startswith(recoverable_prefixes)
-        ][:10]
+        retained_blockers = []
+        for blocker in state.get("blockers") or []:
+            normalized_blocker = str(blocker).strip().lower()
+            if normalized_blocker.startswith(recoverable_prefixes):
+                continue
+            if normalized_blocker.endswith("_phase_budget_exhausted"):
+                continue
+            retained_blockers.append(blocker)
+        state["blockers"] = retained_blockers[:10]
         known_urls = list(state.get("known_urls") or [])
-        for url in re.findall(r"https?://[^\s<>\"]+", resume_instruction):
+        for url in explicit_urls(resume_instruction):
             if url not in known_urls:
                 known_urls.append(url)
         state["known_urls"] = known_urls[:4]
@@ -4152,6 +4706,16 @@ class BrowserRuntimeRail(AgentRail):
             "cart",
             "basket",
             "add to cart",
+            # Buying/booking wording, so purchase flows get form and filtering budgets.
+            "buy",
+            "order",
+            "reserve",
+            "pay",
+            "\u8ba2",  # \u8ba2 (\u9884\u8ba2/\u8ba2\u9152\u5e97)
+            "\u4ed8\u6b3e",  # \u4ed8\u6b3e
+            "\u652f\u4ed8",  # \u652f\u4ed8
+            "\u4e70",  # \u4e70 (\u8d2d\u4e70 alone missed \u5e2e\u6211\u4e70)
+            "\u4e0b\u5355",  # \u4e0b\u5355
             "\u8868\u5355",
             "\u7b5b\u9009",
             "\u6392\u5e8f",
@@ -4181,32 +4745,23 @@ class BrowserRuntimeRail(AgentRail):
                 "budget": _BROWSER_PHASE_DEFINITIONS[name]["budget"],
                 "completion_condition": _BROWSER_PHASE_DEFINITIONS[name]["completion_condition"],
                 "blocked_signature": "",
-                "visited_price_intervals": [],
             }
             for name in phase_names
         }
-        required_slots = BrowserRuntimeRail._infer_required_evidence_slots(task)
-        required_fields = list(
-            dict.fromkeys(
-                str(slot.get("field") or "")
-                for slot in required_slots
-                if str(slot.get("field") or "").strip()
-            )
-        )
         return {
             "task_id": hashlib.sha256(str(task).encode("utf-8")).hexdigest()[:16],
             "task": task,
             "goal": task,
-            "requirements_source": "inferred",
+            "requirements_source": "observations",
             "task_type": task_type,
             "status": "in_progress",
             "phases": phases,
             "current_phase": phase_names[0],
-            "known_urls": re.findall(r"https?://[^\s<>\"]+", task)[:4],
+            "known_urls": explicit_urls(task),
             "constraints": [],
-            "required_fields": required_fields,
-            "required_evidence_slots": required_slots,
-            "requested_result_count": BrowserRuntimeRail._infer_requested_result_count(task),
+            "required_fields": [],
+            "required_evidence_slots": [],
+            "requested_result_count": 0,
             "observed_result_count": 0,
             "replan_count": 0,
             "replan_denial_count": 0,
@@ -4231,80 +4786,9 @@ class BrowserRuntimeRail(AgentRail):
             "last_page": {},
         }
 
-    @classmethod
-    def _infer_required_fields(cls, task: str) -> list[str]:
-        normalized = str(task or "").lower()
-        request_scopes = _BROWSER_OUTPUT_REQUEST_CUE_RE.findall(normalized)
-        output_scope = " ".join(request_scopes).strip() or normalized
-        inferred = [
-            field
-            for field, aliases in _BROWSER_FIELD_ALIASES.items()
-            if any(cls._contains_field_alias(output_scope, alias) for alias in (field, *aliases))
-        ]
-        if "product_rating" in inferred or "shop_rating" in inferred:
-            inferred = [field_name for field_name in inferred if field_name != "rating"]
-        if "product_rating" in inferred and not any(
-            cls._contains_field_alias(normalized, alias) for alias in ("title", "name", "标题", "名称", "电影", "结果")
-        ):
-            inferred = [field_name for field_name in inferred if field_name != "title"]
-        if "shop_rating" in inferred:
-            without_shop_rating = re.sub(
-                r"shop\s+rating|seller\s+rating|store\s+rating|店铺评分|卖家评分",
-                "",
-                normalized,
-                flags=re.IGNORECASE,
-            )
-            if not any(
-                cls._contains_field_alias(without_shop_rating, alias) for alias in _BROWSER_FIELD_ALIASES["shop"]
-            ):
-                inferred = [field_name for field_name in inferred if field_name != "shop"]
-        return inferred
 
-    @classmethod
-    def _infer_required_evidence_slots(cls, task: str) -> list[Dict[str, str]]:
-        """Create one provenance-bearing evidence slot per requested field."""
-        normalized = str(task or "").lower()
-        required_fields = cls._infer_required_fields(task)
-        entity = cls._infer_evidence_entity(normalized)
-        comprehensive_requested = any(
-            token in normalized for token in ("comprehensive", "relevance", "综合", "默认排序")
-        )
-        latest_requested = any(token in normalized for token in ("latest", "newest", "最新", "最近发布"))
-        split_title_variants = bool(
-            "title" in required_fields and comprehensive_requested and latest_requested
-        )
-        slots = [
-            {"entity": entity, "variant": "default", "field": field_name}
-            for field_name in required_fields
-            if not (field_name == "title" and split_title_variants)
-        ]
-        if split_title_variants:
-            slots.extend(
-                [
-                    {"entity": entity, "variant": "comprehensive", "field": "title"},
-                    {"entity": entity, "variant": "latest", "field": "title"},
-                ]
-            )
-        return slots
 
-    @staticmethod
-    def _infer_evidence_entity(normalized_task: str) -> str:
-        profile_entity = infer_profile_evidence_entity(normalized_task)
-        if profile_entity:
-            return profile_entity
-        entities = (
-            (("商品",), "product"),
-            (("回答",), "article_or_answer"),
-            (("article", "文章"), "article"),
-            (("电影",), "movie"),
-            (("weather", "天气", "气温"), "weather"),
-            (("hotel", "酒店"), "hotel"),
-            (("video", "视频"), "video"),
-        )
-        for aliases, entity in entities:
-            if any(alias in normalized_task for alias in aliases):
-                return entity
-        return "task_result"
+
 
     @staticmethod
     def _contains_field_alias(text: str, alias: str) -> bool:
@@ -4315,19 +4799,6 @@ class BrowserRuntimeRail(AgentRail):
             return normalized_alias in text
         return re.search(rf"(?<![a-z0-9_]){re.escape(normalized_alias)}(?![a-z0-9_])", text) is not None
 
-    @staticmethod
-    def _infer_requested_result_count(task: str) -> int:
-        normalized = str(task or "").lower()
-        patterns = (
-            r"(?:top|first)\s*(\d{1,2})(?:\s*(?:results?|items?|articles?|links?))?",
-            r"(?:前|最前)\s*(\d{1,2})\s*(?:条|个|篇|项|部|名|则)?",
-            r"(\d{1,2})\s*(?:条|个|篇|项|部)\s*(?:结果|记录|文章|商品|视频|链接)",
-        )
-        for pattern in patterns:
-            match = re.search(pattern, normalized, re.IGNORECASE)
-            if match is not None:
-                return min(20, max(1, int(match.group(1))))
-        return 0
 
     @staticmethod
     def _snake_case_field_name(value: Any) -> str:
@@ -4399,9 +4870,18 @@ class BrowserRuntimeRail(AgentRail):
         tool_args: Any,
         state: Dict[str, Any],
     ) -> str:
+        if str(tool_name).endswith("browser_page_action"):
+            args = cls._coerce_tool_args(tool_args)
+            if args.get("op") in {"read_text", "find", "snapshot", "tabs", "wait"}:
+                return "extraction"
+
         name = str(tool_name or "").strip().lower()
         args = cls._coerce_tool_args(tool_args)
         serialized = json.dumps(args, ensure_ascii=False).lower()
+        if name == "browser_phase":
+            return "extraction"
+        if name == "browser_page_action":
+            return "extraction" if args.get("op") == "scroll" else "navigation"
         if any(token in name for token in ("navigate", "navigate_back", "tabs")):
             return "navigation"
         filter_terms = (
@@ -4445,10 +4925,14 @@ class BrowserRuntimeRail(AgentRail):
                 return "form"
             if operations & {"extract_text", "extract_value"}:
                 return "extraction"
+            if operations & {"click", "hover"}:
+                return "filtering" if state.get("current_phase") == "filtering" else "form"
         if filter_intent:
             return "filtering"
         if any(token in name for token in ("fill", "type", "select", "press", "file_upload")):
             return "form"
+        if any(token in name for token in ("click", "hover")):
+            return "filtering" if state.get("current_phase") == "filtering" else "form"
         extraction_tokens = (
             "probe",
             "snapshot",
@@ -4487,6 +4971,7 @@ class BrowserRuntimeRail(AgentRail):
             "key",
             "field",
             "action",
+            "direction",
             "element",
         )
         actions: list[Dict[str, Any]] = []
@@ -4501,7 +4986,7 @@ class BrowserRuntimeRail(AgentRail):
             compact = _copy_non_none_values(args, semantic_keys)
             normalized_name = str(tool_name or "").strip().lower()
             operation = normalized_name.rsplit("browser_", 1)[-1]
-            compact["op"] = operation
+            compact["op"] = str(args.get("op") or operation) if operation == "page_action" else operation
             actions.append(compact)
         return json.dumps(
             actions,
@@ -4671,16 +5156,19 @@ class BrowserRuntimeRail(AgentRail):
             return "script_inspection"
         return name or "other"
 
-    @staticmethod
-    def _price_interval_signature(tool_name: str, tool_args: Any) -> str:
-        """Delegate cross-site filter normalization to semantic-state logic."""
-        return price_interval_signature(tool_name, tool_args)
 
     @classmethod
     def _classify_action_class(cls, tool_name: str, tool_args: Any, state: Dict[str, Any]) -> str:
         name = str(tool_name or "").strip().lower()
         args = cls._coerce_tool_args(tool_args)
         serialized = json.dumps(args, ensure_ascii=False).lower()
+        if name == "browser_phase":
+            return "structured_extraction"
+        if name == "browser_page_action":
+            op = args.get("op")
+            return ("structured_extraction" if op in {"read_text", "find"} else
+                    "target_discovery" if op in {"snapshot", "tabs", "wait", "hover"} else
+                    "viewport_exploration" if op == "scroll" else "navigation")
         if any(token in name for token in ("navigate", "navigate_back", "tabs")):
             return "navigation"
         if any(token in name for token in ("mouse_wheel", "scroll")):
@@ -4710,15 +5198,17 @@ class BrowserRuntimeRail(AgentRail):
         tool_args: Any,
         *,
         current_page_state: Optional[Dict[str, Any]] = None,
-        replan_group_admitted: bool = False,
     ) -> str:
+        """Record approximate phase costs; only execution safety/deadlines may veto dispatch."""
         if session is None:
             return "other"
         state = session.get_state(_BROWSER_PHASE_STATE_KEY)
         if not isinstance(state, dict):
             return "other"
         cls._reject_terminal_state(state)
-        if cls._is_replan_exempt_tool(tool_name):
+        if tool_name == "browser_phase" or cls._is_replan_exempt_tool(tool_name):
+            if tool_name == "browser_phase":
+                return "management"
             return cls._classify_action_class(tool_name, tool_args, state)
         phases = state.setdefault("phases", {})
         phase = cls._classify_tool_phase(tool_name, tool_args, state)
@@ -4734,43 +5224,6 @@ class BrowserRuntimeRail(AgentRail):
         )
 
         attempts = int(details.get("attempts") or 0)
-        budget = max(1, int(details.get("budget") or 1))
-        if attempts >= budget:
-            details["status"] = "replan_required"
-            details["blocked_signature"] = signature
-            state["current_phase"] = phase
-            state["status"] = "partial"
-            state["blockers"] = [f"{phase}_phase_budget_exhausted"]
-            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
-            raise ValueError(
-                f"Browser {phase} phase budget exhausted ({attempts}/{budget}). "
-                "Finish with available evidence or return partial/blocked."
-            )
-
-        cls._reject_revisited_price_interval(details, phase, tool_name, tool_args)
-
-        if cls._direct_navigation_is_required(state, phases, phase, current_page_state):
-            state["direct_navigation_guidance_count"] = int(state.get("direct_navigation_guidance_count") or 0) + 1
-            recommended_url = str((state.get("known_urls") or [""])[0])
-            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
-            raise ValueError(
-                "The task already contains a known URL. Navigate to it directly before selector exploration: "
-                f"{recommended_url}"
-            )
-
-        try:
-            if not replan_group_admitted:
-                cls._consume_replan_gate(
-                    state,
-                    tool_name,
-                    tool_args,
-                    action_class,
-                    strategy_fingerprint,
-                )
-        except ValueError:
-            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
-            raise
-
         details["attempts"] = attempts + 1
         details["status"] = "in_progress"
         details["last_signature"] = signature
@@ -4782,65 +5235,6 @@ class BrowserRuntimeRail(AgentRail):
         session.update_state({_BROWSER_PHASE_STATE_KEY: state})
         return action_class
 
-    @classmethod
-    def _direct_navigation_is_required(
-        cls,
-        state: Dict[str, Any],
-        phases: Dict[str, Any],
-        phase: str,
-        current_page_state: Optional[Dict[str, Any]],
-    ) -> bool:
-        if (
-            not state.get("known_urls")
-            or phase == "navigation"
-            or int(state.get("direct_navigation_guidance_count") or 0) >= 1
-        ):
-            return False
-        total_attempts = sum(int(item.get("attempts") or 0) for item in phases.values() if isinstance(item, dict))
-        return total_attempts == 0 and not cls._known_url_navigation_satisfied(
-            state,
-            current_page_state,
-        )
-
-    @classmethod
-    def _known_url_navigation_satisfied(
-        cls,
-        state: Dict[str, Any],
-        current_page_state: Optional[Dict[str, Any]],
-    ) -> bool:
-        page_state = current_page_state if isinstance(current_page_state, dict) else {}
-        last_page = state.get("last_page") if isinstance(state.get("last_page"), dict) else {}
-        current_url = str(page_state.get("url") or last_page.get("url") or "").strip()
-        if not current_url:
-            return False
-        current_normalized = cls._normalize_navigation_url(current_url)
-        current_document = cls._normalize_navigation_url(current_url, include_query=False)
-        try:
-            current_parts = urlsplit(current_url)
-        except ValueError:
-            current_parts = None
-        for known_url in state.get("known_urls") or []:
-            known_normalized = cls._normalize_navigation_url(known_url)
-            if known_normalized and known_normalized == current_normalized:
-                return True
-            known_document = cls._normalize_navigation_url(known_url, include_query=False)
-            if known_document and known_document == current_document:
-                return True
-            try:
-                known_parts = urlsplit(str(known_url))
-            except ValueError:
-                known_parts = None
-            if current_parts is None or known_parts is None:
-                continue
-            if current_parts.netloc.lower() != known_parts.netloc.lower():
-                continue
-            known_path = (known_parts.path or "/").rstrip("/") or "/"
-            current_path = (current_parts.path or "/").rstrip("/") or "/"
-            if known_path == "/" and (current_path != "/" or bool(current_parts.query)):
-                return True
-            if known_path != "/" and current_path.startswith(f"{known_path}/"):
-                return True
-        return False
 
     @staticmethod
     def _normalize_navigation_url(value: Any, *, include_query: bool = True) -> str:
@@ -4884,68 +5278,9 @@ class BrowserRuntimeRail(AgentRail):
                 "budget": _BROWSER_PHASE_DEFINITIONS[phase]["budget"],
                 "completion_condition": _BROWSER_PHASE_DEFINITIONS[phase]["completion_condition"],
                 "blocked_signature": "",
-                "visited_price_intervals": [],
             },
         )
 
-    @classmethod
-    def _consume_replan_gate(
-        cls,
-        state: Dict[str, Any],
-        tool_name: str,
-        tool_args: Any,
-        action_class: str,
-        strategy_fingerprint: str = "",
-    ) -> None:
-        cls._reject_terminal_state(state)
-        if not state.get("replan_required"):
-            return
-        if cls._is_replan_exempt_tool(tool_name):
-            return
-        if state.get("replan_trial_pending"):
-            cls._consume_replan_denial(state, "replan_trial_pending")
-            raise ValueError(
-                "A replan trial already ran without verified semantic progress. "
-                "Wait for the runtime observation, or finish partial/blocked instead of trying "
-                "another selector, generation, tool, or phase."
-            )
-        replan_count = int(state.get("replan_count") or 0)
-        if replan_count >= 2:
-            state["status"] = "partial" if cls._has_task_evidence(state) else "blocked"
-            state["blockers"] = ["semantic_replan_budget_exhausted"]
-            state["terminal_reason"] = "semantic_replan_budget_exhausted"
-            state["next_action_class"] = "finish"
-            raise ValueError(
-                "Semantic progress remained blocked after two replan trials. "
-                "Return blocked or partial with the available structured evidence."
-            )
-        blocked_strategy = str(
-            state.get("blocked_strategy")
-            or state.get("last_strategy_fingerprint")
-            or state.get("last_action_class")
-            or ""
-        )
-        failed_strategies = {str(item) for item in state.get("failed_strategies") or [] if str(item).strip()}
-        if blocked_strategy:
-            failed_strategies.add(blocked_strategy)
-        current_strategy = strategy_fingerprint or action_class
-        if current_strategy in failed_strategies or action_class in failed_strategies:
-            if cls._allow_read_only_recovery(state, tool_name, tool_args, current_strategy):
-                state["replan_count"] = replan_count + 1
-                state["replan_trial_pending"] = True
-                state["trial_strategy"] = current_strategy
-                state["status"] = "replan_trial"
-                return
-            cls._consume_replan_denial(state, "repeated_strategy")
-            raise ValueError(
-                "Semantic loop detected. Changing selector, generation, tool name, or phase does not "
-                f"change the {action_class} target/field/intent strategy. Re-plan materially or finish "
-                "partial/blocked."
-            )
-        state["replan_count"] = replan_count + 1
-        state["replan_trial_pending"] = True
-        state["trial_strategy"] = current_strategy
-        state["status"] = "replan_trial"
 
     @staticmethod
     def _is_replan_exempt_tool(tool_name: str) -> bool:
@@ -4954,30 +5289,22 @@ class BrowserRuntimeRail(AgentRail):
             "browser_recall_offload",
             "browser_runtime_health",
             "browser_list_custom_actions",
+            "browser_phase",
         )
         return _contains_any_token(normalized_name, exempt_tokens)
 
-    @classmethod
-    def _allow_read_only_recovery(
-        cls,
-        state: Dict[str, Any],
-        tool_name: str,
-        tool_args: Any,
-        strategy_fingerprint: str,
-    ) -> bool:
-        if not cls._is_read_only_recovery(tool_name, tool_args):
-            return False
-        counts = state.setdefault("read_only_recovery_counts", {})
-        count = int(counts.get(strategy_fingerprint) or 0)
-        if count >= _BROWSER_READ_ONLY_RECOVERY_LIMIT:
-            return False
-        counts[strategy_fingerprint] = count + 1
-        return True
 
     @classmethod
     def _is_read_only_recovery(cls, tool_name: str, tool_args: Any) -> bool:
         normalized_name = str(tool_name or "").strip().lower()
         args = cls._coerce_tool_args(tool_args)
+        if normalized_name.endswith(("browser_phase", "browser_recall_offload", "browser_runtime_health",
+                                     "browser_list_custom_actions")):
+            return True
+        if normalized_name == "browser_page_action":
+            from .policy_page_action import READ_PAGE_OPERATIONS
+
+            return args.get("op") in READ_PAGE_OPERATIONS
         if any(token in normalized_name for token in ("probe", "find", "snapshot", "screenshot")):
             return True
         if "browser_tabs" in normalized_name:
@@ -5000,36 +5327,6 @@ class BrowserRuntimeRail(AgentRail):
             for step in steps
         )
 
-    @staticmethod
-    def _consume_replan_denial(state: Dict[str, Any], reason: str) -> None:
-        denial_count = int(state.get("replan_denial_count") or 0) + 1
-        state["replan_denial_count"] = denial_count
-        state["last_denial_reason"] = str(reason or "")[:120]
-        if denial_count < _BROWSER_REPLAN_DENIAL_LIMIT:
-            return
-        blockers = list(state.get("blockers") or [])
-        if "semantic_replan_denial_budget_exhausted" not in blockers:
-            blockers.append("semantic_replan_denial_budget_exhausted")
-        state["blockers"] = blockers[:10]
-        state["status"] = "blocked"
-        state["next_action_class"] = "finish"
-        state["terminal_reason"] = "semantic_replan_denial_budget_exhausted"
-
-    @classmethod
-    def _reject_revisited_price_interval(
-        cls,
-        details: Dict[str, Any],
-        phase: str,
-        tool_name: str,
-        tool_args: Any,
-    ) -> None:
-        price_interval = cls._price_interval_signature(tool_name, tool_args)
-        visited_intervals = details.setdefault("visited_price_intervals", [])
-        if phase == "filtering" and price_interval and price_interval in visited_intervals:
-            raise ValueError(
-                f"Price interval {price_interval} was already visited in this task. "
-                "Use the existing evidence or choose a different interval."
-            )
 
     @classmethod
     def _record_phase_result(
@@ -5084,7 +5381,6 @@ class BrowserRuntimeRail(AgentRail):
         details["last_error"] = ""
         args = cls._coerce_tool_args(tool_args)
         result = tool_result if isinstance(tool_result, dict) else {"result": tool_result}
-        cls._record_price_interval(details, phase, tool_name, args)
         evidence_delta = cls._record_tool_evidence(state, result, tool_name=tool_name, tool_args=args)
         if evidence_delta.get("recovered"):
             BrowserWorkingContextStore.mark_replan_recovered(state)
@@ -5112,29 +5408,47 @@ class BrowserRuntimeRail(AgentRail):
     @staticmethod
     def _has_task_evidence(state: Dict[str, Any]) -> bool:
         """Use evidence records, not compatibility coverage, as task truth."""
-
-        return bool(state.get("evidence_slots") or state.get("structured_evidence"))
+        records = [*(state.get("evidence_slots") or []), *(state.get("structured_evidence") or [])]
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            if record.get("observation_status") == "not_observed":
+                continue
+            if record.get("raw_text") and record.get("source"):
+                return True
+            if record.get("value") not in (None, "", [], {}):
+                return True
+            values = record.get("values")
+            if isinstance(values, dict) and any(value not in (None, "", [], {}) for value in values.values()):
+                return True
+            if any(isinstance(card, dict) and (card.get("title") or card.get("primary_link"))
+                   for card in record.get("cards") or []):
+                return True
+        return False
 
     @staticmethod
-    def _task_observations(state: Dict[str, Any]) -> list[Dict[str, Any]]:
-        return [
-            item for item in state.get("structured_evidence") or []
-            if isinstance(item, dict) and item.get("kind") == "page_observation"
-        ]
+    def _task_observations(state: dict[str, Any]) -> list[dict[str, Any]]:
+        return source_observations(state)
 
-    @classmethod
-    def _advisory_missing_fields(cls, state: Dict[str, Any]) -> set[str]:
-        """Do not mistake an incomplete field adapter for an unsuccessful page read."""
-        if state.get("requirements_source") != "inferred" or not cls._task_observations(state):
-            return set()
-        slots = state.get("required_evidence_slots") or []
-        # Comparison variants and typed rating/sort evidence remain strict.
-        if any(isinstance(slot, dict) and slot.get("variant", "default") != "default" for slot in slots):
-            return set()
-        return set(cls._missing_required_fields(state)) - _BROWSER_STRICT_EVIDENCE_FIELDS
+
+    @staticmethod
+    def _requires_destination_page(state: Dict[str, Any]) -> bool:
+        return requires_destination_page(state.get("goal") or state.get("task"))
+
+    @staticmethod
+    def _is_search_page(url: str) -> bool:
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return False
+        return bool(re.search(r"/(?:search|s|results|all)(?:/|$)", parsed.path)) or bool(
+            {"wd", "search_query"}.intersection(parse_qs(parsed.query))
+        )
 
     @classmethod
     def _missing_completion_requirements(cls, state: Dict[str, Any]) -> list[str]:
+        if state.get("requirements_source") != "explicit":
+            return []
         missing = cls._missing_required_fields(state)
         missing_field_names = set(missing)
         missing_slots = cls._missing_evidence_slots(state)
@@ -5149,8 +5463,58 @@ class BrowserRuntimeRail(AgentRail):
             missing.append(f"result_count:{observed_count}/{requested_count}")
         return missing
 
+    @staticmethod
+    def _destination_observed(state: Dict[str, Any], source: str) -> bool:
+        identity = evidence_subject(source)
+        query_id = str(state.get("query_id") or state.get("task_id") or "")
+        return bool(identity) and any(
+            item.get("destination_verified") and evidence_subject(item.get("entity_url")) == identity
+            and item.get("query_id", query_id) == query_id
+            for item in state.get("structured_evidence") or [] if isinstance(item, dict)
+        )
+
+    @classmethod
+    def _destination_selection(cls, state: Dict[str, Any], source: str, tool_name: str,
+                               tool_args: Dict[str, Any], *, landed_url: str = "") -> bool:
+        if not source or cls._is_search_page(source):
+            return False
+        if cls._destination_observed(state, source):
+            return True
+        identity = evidence_subject(source)
+        previous_url = tool_args.get("_runtime_source_url") or (state.get("last_page") or {}).get("url")
+        query_id = str(state.get("query_id") or state.get("task_id") or "")
+        for record in state.get("structured_evidence") or []:
+            if not isinstance(record, dict):
+                continue
+            if record.get("query_id", query_id) != query_id:
+                continue
+            if cls._is_search_page(str(previous_url or "")) and (
+                evidence_subject(record.get("source") or record.get("url")) != evidence_subject(previous_url)
+            ):
+                continue
+            for card in record.get("cards") or []:
+                if not isinstance(card, dict) or not cls._is_natural_evidence_card(card):
+                    continue
+                if evidence_subject(card.get("primary_link") or card.get("href")) == identity:
+                    return True
+        selected = evidence_subject(tool_args.get("_runtime_selected_url") or tool_args.get("url"))
+        if not selected or not landed_url or evidence_subject(landed_url) != identity:
+            return False
+        # Redirects/popups are accepted only from a link actually observed for
+        # this task on the source page, not from any departure from a search URL.
+        return any(
+            evidence_subject(record.get("source") or record.get("url")) == evidence_subject(previous_url)
+            and record.get("query_id", query_id) == query_id
+            and any(cls._is_natural_evidence_card(card)
+                    and evidence_subject(card.get("primary_link") or card.get("href")) == selected
+                    for card in record.get("cards") or [])
+            for record in state.get("structured_evidence") or [] if isinstance(record, dict)
+        )
+
     @classmethod
     def _missing_evidence_slots(cls, state: Dict[str, Any]) -> list[Dict[str, str]]:
+        if state.get("requirements_source") != "explicit":
+            return []
         required_slots = set()
         for slot in state.get("required_evidence_slots") or []:
             if isinstance(slot, dict):
@@ -5159,6 +5523,8 @@ class BrowserRuntimeRail(AgentRail):
         covered_slots = set()
         for slot in state.get("evidence_slots") or []:
             if not isinstance(slot, dict):
+                continue
+            if slot.get("observation_status") == "not_observed":
                 continue
             status = str(slot.get("status") or "").strip().lower()
             if slot.get("value") not in (None, "") or status in {"missing", "unknown"}:
@@ -5170,6 +5536,8 @@ class BrowserRuntimeRail(AgentRail):
 
     @classmethod
     def _unavailable_evidence_slots(cls, state: Dict[str, Any]) -> list[Dict[str, str]]:
+        if state.get("requirements_source") != "explicit":
+            return []
         required_slots = set()
         for slot in state.get("required_evidence_slots") or []:
             if isinstance(slot, dict):
@@ -5182,6 +5550,8 @@ class BrowserRuntimeRail(AgentRail):
             key = cls._evidence_slot_key(slot)
             status = str(slot.get("status") or "").strip().lower()
             if key not in required_slots or status not in {"missing", "unknown"}:
+                continue
+            if slot.get("observation_status") == "not_observed":
                 continue
             unavailable.append(
                 {
@@ -5243,20 +5613,6 @@ class BrowserRuntimeRail(AgentRail):
             "recovered": bool(evidence_added or new_evidence_fields),
         }
 
-    @classmethod
-    def _record_price_interval(
-        cls,
-        details: Dict[str, Any],
-        phase: str,
-        tool_name: str,
-        args: Dict[str, Any],
-    ) -> None:
-        price_interval = cls._price_interval_signature(tool_name, args)
-        if phase != "filtering" or not price_interval:
-            return
-        visited_intervals = details.setdefault("visited_price_intervals", [])
-        if price_interval not in visited_intervals:
-            visited_intervals.append(price_interval)
 
     @classmethod
     def _record_structured_evidence(
@@ -5267,37 +5623,136 @@ class BrowserRuntimeRail(AgentRail):
         tool_name: str,
         tool_args: Dict[str, Any],
     ) -> None:
+        if cls._probe_source_mismatch(state, result, tool_name):
+            return
         evidence = cls._structured_evidence(result)
-        if not evidence and "evaluate" in str(tool_name or "").lower():
-            evidence = cls._evaluate_evidence(
+        if state.get("requirements_source") == "explicit" and not evidence and "evaluate" in tool_name.lower():
+            evidence = cls._ordered_result_evidence(state, result, tool_name, tool_args) or cls._evaluate_evidence(
                 result,
                 tool_args,
                 required_fields=state.get("required_fields") or [],
             )
         if not evidence and "probe_interactives" in str(tool_name or "").lower():
             evidence = cls._interactive_probe_evidence(result)
+        metadata = cls._page_metadata_evidence(state, result, tool_name, tool_args)
         stored_evidence = state.setdefault("structured_evidence", [])
         known_signatures = {cls._evidence_signature(item) for item in stored_evidence if isinstance(item, dict)}
         observation = cls._page_observation_evidence(state, result, tool_name, tool_args)
-        for item in (evidence, observation):
-            if item and cls._evidence_signature(item) not in known_signatures:
+        for item in (evidence, metadata, observation):
+            if not item:
+                continue
+            _, source = cls._evidence_variant_and_url(state, result, tool_args)
+            if source:
+                item["source"] = source
+            item["query_id"] = str(state.get("query_id") or state.get("task_id") or "")
+            page = result.get("page_state") or {}
+            if page.get("page_id") and page.get("generation_id") and type(page.get("interaction_revision")) is int:
+                item["observation_scope"] = {
+                    key: page[key] for key in ("page_id", "generation_id", "interaction_revision")
+                }
+            signature = cls._evidence_signature(item)
+            if item.get("destination_verified") and signature in known_signatures:
+                # Keep the current landing-page proof with the bounded evidence window.
+                stored_evidence[:] = [old for old in stored_evidence if cls._evidence_signature(old) != signature]
                 stored_evidence.append(item)
-        del stored_evidence[:-20]
-        if not evidence:
-            return
-        if evidence.get("kind") == "card_probe":
+            elif signature not in known_signatures:
+                stored_evidence.append(item)
+        # Keep the current navigation milestone inside the existing bounded
+        # evidence window; long reading loops must not resurrect its old gate.
+        phase_version = (state.get("active_phase_contract") or {}).get("version", 0)
+        query_id = str(state.get("query_id") or state.get("task_id") or "")
+        destination = None
+        for item in reversed(stored_evidence):
+            same_task = item.get("phase_version", 0) == phase_version and item.get("query_id", query_id) == query_id
+            if item.get("destination_verified") and same_task:
+                destination = item
+                break
+        if destination and destination not in stored_evidence[-20:]:
+            stored_evidence[:] = [destination, *stored_evidence[-19:]]
+        else:
+            del stored_evidence[:-20]
+        if evidence.get("kind") in {"card_probe", "ordered_results"}:
             state["observed_result_count"] = max(
                 int(state.get("observed_result_count") or 0),
                 int(evidence.get("observed_count") or 0),
             )
-        cls._record_evidence_slots(
-            state,
-            evidence,
-            result=result,
-            tool_name=tool_name,
-            tool_args=tool_args,
+        if state.get("requirements_source") == "explicit":
+            retain_acceptance(state)
+            for item in (metadata, evidence):
+                if item:
+                    cls._record_evidence_slots(state, item, result=result, tool_name=tool_name, tool_args=tool_args)
+            BrowserWorkingContextStore.refresh_field_coverage(state)
+
+    @staticmethod
+    def _probe_source_mismatch(state: Any, result: Any, tool_name: str) -> bool:
+        if "probe" not in tool_name or not isinstance(state, dict) or not isinstance(result, dict):
+            return False
+        expected = evidence_subject((state.get("last_page") or {}).get("url"))
+        observed = evidence_subject(result.get("url"))
+        return bool(expected and observed and expected != observed)
+
+    @classmethod
+    def _page_metadata_evidence(
+        cls, state: Dict[str, Any], result: Dict[str, Any], tool_name: str, tool_args: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not BrowserAgentRuntime.tool_result_succeeded(result) or "probe" in tool_name:
+            return {}
+        _, source = cls._evidence_variant_and_url(state, result, tool_args)
+        page = result.get("page_state") or result.get("page") or {}
+        if not isinstance(page, dict):
+            page = {}
+        # The primitive batch executor may compile a registered primary-link
+        # click into navigation. Its receipt, not the model's description, is proof.
+        runtime_navigation = (
+            tool_name == "browser_batch_interact" and result.get("execution_mode") == "primitive"
+            and (result.get("metrics") or {}).get("tool_name") == "browser_navigate"
+        ) or (tool_name == "browser_page_action" and tool_args.get("op") in {"navigate", "navigate_back"})
+        binding = result.get("page_binding") or {}
+        compact_rpc = tool_name == "browser_batch_interact" and result.get("execution_mode") == "compact_rpc"
+        unbound_popup = binding.get("tab_switched") and binding.get("mcp_selected") is not True
+        if compact_rpc and unbound_popup:
+            return {}  # An unbound popup cannot certify the current shared page.
+        compact_navigation = (
+            tool_name == "browser_batch_interact" and result.get("execution_mode") == "compact_rpc"
+            and bool(tool_args.get("_runtime_selected_url"))
+            and (not binding.get("tab_switched") or binding.get("mcp_selected") is True)
+            and (not binding.get("mcp_current_url") or binding["mcp_current_url"] == page.get("url"))
         )
-        BrowserWorkingContextStore.refresh_field_coverage(state)
+        runtime_navigation = runtime_navigation or compact_navigation
+        navigation = runtime_navigation or any(
+            token in tool_name for token in ("browser_navigate", "browser_click", "browser_tabs")
+        )
+        destination = cls._requires_destination_page(state)
+        if not source or not (navigation or destination):
+            return {}
+        if not destination and (set(state.get("required_fields") or []) - {"url"} or cls._is_search_page(source)):
+            return {}
+        actual_page = page if runtime_navigation else BrowserAgentRuntime.extract_result_page({
+            key: value for key, value in result.items() if key != "page_state"
+        }) if navigation else {}
+        if actual_page.get("url") and not same_page_url(source, actual_page["url"]):
+            return {}  # Source attribution must agree with the actual navigation receipt.
+        destination_verified = destination and cls._destination_selection(
+            state, source, "browser_navigate" if runtime_navigation else tool_name,
+            tool_args,
+            landed_url=actual_page.get("url", ""),
+        )
+        metadata_title = BrowserAgentRuntime.extract_result_page(result).get("title") if navigation else ""
+        title = page.get("title") or metadata_title
+        values = {"url": source}
+        if title and (navigation or destination):
+            values["title"] = str(title)
+        generation = str(result.get("generation_id") or page.get("generation_id") or "")
+        return {
+            "kind": "page_metadata", "fields": list(values), "values": values,
+            "generation_id": generation, "entity_url": source,
+            "destination_verified": destination_verified,
+            "phase_version": (state.get("active_phase_contract") or {}).get("version", 0),
+            "navigation": {"requested_url": tool_args.get("url"), "landed_url": actual_page.get("url")}
+            if "browser_navigate" in tool_name and actual_page else {},
+            "provenance": {key: {"source": source, "raw_text": value, "generation_id": generation}
+                           for key, value in values.items()},
+        }
 
     @classmethod
     def _page_observation_evidence(
@@ -5310,28 +5765,50 @@ class BrowserRuntimeRail(AgentRail):
         """Retain source text without inventing field coverage or another memory store."""
         if not BrowserAgentRuntime.tool_result_succeeded(result):
             return {}
-        if not any(token in tool_name for token in ("browser_evaluate", "browser_find", "browser_snapshot")):
+        is_page_read = tool_name == "browser_page_action" and tool_args.get("op") in {"read_text", "find", "snapshot"}
+        if not is_page_read and not _contains_any_token(tool_name, (
+            "browser_evaluate", "browser_find", "browser_snapshot", "browser_probe_cards",
+        )):
             return {}
         if not cls._is_read_only_recovery(tool_name, tool_args):
             return {}
-        value = cls._evaluate_result_value(result)
-        if value in (None, "", [], {}) or isinstance(value, (bool, int, float)):
+        if "browser_probe_cards" in tool_name:
+            value = []
+            observation_fields = ("title", "summary", "text_preview", "primary_link", "kind")
+            for card in result.get("cards") or []:
+                if not isinstance(card, dict):
+                    continue
+                if not cls._is_natural_evidence_card(card) and card.get("kind") not in {
+                    "ai_answer", "ai_overview", "answer",
+                }:
+                    continue
+                value.append({key: card.get(key) for key in observation_fields if key in card})
+        else:
+            value = cls._evaluate_result_value(result)
+        if value in (None, "", [], {}) or isinstance(value, bool):
             return {}
         if not BrowserAgentRuntime.tool_result_succeeded(value):
+            return {}
+        entries = cls._explicit_evaluate_entries(value)
+        if not entries and isinstance(value, dict) and all(
+            cls._canonical_evaluate_field_name(key) in _BROWSER_FIELD_ALIASES for key in value
+        ):
+            entries = value
+        if entries and not any(cls._evaluate_entry_has_content(item) for item in entries.values()):
             return {}
         raw_text = value if isinstance(value, str) else cls._evidence_signature(value)
         raw_text = raw_text.split("### Ran Playwright code", 1)[0].strip()
         # AX references and selector spelling are identity metadata, not new facts.
         normalized = re.sub(r"\s*\[(?:ref|target_id|generation_id)=[^\]]+\]", "", raw_text)
         normalized = " ".join(normalized.split())
-        if len(normalized) < 16:
+        if not normalized:
             return {}
         _, source = cls._evidence_variant_and_url(state, result, tool_args)
         if not source:
             return {}
         page = result.get("page_state") or {}
         generation = str(result.get("generation_id") or page.get("generation_id") or "")
-        target = str(tool_args.get("target") or tool_args.get("selector") or "")[:240]
+        target = str(tool_args.get("target") or tool_args.get("selector") or "")
         return {
             "kind": "page_observation",
             "source": source,
@@ -5354,24 +5831,28 @@ class BrowserRuntimeRail(AgentRail):
         tool_name: str,
         tool_args: Dict[str, Any],
     ) -> None:
-        if not state.get("required_evidence_slots"):
+        if state.get("requirements_source") != "explicit" or not state.get("required_evidence_slots"):
             return
         variant, source_url = cls._evidence_variant_and_url(state, result, tool_args)
-        values, generation, provenance, field_status = cls._evidence_values(evidence)
+        values, generation, provenance, field_status = cls._evidence_values(
+            evidence, required_fields=state.get("required_fields") or (),
+        )
         if not values and not field_status:
             return
-        slots = state.setdefault("evidence_slots", [])
-        covered = {
-            cls._evidence_slot_key(slot): index
-            for index, slot in enumerate(slots)
-            if isinstance(slot, dict)
-        }
         for required in state.get("required_evidence_slots") or []:
             if not isinstance(required, dict):
                 continue
             key = cls._evidence_slot_key(required)
             if key[1] != "default" and key[1] != variant:
                 continue
+            if key[2] in {"title", "url"} and cls._requires_destination_page(state):
+                if not cls._destination_observed(state, source_url):
+                    continue
+                if evidence.get("kind") in {"card_probe", "ordered_results"}:
+                    continue
+                entity_url = evidence.get("entity_url")
+                if entity_url and evidence_subject(entity_url) != evidence_subject(source_url):
+                    continue
             slot = cls._build_evidence_slot(
                 key,
                 values=values,
@@ -5383,17 +5864,19 @@ class BrowserRuntimeRail(AgentRail):
             )
             if slot is None:
                 continue
-            existing_index = covered.get(key)
-            if existing_index is not None:
-                existing = slots[existing_index]
-                existing_status = str(existing.get("status") or "present").strip().lower()
-                if existing_status == "present" or slot.get("status") != "present":
-                    continue
-                slots[existing_index] = slot
-            else:
-                slots.append(slot)
-                covered[key] = len(slots) - 1
-        del state["evidence_slots"][:-20]
+            slot["entity_source"] = evidence_subject(
+                evidence.get("entity_url") or values.get("primary_link") or values.get("href") or source_url
+            )
+            slot["evidence_scope"] = (
+                "listing" if evidence.get("kind") in {"card_probe", "ordered_results"}
+                and cls._is_search_page(source_url)
+                else "detail" if not cls._is_search_page(source_url) else "page"
+            )
+            if key[2] == "price" and evidence.get("qualifier"):
+                slot["qualifier"] = evidence["qualifier"]
+            if evidence.get("date"):
+                slot["date"] = evidence["date"]
+            merge_evidence_slot(state, slot, selected_entity=bool(evidence.get("entity_title") or values.get("title")))
 
     @staticmethod
     def _build_evidence_slot(
@@ -5419,20 +5902,30 @@ class BrowserRuntimeRail(AgentRail):
             "variant": key[1],
             "field": key[2],
             "status": status,
-            "source": str(item.get("source") or source_url or tool_name or "")[:500],
+            "source": str(
+                item.get("source") if evidence_subject(item.get("source")) else source_url or tool_name or ""
+            ),
             "generation": str(item.get("generation_id") or generation or ""),
         }
         if status == "present":
-            slot["value"] = str(value)[:500]
+            slot["value"] = str(value) if key[2] in {"url", "source"} else str(value)[:500]
         for provenance_key in ("selector", "raw_text"):
             provenance_value = str(item.get(provenance_key) or "").strip()
             if provenance_value:
-                slot[provenance_key] = provenance_value[:600]
+                slot[provenance_key] = provenance_value if provenance_key == "selector" else provenance_value[:600]
+        if status != "present":
+            slot["observation_status"] = item.get("observation_status") or (
+                "explicit_absence" if item.get("raw_text") else "not_observed"
+            )
+        if key[2] == "duration":
+            slot["qualifier"] = str(item.get("scope") or "unknown")
         return slot
 
     @staticmethod
     def _evidence_values(
         evidence: Dict[str, Any],
+        *,
+        required_fields: Iterable[str] = (),
     ) -> tuple[Dict[str, Any], str, Dict[str, Any], Dict[str, str]]:
         values = evidence.get("values")
         if isinstance(values, dict):
@@ -5448,6 +5941,15 @@ class BrowserRuntimeRail(AgentRail):
         if not isinstance(cards, list):
             return {}, str(evidence.get("generation_id") or ""), {}, {}
         first = next((card for card in cards if isinstance(card, dict)), {})
+        weather_card = None
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            if card.get("high_temperature") not in (None, "") and card.get("low_temperature") not in (None, ""):
+                weather_card = card
+                break
+        if weather_card is not None and {"high_temperature", "low_temperature"}.intersection(required_fields):
+            first = weather_card
         if not first:
             return {}, "", {}, {}
         provenance = first.get("provenance")
@@ -5468,8 +5970,8 @@ class BrowserRuntimeRail(AgentRail):
         page_state = result.get("page_state") if isinstance(result.get("page_state"), dict) else {}
         last_page = state.get("last_page") if isinstance(state.get("last_page"), dict) else {}
         source_url = str(
-            BrowserAgentRuntime.extract_result_url(result)
-            or page_state.get("url")
+            page_state.get("url")
+            or BrowserAgentRuntime.extract_result_url(result)
             or tool_args.get("url")
             or last_page.get("url")
             or ""
@@ -5480,14 +5982,18 @@ class BrowserRuntimeRail(AgentRail):
         except ValueError:
             pass
         order = " ".join(query.get("order", []) + query.get("sort", [])).lower()
-        serialized_args = json.dumps(tool_args, ensure_ascii=False, default=str).lower()
-        if any(token in order for token in ("pubdate", "latest", "newest", "recent")) or any(
-            token in serialized_args for token in ("最新", "latest", "newest", "pubdate")
-        ):
+        selected = (result.get("values") or {}).get("sort_state")
+        if not selected and result.get("cards"):
+            selected = result["cards"][0].get("sort_state")
+        if not selected:
+            controls = result.get("elements") or page_state.get("interactives") or []
+            labels = [c.get("name") or c.get("accessible_name") or c.get("text") for c in controls
+                      if c.get("selected") is True and str(c.get("kind") or "").startswith("sort")]
+            selected = labels[0] if len(labels) == 1 else None
+        variant = observed_sort(source_url, selected)
+        if variant == "latest":
             return "latest", source_url
-        if any(token in order for token in ("totalrank", "relevance", "default", "comprehensive")) or any(
-            token in serialized_args for token in ("综合", "comprehensive", "relevance", "totalrank")
-        ):
+        if variant == "comprehensive":
             return "comprehensive", source_url
         required_variants = {
             str(slot.get("variant") or "")
@@ -5513,6 +6019,10 @@ class BrowserRuntimeRail(AgentRail):
             "target",
             "provenance",
             "execution_provenance",
+            "observation_scope",
+            "interaction_revision",
+            "capture_id",
+            "observed_at_ms",
         }
 
         def semantic_value(value: Any) -> Any:
@@ -5541,6 +6051,11 @@ class BrowserRuntimeRail(AgentRail):
         value = cls._evaluate_result_value(result)
         if value is None:
             return {}
+        page = result.get("page_state") if isinstance(result.get("page_state"), dict) else {}
+        value = normalize_profile_evaluate_fields(
+            value, source=str(page.get("url") or ""),
+            expression=str(tool_args.get("function") or tool_args.get("expression") or ""),
+        )
         trusted_fields, allowed_fields = cls._evaluate_field_scope(tool_args, required_fields)
         compact_values, fields, field_status, raw_values = cls._compact_evaluate_values(
             value,
@@ -5550,24 +6065,136 @@ class BrowserRuntimeRail(AgentRail):
         if not compact_values and not field_status:
             return {}
         raw_preview = json.dumps(value, ensure_ascii=False, default=str) if not isinstance(value, str) else value
-        generation_id = str(result.get("generation_id") or tool_args.get("generation_id") or "")
-        target = str(tool_args.get("target") or tool_args.get("element") or "")[:240]
+        generation_id = str(result.get("generation_id") or page.get("generation_id")
+                            or tool_args.get("generation_id") or "")
+        identity = value[0] if isinstance(value, list) and value else value
+        identity = identity if isinstance(identity, dict) else {}
+        entries = cls._explicit_evaluate_entries(value) or dict(identity)
+        price = entries.get("price") if isinstance(entries.get("price"), dict) else {}
+        target = str(tool_args.get("target") or tool_args.get("selector")
+                     or identity.get("selector") or identity.get("sel") or "")
+        provenance = cls._evaluate_field_provenance(
+            compact_values, field_status=field_status, raw_values=raw_values,
+            target=target, generation_id=generation_id,
+        )
+        for key, item in entries.items():
+            field_name = cls._canonical_evaluate_field_name(key)
+            if field_name not in provenance:
+                continue
+            if field_status.get(field_name) != "present":
+                provenance[field_name]["observation_status"] = "not_observed"
+            if not isinstance(item, dict):
+                continue
+            if field_status.get(field_name) != "present":
+                explicit_absence = (
+                    str(item.get("status") or "").lower() in {"missing", "unknown"}
+                    and bool(str(item.get("raw_text") or "").strip())
+                )
+                provenance[field_name]["observation_status"] = (
+                    "explicit_absence" if explicit_absence else "not_observed"
+                )
+            for prop in ("selector", "raw_text"):
+                if isinstance(item.get(prop), str) and item[prop]:
+                    provenance[field_name][prop] = item[prop] if prop == "selector" else item[prop][:600]
+            if field_name == "duration" and item.get("scope") in {"current_part", "collection", "video", "unknown"}:
+                provenance[field_name]["scope"] = item.get("scope")
         return {
             "kind": "targeted_evaluate",
+            "entity_url": cls._evaluate_entity_url(value),
+            "entity_title": str(identity.get("title") or "")[:300],
+            "qualifier": str(identity.get("qualifier") or price.get("qualifier") or "")[:80],
+            "date": str(identity.get("date") or "")[:80],
             "generation_id": generation_id,
             "fields": fields,
             "values": compact_values,
             "field_status": field_status,
             "preview": " ".join(raw_preview.split())[:800],
-            "provenance": cls._evaluate_field_provenance(
-                compact_values,
-                field_status=field_status,
-                raw_values=raw_values,
-                target=target,
-                generation_id=generation_id,
-            ),
+            "provenance": provenance,
             "execution_provenance": cls._evaluate_execution_provenance(tool_args, target),
         }
+
+    @classmethod
+    def _ordered_result_evidence(cls, state: Dict[str, Any], result: Dict[str, Any],
+                                 tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
+        """Count actual source-bearing rows, never a scalar count asserted by an extractor."""
+        if not BrowserAgentRuntime.tool_result_succeeded(result):
+            return {}
+        if not cls._is_read_only_recovery(tool_name, tool_args):
+            return {}
+        value = cls._evaluate_result_value(result)
+        rows = value.get("results") if isinstance(value, dict) else value
+        if not isinstance(rows, list):
+            return {}
+        _, source = cls._evidence_variant_and_url(state, result, tool_args)
+        if not source:
+            return {}
+        generation = str((result.get("page_state") or {}).get("generation_id") or "")
+        cards, seen = [], set()
+        for row in rows[:100]:
+            if not isinstance(row, dict) or not isinstance(row.get("title"), str):
+                continue
+            href = str(row.get("href") or row.get("url") or row.get("link") or "")
+            if not href or href.startswith(("#", "javascript:")):
+                continue
+            href = urljoin(source, href)
+            identity = evidence_subject(href)
+            if not identity or identity in seen or not str(row.get("title") or "").strip():
+                continue
+            seen.add(identity)
+            cards.append({**row, "primary_link": href, "order_known": row.get("order_known") is True,
+                          "order_source": "extractor_array"})
+        payload = normalize_card_probe_payload({"url": source, "generation_id": generation, "cards": cards})
+        for card in payload.get("cards", []):
+            # An extractor returning title/href did not inspect every possible field.
+            card["field_status"] = {key: status for key, status in card.get("field_status", {}).items() if key in card}
+        evidence = cls._card_probe_evidence(payload)
+        if evidence:
+            evidence.update({"kind": "ordered_results", "source": source, "generation_id": generation,
+                             "execution_provenance": cls._evaluate_execution_provenance(tool_args, "")})
+        return evidence
+
+    @staticmethod
+    def _evaluate_entry_has_content(item: Any) -> bool:
+        if isinstance(item, dict):
+            return (
+                item.get("value") not in (None, "", [], {})
+                or bool(str(item.get("raw_text") or "").strip())
+            )
+        return item not in (None, "", [], {})
+
+    @classmethod
+    def _explicit_evaluate_entries(cls, value: Any) -> Dict[str, Any]:
+        """Flatten explicit fields only when they refer to one entity and one quote per field."""
+        if isinstance(value, list):
+            items = value[:32]
+            if not items or not all(isinstance(item, dict) and isinstance(item.get("field"), str) for item in items):
+                return {}
+            identities = {
+                (evidence_subject(item.get("url") or item.get("href")),
+                 str(item.get("date") or ""), str(item.get("variant") or ""))
+                for item in items
+            }
+            fields = {cls._canonical_evaluate_field_name(item["field"]) for item in items}
+            if len(identities) != 1 or len(fields) != len(items):
+                items = items[:1]
+            return {str(item["field"]): item for item in items}
+        if isinstance(value, dict):
+            if isinstance(value.get("fields"), dict):
+                return dict(value["fields"])
+            if isinstance(value.get("field"), str):
+                return {value["field"]: value}
+        return {}
+
+    @staticmethod
+    def _evaluate_entity_url(value: Any) -> str:
+        first = value[0] if isinstance(value, list) and value else value
+        if not isinstance(first, dict):
+            return ""
+        return next(
+            (str(first[key]) for key in ("primary_link", "href", "url", "link")
+             if evidence_subject(first.get(key))),
+            "",
+        )
 
     @staticmethod
     def _evaluate_result_value(result: Dict[str, Any]) -> Any:
@@ -5575,12 +6202,7 @@ class BrowserRuntimeRail(AgentRail):
             (result.get(key) for key in ("result", "value", "data") if result.get(key) is not None),
             None,
         )
-        if not isinstance(value, str):
-            return value
-        try:
-            return json.loads(value)
-        except (TypeError, ValueError):
-            return extract_json_object(value) or value
+        return decode_mcp_result(value)
 
     @classmethod
     def _evaluate_field_scope(
@@ -5648,7 +6270,13 @@ class BrowserRuntimeRail(AgentRail):
         compact_values: Dict[str, str] = {}
         field_status: Dict[str, str] = {}
         raw_values: Dict[str, str] = {}
-        for key, item in list(value.items())[:20]:
+        explicit = value.get("fields")
+        entries = dict(value)
+        if isinstance(explicit, dict):
+            entries.update(explicit)
+        if isinstance(value.get("field"), str) and "value" in value:
+            entries[value["field"]] = value
+        for key, item in list(entries.items())[:32]:
             normalized = cls._normalize_evaluate_mapping_item(
                 key,
                 item,
@@ -5658,10 +6286,34 @@ class BrowserRuntimeRail(AgentRail):
             if normalized is None:
                 continue
             field_name, field_value, status, raw_value = normalized
+            if field_status.get(field_name) == "present" and status != "present":
+                continue
             field_status[field_name] = status
             raw_values[field_name] = raw_value
             if status == "present":
                 compact_values[field_name] = field_value
+        # A localized comment section can state zero even when its count selector is absent.
+        for key, item in entries.items():
+            name = cls._snake_case_field_name(key)
+            local_header = re.fullmatch(r"comments?_(?:header|count(?:_text)?|empty(?:_text)?|status)", name)
+            if not local_header or not isinstance(item, str):
+                continue
+            if allowed_fields and "comments" not in allowed_fields:
+                continue
+            local_text = re.sub(r"[\u200b-\u200f\ufeff]", "", item)
+            if re.search(r"还没有评论|暂无评论|没有评论|\bno comments?\b", local_text, re.IGNORECASE):
+                if "comments" not in compact_values:
+                    compact_values["comments"] = "0"
+                    field_status["comments"] = "present"
+                    raw_values["comments"] = local_text[:600]
+        temperatures, raw_value = today_temperature_fields(
+            " ".join(str(value.get(name) or "") for name in ("text", "summary", "raw_text"))
+        )
+        for field_name, field_value in temperatures.items():
+            if field_name in allowed_fields and field_name not in compact_values:
+                compact_values[field_name] = field_value
+                field_status[field_name] = "present"
+                raw_values[field_name] = raw_value
         return compact_values, sorted(compact_values), field_status, raw_values
 
     @classmethod
@@ -5708,11 +6360,18 @@ class BrowserRuntimeRail(AgentRail):
         allowed_fields: set[str],
         trusted_fields: set[str],
     ) -> tuple[Dict[str, str], list[str], Dict[str, str], Dict[str, str]]:
+        entries = cls._explicit_evaluate_entries(value)
+        if entries:
+            return cls._compact_evaluate_mapping(
+                {"fields": entries}, allowed_fields=allowed_fields, trusted_fields=trusted_fields,
+            )
         compact_values: Dict[str, str] = {}
         field_status: Dict[str, str] = {}
         raw_values: Dict[str, str] = {}
         fields: set[str] = set()
-        for item in value[:5]:
+        # A list can contain different products/dates. Never fill the first row's
+        # missing fields with values from subsequent rows.
+        for item in value[:1]:
             item_values, item_fields, item_status, item_raw = cls._compact_evaluate_mapping(
                 item,
                 allowed_fields=allowed_fields,
@@ -5745,9 +6404,20 @@ class BrowserRuntimeRail(AgentRail):
 
     @staticmethod
     def _normalize_evaluate_field_value(field_name: str, value: Any) -> tuple[str, str]:
+        if isinstance(value, dict):
+            status = str(value.get("status") or "").strip().lower()
+            if status in {"missing", "unknown"}:
+                return "", status
+            if "value" not in value:
+                return "", "unknown"
+            value = value["value"]
         if value in (None, "", [], {}):
             return "", "missing"
+        if field_name in {"url", "source"} and evidence_subject(value):
+            return str(value).strip(), "present"
         text = " ".join(str(value).split())[:300]
+        if field_name == "author" and author_is_action_label(text):
+            return "", "unknown"
         if field_name == "comments" and _BROWSER_ZERO_COMMENT_RE.fullmatch(text):
             return "0", "present"
         if _BROWSER_UNKNOWN_VALUE_RE.fullmatch(text):
@@ -5888,6 +6558,7 @@ class BrowserRuntimeRail(AgentRail):
             semantic_delta = "error"
         return {
             "seq": state["action_sequence"],
+            "call_id": progress_delta.get("call_id"),
             "phase": progress_delta.get("phase") or state.get("current_phase"),
             "action_class": action_class or cls._classify_action_class(tool_name, tool_args, state),
             "target_summary": cls._target_summary(tool_name, tool_args),
@@ -5902,11 +6573,13 @@ class BrowserRuntimeRail(AgentRail):
     def _update_last_page(state: Dict[str, Any], tool_result: Any) -> None:
         result = tool_result if isinstance(tool_result, dict) else {}
         page_state = result.get("page_state") if isinstance(result.get("page_state"), dict) else {}
-        url = BrowserAgentRuntime.extract_result_url(result) or str(page_state.get("url") or "")
-        title = str(result.get("title") or page_state.get("title") or "")
+        page = BrowserAgentRuntime.extract_result_page(page_state) or BrowserAgentRuntime.extract_result_page(result)
+        url, title = page.get("url", ""), page.get("title", "")
         if url or title:
             last_page = state.setdefault("last_page", {})
             if url:
+                if url != last_page.get("url"):
+                    last_page["title"] = ""
                 last_page["url"] = url
             if title:
                 last_page["title"] = title
@@ -6018,9 +6691,11 @@ class BrowserRuntimeRail(AgentRail):
             phase,
         )
         state["current_phase"] = next_phase
-        if all(isinstance(item, dict) and item.get("status") == "completed" for item in phases.values()):
-            state["status"] = "completed"
-            state["next_action_class"] = "finish"
+        if state.get("required_evidence_slots") and all(
+            isinstance(item, dict) and item.get("status") == "completed" for item in phases.values()
+        ):
+            # Coverage is a suggestion, not proof of the user's complete goal.
+            state["next_action_class"] = "may_finish"
         else:
             state["next_action_class"] = next_phase
 
@@ -6110,6 +6785,11 @@ class BrowserRuntimeRail(AgentRail):
                 )
             else:
                 value = observed
+            raw_value = value
+            if field_name == "sort_state" and isinstance(value, dict):
+                if value.get("selected") is not True:
+                    continue
+                value = value.get("text")
             if value in (None, "", [], {}):
                 continue
             rendered = (
@@ -6120,8 +6800,10 @@ class BrowserRuntimeRail(AgentRail):
             values[field_name] = rendered[:500]
             provenance[field_name] = {
                 "source": "browser_batch_interact",
-                "raw_text": rendered[:600],
+                "raw_text": (json.dumps(raw_value, ensure_ascii=False, default=str)
+                             if isinstance(raw_value, (dict, list)) else str(raw_value))[:600],
                 "generation_id": generation_id,
+                "selector": str(item.get("selector") or ""),
             }
         return values, provenance
 
@@ -6142,6 +6824,7 @@ class BrowserRuntimeRail(AgentRail):
                 "kind",
                 "provenance",
                 "field_status",
+                "duration_scope",
             }
             field_status = compact.get("field_status", {})
             for field_name in compact:
@@ -6158,7 +6841,7 @@ class BrowserRuntimeRail(AgentRail):
             "kind": "card_probe",
             "fields": sorted(fields),
             "cards": compact_cards,
-            "observed_count": int(result.get("observed_count") or len(compact_cards)),
+            "observed_count": int(result.get("observed_count", len(compact_cards)) or 0),
         }
 
     @classmethod
@@ -6173,12 +6856,18 @@ class BrowserRuntimeRail(AgentRail):
             "generation_id": str(card.get("generation_id") or result.get("generation_id") or ""),
             "result_index": card.get("result_index"),
             "kind": card.get("kind"),
+            "duration_scope": card.get("duration_scope", "unknown"),
+            "order_known": card.get("order_known") is True,
+            "region": card.get("region", ""),
+            "is_ad": card.get("is_ad") is True,
         }
         for field_name in CARD_EVIDENCE_FIELDS:
             value = card.get(field_name)
             if value in (None, "", [], {}):
                 continue
-            compact.setdefault(cls._canonical_field_name(field_name) or field_name, str(value)[:300])
+            rendered = str(value) if field_name in {"primary_link", "href"} else str(value)[:300]
+            compact.setdefault(cls._canonical_field_name(field_name) or field_name, rendered)
+        compact["primary_link"] = str(card.get("primary_link") or card.get("href") or "")
         provenance = card.get("field_provenance")
         if isinstance(provenance, dict):
             compact["provenance"] = {
@@ -6214,6 +6903,11 @@ class BrowserRuntimeRail(AgentRail):
                 "resource",
                 "commercial_module",
                 "ai_overview",
+                "ai_answer",
+                "navigation",
+                "header",
+                "footer",
+                "non_result",
                 "question_module",
                 "related",
             }
@@ -6235,7 +6929,22 @@ class BrowserRuntimeRail(AgentRail):
             }
         )
 
-    def _clear_progress_state(self, session: Any) -> None:
+    @classmethod
+    def interrupted_task_result(cls, session: Any, reason: str) -> Dict[str, Any]:
+        """Finalize captured progress without another model call or browser action."""
+        cls._terminalize_invoke_failure(session, reason)
+        state = session.get_state(_BROWSER_PHASE_STATE_KEY) if session is not None else None
+        if not isinstance(state, dict) or not state:
+            state = {"status": "blocked", "terminal_reason": reason, "blockers": [reason]}
+        else:
+            state["status"] = "partial" if cls._has_task_evidence(state) else "blocked"
+            state["terminal_reason"] = reason
+            state["blockers"] = list(dict.fromkeys([*(state.get("blockers") or []), reason]))
+            state["next_action_class"] = "finish"
+            session.update_state({_BROWSER_PHASE_STATE_KEY: state})
+        return cls._structured_terminal_result(state)
+
+    def _clear_progress_state(self, session: Any, *, preserve_task: bool = False) -> None:
         if session is None:
             return
         session_id = session.get_session_id()
@@ -6244,7 +6953,7 @@ class BrowserRuntimeRail(AgentRail):
             {
                 _BROWSER_PROGRESS_STATE_KEY: {},
                 _BROWSER_PROGRESS_TASK_KEY: "",
-                _BROWSER_PHASE_STATE_KEY: {},
+                _BROWSER_PHASE_STATE_KEY: session.get_state(_BROWSER_PHASE_STATE_KEY) if preserve_task else {},
             }
         )
 

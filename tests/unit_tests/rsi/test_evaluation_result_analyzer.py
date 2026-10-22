@@ -1097,7 +1097,8 @@ class TestDiagnosisAgentStrategy:
             # Analyzer agent reads only bounded evidence, not raw trace/artifact dirs.
             assert "evidence_summary.md" in prompt
             assert "judge/normalized_trace.json" not in prompt
-            assert "artifacts" not in prompt
+            assert "artifacts/" in prompt
+            assert "not reference solutions or a complete repository" in prompt
             return json.dumps(
                 {
                     "issue_category": "member_harness",
@@ -1944,7 +1945,8 @@ class TestDiagnosisPromptEvidenceSummary:
         assert "Analyze concrete member harness capability" in prompt
         assert "member_harness.<role>.<variable>" in prompt
         assert "judge/normalized_trace.json" not in prompt
-        assert "artifacts" not in prompt
+        assert "artifacts/" in prompt
+        assert "not reference solutions or a complete repository" in prompt
 
     def test_prompt_uses_inline_json_when_summary_is_missing(self, tmp_path: Path) -> None:
         from openjiuwen.rsi.harness_rsi.evaluation_result_analyzer.analyzer import (
@@ -2115,13 +2117,13 @@ class TestDiagnosisPromptEvidenceSummary:
         assert "team_skill.<role>.<variable>" in DIAGNOSIS_SYSTEM_PROMPT
         assert "Never output role-less target_ref" in DIAGNOSIS_SYSTEM_PROMPT
 
-    def test_system_prompt_no_longer_allows_rail_attribution(self) -> None:
+    def test_system_prompt_allows_supported_rail_attribution(self) -> None:
         from openjiuwen.rsi.harness_rsi.evaluation_result_analyzer.analyzer import (
             AGGREGATION_SYSTEM_PROMPT,
             DIAGNOSIS_SYSTEM_PROMPT,
         )
 
-        assert "rail:" not in DIAGNOSIS_SYSTEM_PROMPT
+        assert "rail:" in DIAGNOSIS_SYSTEM_PROMPT
         assert "Valid member_harness variables: prompt, skill, tool, config." in (AGGREGATION_SYSTEM_PROMPT)
         assert "Valid member_harness variables: prompt, skill, tool, rail, config." not in (AGGREGATION_SYSTEM_PROMPT)
 
@@ -4075,3 +4077,27 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def _write_yaml(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
+def test_structured_iteration_reason_survives_case_reader(tmp_path):
+    from openjiuwen.rsi.harness_rsi.evaluation_result_analyzer.case_reader import CaseReader, EvaluationSummaryInput
+    from openjiuwen.rsi.harness_rsi.evaluation_result_analyzer.signal_extractor import RewardSignalExtractor
+
+    case_dir = tmp_path / "case_structured"
+    case_dir.mkdir()
+    (case_dir / "result.json").write_text(json.dumps({"case_id": "case_structured", "status": "completed"}))
+    (case_dir / "trace.json").write_text(
+        json.dumps(
+            {
+                "response": {
+                    "output": "A partial localized answer",
+                    "result_type": "answer",
+                    "termination_reason": "max_iterations",
+                }
+            }
+        )
+    )
+    cases = CaseReader.read_case_inputs(str(tmp_path))
+    assert cases[0].termination_reason == "max_iterations"
+    signals = RewardSignalExtractor.extract(EvaluationSummaryInput(evaluation_method="reward"), cases)
+    assert "case_structured" in signals.method_specific["max_iteration_cases"]

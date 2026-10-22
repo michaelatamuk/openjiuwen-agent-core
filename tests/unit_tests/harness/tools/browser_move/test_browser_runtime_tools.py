@@ -5,12 +5,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from mcp.types import CallToolResult, TextContent
-
 from openjiuwen.core.foundation.llm import ToolMessage
 from openjiuwen.core.foundation.tool import McpServerConfig, McpToolCard, Tool, ToolCard
 from openjiuwen.core.foundation.tool.mcp.base import MCPTool, McpToolResult
@@ -55,7 +55,7 @@ def _make_runtime() -> BrowserAgentRuntime:
 
 def test_build_browser_runtime_tools_returns_helper_tools_by_default() -> None:
     tools = build_browser_runtime_tools(_make_runtime())
-    assert len(tools) == 3
+    assert len(tools) == 4
 
 
 def test_each_tool_is_tool_subclass() -> None:
@@ -74,14 +74,16 @@ def test_default_helper_tool_names() -> None:
         "browser_probe_interactives",
         "browser_probe_cards",
         "browser_batch_interact",
+        "browser_phase",
     ]
 
 
 def test_helper_tool_classes() -> None:
-    probe_interactives, probe_cards, batch_interact = build_browser_runtime_tools(_make_runtime())
+    probe_interactives, probe_cards, batch_interact, phase = build_browser_runtime_tools(_make_runtime())
     assert isinstance(probe_interactives, BrowserProbeInteractivesTool)
     assert isinstance(probe_cards, BrowserProbeCardsTool)
     assert isinstance(batch_interact, BrowserBatchInteractTool)
+    assert phase.card.name == "browser_phase"
 
 
 def test_language_en_uses_non_empty_descriptions() -> None:
@@ -388,7 +390,10 @@ def test_single_batch_wait_preserves_mcp_outcome_through_browser_client_and_rail
         assert native_result.data == {"result": response_text}
         assert native_result.error == response_text
         assert result.error == response_text
-        assert response_text in inputs.tool_msg.content
+        if inputs.tool_msg.content.startswith("{"):
+            assert json.loads(inputs.tool_msg.content)["error"] == response_text
+        else:
+            assert response_text in inputs.tool_msg.content
     else:
         assert native_result == {"result": response_text}
         assert result.error is None

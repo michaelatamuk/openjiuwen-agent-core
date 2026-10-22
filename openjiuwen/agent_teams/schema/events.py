@@ -24,7 +24,19 @@ from openjiuwen.agent_teams.schema.external_runtime_reliability import (
     ExternalRuntimeFailureReason,
     ExternalRuntimePhase,
 )
+from openjiuwen.agent_teams.schema.status import MemberStatus
 from openjiuwen.agent_teams.workflow.engine.progress import PhasePlan
+
+
+def _topic_part(value: object) -> str:
+    """Escape ``:`` inside a topic component so it cannot fake a separator.
+
+    Topics are ``session:{sid}:team:{team}:...``. Team/session ids are
+    human-supplied; a level name containing the literal ``:team:`` can make
+    two different (session, team) pairs render the same topic and receive each
+    other's events. Escape ``%`` first, then ``:``.
+    """
+    return str(value).replace("%", "%25").replace(":", "%3A")
 
 
 class TeamTopic(str, Enum):
@@ -44,7 +56,7 @@ class TeamTopic(str, Enum):
         Returns:
             Topic string in the format "session:{session_id}:team:{team_name}:{topic}".
         """
-        return f"session:{session_id}:team:{team_name}:{self.value}"
+        return f"session:{_topic_part(session_id)}:team:{_topic_part(team_name)}:{self.value}"
 
 
 def swarmflow_human_reply_topic(
@@ -59,8 +71,14 @@ def swarmflow_human_reply_topic(
     ``None`` falls back to the legacy session+team scope (single-run safe).
     """
     if run_id:
-        return f"session:{session_id}:team:{team_name}:run:{run_id}:swarmflow_human_reply"
-    return f"session:{session_id}:team:{team_name}:swarmflow_human_reply"
+        return (
+            f"session:{_topic_part(session_id)}:team:{_topic_part(team_name)}:"
+            f"run:{_topic_part(run_id)}:swarmflow_human_reply"
+        )
+    return (
+        f"session:{_topic_part(session_id)}:team:{_topic_part(team_name)}:"
+        "swarmflow_human_reply"
+    )
 
 
 def format_swarmflow_human_reply_target(
@@ -235,8 +253,18 @@ class MemberExecutionChangedEvent(BaseEventMessage):
 
 
 class MemberShutdownEvent(BaseEventMessage):
-    """Event published when a member is shut down"""
+    """Event published when a member is asked to retire.
+
+    The member's runtime is torn down either way; ``target_status`` tells
+    observers where the member settles. ``shut_down`` leaves the roster,
+    while ``dormant`` keeps the member on it and wakes it when named again,
+    so rosters must not treat every shutdown event as a removal.
+    """
     force: bool = Field(..., description="Force member shut down")
+    target_status: str = Field(
+        default=MemberStatus.SHUTDOWN.value,
+        description="Settled member status this retirement leads to: 'shut_down' or 'dormant'",
+    )
 
 
 class MemberCanceledEvent(BaseEventMessage):
@@ -310,6 +338,11 @@ class TaskPlanResponseEvent(BaseEventMessage):
 class TaskUpdatedEvent(BaseEventMessage):
     """Event published when a task is updated"""
     task_id: str = Field(..., description="Task unique identifier")
+    status: Optional[str] = Field(
+        default=None,
+        description="Task status at edit time; content edits never change it, "
+        "but carrying it lets consumers resync a stale view from this event",
+    )
 
 
 class TaskClaimedEvent(BaseEventMessage):
@@ -462,6 +495,17 @@ class WorkflowProgressTeamEvent(BaseEventMessage):
     label: Optional[str] = Field(default=None, description="Agent call label, on agent_* kinds")
     prompt: Optional[str] = Field(default=None, description="Rendered agent prompt, on agent_started")
     model: Optional[str] = Field(default=None, description="Model hint for the agent call, on agent_started")
+    agent_type: Optional[str] = Field(
+        default=None,
+        description="External provider kind (claude / codex) on agent_started; None for native workers",
+    )
+    agent_template: Optional[str] = Field(
+        default=None,
+        description="AgentGroup member picked via options.agent_template on agent_started; None for the generic worker",
+    )
+    display_name: Optional[str] = Field(
+        default=None, description="Display name of that expert on agent_started; None when absent"
+    )
     outcome: Optional[str] = Field(default=None, description="Short result preview, on agent_completed")
     text: Optional[str] = Field(default=None, description="Free narration text, on all kinds")
     phases: Optional[list[PhasePlan]] = Field(
@@ -511,6 +555,111 @@ class WorkflowProgressTeamEvent(BaseEventMessage):
     )
     parent_phase: Optional[str] = Field(
         default=None, description="Parent author phase name when this is a child phase declaration."
+    )
+    parent_session_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Parent session's avatar member name on agent_started turns of a "
+            "fork child (node_type=agent_session_fork), so a UI can draw the "
+            "parent→child fork edge. Unique per session, so chained and "
+            "same-label forks resolve to the exact parent. None on non-fork nodes."
+        ),
+    )
+    member_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "The session's avatar member name on session-node agent_started "
+            "turns (agent_session / agent_session_fork / human_session); the "
+            "join key for parent_session_id. None on one-shot agent()/human()."
+        ),
+    )
+    verify_reviewers: Optional[int] = Field(
+        default=None, description="Reviewer count, on verify_started / verify_completed (verify_settled alias)."
+    )
+    verify_verdict: Optional[str] = Field(
+        default=None,
+        description=(
+            "Verify round verdict on verify_completed: 'pass' / 'fail' / None "
+            "(undecided — a reviewer did not vote; never a silent pass)."
+        ),
+    )
+    verify_threshold: Optional[float] = Field(
+        default=None, description="Score-pool threshold, on verify_started / verify_completed."
+    )
+    verify_votes: Optional[list[dict]] = Field(
+        default=None,
+        description=(
+            "Per-reviewer votes on verify_completed: "
+            "[{name, agent_id, kind, role, decision, score, feedback, voted}]; name mirrors the "
+            "reviewer agent node's label, agent_id its deterministic node id, role is display-only."
+        ),
+    )
+    verify_reviewer_labels: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Reviewer label roster on verify_started, in fan-out order — unique across "
+            "rounds (verify() prefixes each label with the round's base label). A UI "
+            "builds its verify container and pre-attaches child rows from this."
+        ),
+    )
+    verify_reviewer_roles: Optional[list[Optional[str]]] = Field(
+        default=None,
+        description=(
+            "Reviewer business role roster on verify_started, same fan-out order as "
+            "verify_reviewer_labels: verifier / inspector / challenger. Display-only — "
+            "judgement reads the vote kind, never a role."
+        ),
+    )
+    verify_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Node id on verify_started / verify_completed — the verify analog of "
+            "an agent node's agent_id (structural call position). Concurrent "
+            "same-label rounds stay distinct by this id; a UI folds same-label "
+            "rounds into one card xN, pairing started/completed by verify id."
+        ),
+    )
+    cache_tokens: Optional[int] = Field(
+        default=None,
+        description=(
+            "Prompt-cache-hit tokens on agent_completed (AgentResult.cache_tokens); "
+            "a subset of tokens, reported alongside, never billed twice."
+        ),
+    )
+    token_input: Optional[int] = Field(
+        default=None,
+        description=(
+            "Prompt input tokens on agent_completed (AgentResult.input_tokens); "
+            "display split of tokens, None when the provider reported no split."
+        ),
+    )
+    token_output: Optional[int] = Field(
+        default=None,
+        description=(
+            "Completion output tokens on agent_completed (AgentResult.output_tokens); "
+            "display split of tokens, None when the provider reported no split."
+        ),
+    )
+    activity_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "AGENT_ACTIVITY only: 'tool_call' / 'tool_result' — which half of the "
+            "activity pair this event carries."
+        ),
+    )
+    tool_call_id: Optional[str] = Field(
+        default=None,
+        description="AGENT_ACTIVITY only: pairs a tool_call with its tool_result.",
+    )
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="AGENT_ACTIVITY only: the invoked tool's name.",
+    )
+    content: Optional[str] = Field(
+        default=None,
+        description=(
+            "AGENT_ACTIVITY only: 512-char args/result preview (engine-truncated)."
+        ),
     )
 
 

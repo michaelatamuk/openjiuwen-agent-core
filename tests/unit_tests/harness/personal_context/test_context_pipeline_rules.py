@@ -593,6 +593,12 @@ def _seed_atomic_source(tmp_path: Path, *, suffix: str = "existing") -> str:
     )
 
 
+# Upper bound for one queued event to complete. It only turns a hang into a
+# failure; finishing a run does real CPU work (briefing and publication), so a
+# tight bound fails on a loaded CI machine although nothing is stuck.
+_EVENT_COMPLETION_TIMEOUT_S = 10
+
+
 async def _put_event(
     queue: asyncio.Queue[object],
     tag: str,
@@ -602,7 +608,7 @@ async def _put_event(
 ) -> None:
     completion = asyncio.get_running_loop().create_future()
     await queue.put((tag, service_id, run_id, payload, completion))
-    await asyncio.wait_for(asyncio.shield(completion), timeout=2)
+    await asyncio.wait_for(asyncio.shield(completion), timeout=_EVENT_COMPLETION_TIMEOUT_S)
 
 
 async def _submit_run(
@@ -746,7 +752,7 @@ async def test_pipeline_failure_sets_completion_exception_and_cleans_sandbox(tmp
 
     completion = asyncio.get_running_loop().create_future()
     invalid = _batch(_item())
-    await queue.put(("batch", "../escape", "run-1", invalid, completion))
+    await queue.put(("batch", "", "run-1", invalid, completion))
     with pytest.raises(Exception):
         await asyncio.wait_for(completion, timeout=2)
     assert not list((tmp_path / "workspace" / "sandboxes").rglob("*"))
@@ -825,7 +831,9 @@ async def test_two_batches_share_run_inputs_and_finish_publishes_once(
 
     monkeypatch.setattr(service, "_publish_processed", record_publish)
     await service.start()
-    large_content = "full source body " * 20_000
+    # Larger than the large-run document limits (40k per document, 60k per run)
+    # without making every briefing pass parse a third of a megabyte.
+    large_content = "full source body " * 4_000
     first_batch = _batch(_item(content=large_content), batch_id="batch-1")
     second_batch = _batch(
         _item("notes/two", revision_id="rev-2", content="Second source."),
@@ -1443,9 +1451,9 @@ async def test_finish_reports_validation_and_commit_phases(tmp_path: Path) -> No
         await service.stop(timeout_seconds=1)
 
     assert phases == [
-        ("local", "run-progress", "organizing", 50),
-        ("local", "run-progress", "organizing", 60),
-        ("local", "run-progress", "organizing", 85),
+        ("local", "run-progress", "organizing", 25),
+        ("local", "run-progress", "organizing", 30),
+        ("local", "run-progress", "organizing", 88),
         ("local", "run-progress", "validating", 90),
         ("local", "run-progress", "committing", 97),
     ]

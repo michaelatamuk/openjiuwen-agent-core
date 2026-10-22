@@ -18,11 +18,12 @@ from openjiuwen.agent_teams.agent.coordination.event_bus import (
     InnerEventType,
 )
 from openjiuwen.agent_teams.harness.state import HarnessState
+from openjiuwen.agent_teams.i18n import t
 from openjiuwen.agent_teams.schema.status import MemberStatus
 from openjiuwen.agent_teams.schema.team import TeamRole
 from openjiuwen.core.common.logging import team_logger
-from openjiuwen.harness.prompts import resolve_language as _resolve_language
 from openjiuwen.core.session.agent_team import Session as AgentTeamSession
+from openjiuwen.harness.prompts import resolve_language as _resolve_language
 
 if TYPE_CHECKING:
     from openjiuwen.agent_teams.agent.coordination.dispatcher import EventDispatcher
@@ -173,7 +174,8 @@ class CoordinationKernel:
 
         team_row_present = False
         if host.role == TeamRole.LEADER and infra.team_backend:
-            existing = await infra.team_backend.db.team.get_team(infra.team_backend.team_name)
+            backend = infra.team_backend
+            existing = await backend.db.team.get_team(backend.team_name)
             if existing is not None:
                 # A team row that is still there is a team to rejoin, whatever
                 # its roster looks like. "Every teammate is SHUTDOWN" used to be
@@ -184,6 +186,23 @@ class CoordinationKernel:
                 # clean_team tool, or the operator's delete_agent_team.
                 team_row_present = True
                 await host.recover_team()
+            elif blueprint is not None and blueprint.spec.bootstrap_mode == "framework":
+                # The symmetric branch (F_122): no row and the spec asks the
+                # framework to build the team, so it is built right here —
+                # before the first user input is enqueued — with the generic
+                # identity from the spec. ``overrides=None`` keeps every
+                # capability at its spec ceiling: there is no leader choice
+                # to honour. ``build_team`` fires ``on_team_built`` as usual,
+                # which latches the checkpoint ``db_state`` (the session is
+                # already bound above) and arms the scheduler.
+                spec = blueprint.spec
+                await backend.build_team(
+                    display_name=spec.team_display_name or t("blueprint.generic_team_display_name"),
+                    desc=spec.team_desc or t("blueprint.generic_team_desc"),
+                    leader_display_name=spec.leader.display_name,
+                    leader_desc=spec.leader.desc,
+                )
+                team_row_present = True
 
         if infra.workspace_manager and not infra.workspace_initialized:
             spec = blueprint.spec if blueprint else None
@@ -270,6 +289,10 @@ class CoordinationKernel:
         # new message arrives. Runs last, once the kernel is fully live, and
         # is a no-op when there is nothing suspended to resume.
         await self.resume_paused_round()
+        if host.role == TeamRole.LEADER:
+            # Everything a consumer needs before interacting has completed
+            # by this point, so publish it on the stream (no-op without one).
+            host.stream_controller.emit_team_recovered()
 
     def _build_wake_callback(self):
         """Compose the bus wake callback: coordination first, scheduler second.
@@ -326,9 +349,13 @@ class CoordinationKernel:
         if memory_manager:
             await memory_manager.extract_after_round()
         if host.role == TeamRole.LEADER:
+            paused_teammates = tuple(host.spawn_manager.spawned_handles)
             await self._mark_live_teammates(MemberStatus.PAUSED)
             await host.spawn_manager.cancel_recovery_tasks()
             await host.spawn_manager.shutdown_all_handles()
+            team_backend = host.infra.team_backend
+            if team_backend is not None and host.team_name is not None:
+                await team_backend.db.member.reset_paused_member_execution_status(host.team_name, paused_teammates)
             self._persist_team_lifecycle("paused")
             # Make a later cold start (pause -> stop -> start) continue this
             # round rather than idle waiting for a new message.
@@ -578,18 +605,40 @@ class CoordinationKernel:
         messager = host.infra.messager
         if not messager or not self._event_bus:
             return
-        from openjiuwen.agent_teams.context import get_session_id
-        from openjiuwen.agent_teams.schema.events import EventMessage, TeamTopic
+        from openjiuwen.agent_teams.context import get_session_id, reset_session_id, set_session_id
+        from openjiuwen.agent_teams.schema.events import EventMessage, TeamEvent, TeamTopic
 
         local_member_name = host.member_name or ""
+        # The topics below are scoped to this session, so every event they
+        # deliver belongs to it. The messager invokes the handler from its own
+        # receive loop or from the publisher's task, neither of which is bound
+        # to this session; listeners (observability included) and the
+        # per-session DB tables resolve the session through the contextvar, so
+        # the whole delivery runs with it bound.
+        session_id = get_session_id()
 
         async def _filter_self(event: EventMessage) -> None:
+            token = set_session_id(session_id)
+            try:
+                await _deliver(event)
+            finally:
+                reset_session_id(token)
+
+        async def _deliver(event: EventMessage) -> None:
             for listener in host.state.event_listeners:
                 try:
                     await listener(event)
                 except Exception as e:
                     team_logger.error("Event listener error: {}", e)
-            if local_member_name and event.sender_id == local_member_name:
+            mailbox_wakeup = event.event_type == TeamEvent.MESSAGE and (
+                host.role == TeamRole.LEADER or event.get_payload().to_member_name == local_member_name
+            )
+            if event.event_type == TeamEvent.BROADCAST and event.sender_id == local_member_name:
+                from openjiuwen.agent_teams.group_chat.handler import group_metadata
+
+                row = await host.infra.team_backend.db.message.get_message(event.get_payload().message_id)
+                mailbox_wakeup = row is not None and bool(group_metadata(row))
+            if local_member_name and event.sender_id == local_member_name and not mailbox_wakeup:
                 team_logger.debug("ignoring self-published event: {}", event.event_type)
                 # F_62: the scheduler must observe board changes the leader
                 # process performed itself (create_task, settle). Coordination
@@ -606,7 +655,6 @@ class CoordinationKernel:
                 return
             await self._event_bus.enqueue(event)
 
-        session_id = get_session_id()
         await messager.register_direct_message_handler(self._event_bus.enqueue)
         for topic in TeamTopic:
             topic_str = topic.build(session_id, team_name)
@@ -639,10 +687,14 @@ class CoordinationKernel:
         if self._event_bus is None:
             return
         query = inputs.get("query", "") if isinstance(inputs, dict) else inputs
+        run_context = inputs.get("run_context") if isinstance(inputs, dict) else None
         await self._event_bus.enqueue(
             InnerEventMessage(
                 event_type=InnerEventType.USER_INPUT,
-                payload={"content": query},
+                payload={
+                    "content": query,
+                    "run_context": run_context,
+                },
             )
         )
 
@@ -703,7 +755,11 @@ class CoordinationKernel:
         - **cold**: the harness was stopped and rebuilt, its context restored from
           the session checkpoint. The marker ``pause`` persisted names the round's
           originating query, making ``pause -> stop -> start`` behave exactly like
-          ``pause -> resume``.
+          ``pause -> resume``. Leader-only: the marker lives in the team-scoped
+          session bucket that every member of the team shares, and only the
+          leader writes it (``_persist_pending_resume``). A teammate reading it
+          would replay the leader's round on its own harness — and an external
+          CLI harness without pause/resume support crashes on it.
 
         Without this the member would idle until a new message arrived, silently
         dropping the work it was suspended mid-way through.
@@ -721,6 +777,8 @@ class CoordinationKernel:
             self._clear_pending_resume()
             return
 
+        if self._host.role != TeamRole.LEADER:
+            return
         pending = self._read_pending_resume()
         if pending is None:
             return

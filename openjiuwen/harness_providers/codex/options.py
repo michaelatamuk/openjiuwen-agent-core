@@ -5,19 +5,34 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import os
 import re
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from openjiuwen.core.common.logging import LazyLogger, LogManager
-from openjiuwen.harness_protocol import HarnessError, McpServerConfig, McpTransport, UnsupportedHarnessCapabilityError
+from openjiuwen.harness_protocol import (
+    HarnessError,
+    McpServerConfig,
+    McpTransport,
+    ModelOption,
+    ToolDefinition,
+    UnsupportedHarnessCapabilityError,
+    json_value_to_builtin,
+)
 from openjiuwen.harness_providers.codex.config import CodexHarnessConfig, CodexModelConfig
+from openjiuwen.harness_providers.mcp_naming import TOOL_PLACEHOLDER, mcp_tool_naming_preamble
 
 logger = LazyLogger(lambda: LogManager.get_logger("harness_providers"))
 
 CODEX_API_KEY_ENV = "OPENJIUWEN_CODEX_API_KEY"
+# How often the CLI flushes batched telemetry, in milliseconds.
+_OTEL_LOG_EXPORT_INTERVAL_MS = "100"
+# Codex groups its tools into namespaces and leaves this one implicit: a call
+# states its namespace only when the tool is not in it.
+DEFAULT_TOOL_NAMESPACE = "functions"
 # Codex feature flag exposing the experimental ``request_user_input`` tool in
 # default mode; without it the model only has the tool in collaboration modes.
 USER_INPUT_FEATURE_OVERRIDE = "features.default_mode_request_user_input=true"
@@ -81,6 +96,75 @@ def codex_model_config_overrides(model: CodexModelConfig) -> tuple[str, ...]:
     return tuple(overrides)
 
 
+def codex_telemetry_env() -> dict[str, str]:
+    """Env making the CLI flush its telemetry batches promptly.
+
+    A completion report is only useful while the inference it describes is
+    still being assembled, and the default batch delay holds it several
+    hundred milliseconds -- long enough that the rollout record, which is
+    tailed from a file, always wins the race. Flushing every
+    ``_OTEL_LOG_EXPORT_INTERVAL_MS`` brings the report within tens of
+    milliseconds, so the wait for it is imperceptible rather than a second.
+    """
+    return {"OTEL_BLRP_SCHEDULE_DELAY": _OTEL_LOG_EXPORT_INTERVAL_MS}
+
+
+def codex_otel_config_overrides(*, endpoint: str, source_id: str) -> tuple[str, ...]:
+    """Point the CLI's telemetry events at the loopback receiver.
+
+    Codex reports its facts -- tool results and decisions, per-response token
+    counts, the session's resolved settings -- as OTLP *log* events. Only that
+    signal is switched on: its trace exporter emits hundreds of internal spans
+    per turn that carry no observation of its own.
+
+    The endpoint is used verbatim (the CLI appends no ``/v1/<signal>`` path of
+    its own), and ``otel.environment`` lands in the resource as ``env``, which
+    is how one member claims its own events out of the shared receiver.
+
+    Args:
+        endpoint: Base URL of the loopback receiver.
+        source_id: This session's identity, echoed back in the resource.
+    """
+    url = json.dumps(f"{endpoint.rstrip('/')}/v1/logs")
+    exporter = f'{{ otlp-http = {{ endpoint = {url}, protocol = "binary" }} }}'
+    return (
+        f"otel.environment={json.dumps(source_id)}",
+        f"otel.exporter={exporter}",
+        "otel.trace_exporter=none",
+        "otel.metrics_exporter=none",
+    )
+
+
+def codex_server_key(server_name: str) -> str:
+    """Return the ``mcp_servers.<key>`` name Codex knows one server by.
+
+    Codex reads the key as a TOML bare key, so a hyphen in the protocol name
+    becomes an underscore here -- and stays one in the namespace the model
+    addresses that server's tools in.
+    """
+    return server_name.replace("-", "_")
+
+
+def namespaced_tool_name(namespace: str, name: str) -> str:
+    """Return the name the model addresses one tool by.
+
+    Codex groups its tools into namespaces and leaves the default one implicit:
+    a call states its namespace only when the tool is not in it.
+    """
+    if not namespace or namespace == DEFAULT_TOOL_NAMESPACE:
+        return name
+    return f"{namespace}.{name}"
+
+
+def codex_mcp_tool_naming(servers: Iterable[McpServerConfig]) -> str:
+    """State how the CLI names the tools of the given MCP servers."""
+    patterns = {
+        server.name: namespaced_tool_name(f"mcp__{codex_server_key(server.name)}", TOOL_PLACEHOLDER)
+        for server in servers
+    }
+    return mcp_tool_naming_preamble(patterns)
+
+
 def codex_mcp_config_overrides(
     server: McpServerConfig,
     *,
@@ -90,7 +174,7 @@ def codex_mcp_config_overrides(
     default_tools_approval_mode: str | None,
 ) -> tuple[str, ...]:
     """Render ``mcp_servers.*`` entries for one protocol MCP server."""
-    key = _dotted_table_key(server.name.replace("-", "_"))
+    key = _dotted_table_key(codex_server_key(server.name))
     overrides: list[str] = []
     if server.transport is McpTransport.STDIO:
         binary, *args = server.command
@@ -133,6 +217,7 @@ def build_codex_config(
     env: Mapping[str, str],
     mcp_servers: tuple[McpServerConfig, ...],
     enable_user_input: bool = False,
+    extra_config_overrides: tuple[str, ...] = (),
 ) -> Any:
     """Build ``CodexConfig`` for one harness session.
 
@@ -140,6 +225,8 @@ def build_codex_config(
         enable_user_input: Give the model Codex's experimental
             ``request_user_input`` tool; it is off in the CLI's default mode,
             so a host that declares ``USER_INPUT`` must switch it on here.
+        extra_config_overrides: Provider-private overrides for this session,
+            such as the telemetry channel's exporter settings.
     """
     process_env = dict(env)
     overrides: tuple[str, ...] = ()
@@ -157,6 +244,7 @@ def build_codex_config(
             required=config.mcp_required,
             default_tools_approval_mode=config.mcp_default_tools_approval_mode,
         )
+    overrides += extra_config_overrides
     overrides += config.config_overrides
     return sdk.CodexConfig(
         codex_bin=config.codex_bin,
@@ -179,6 +267,8 @@ def build_thread_options(
 ) -> dict[str, Any]:
     """Build thread start/resume options, including the reasoning summary."""
     options: dict[str, Any] = {"ephemeral": False, "config": dict(config.thread_config)}
+    if model is not None and model.effort:
+        options["config"]["model_reasoning_effort"] = model.effort
     if cwd:
         options["cwd"] = cwd
     if system_prompt:
@@ -193,12 +283,51 @@ def build_thread_options(
     # be redirected to an external provider, so any auto-review call against an
     # external endpoint is guaranteed to fail. Bypass the reviewer whenever an
     # external model is configured: ``deny_all`` never asks for approval and
-    # ``full_access`` lets tool calls run under the host's own policy.
-    bypass = config.bypass_approvals_and_sandbox or model is not None
+    # ``full_access`` lets tool calls run under the host's own policy. Picking
+    # one of Codex's built-in models keeps the official endpoint, where the
+    # reviewer works, so it does not bypass.
+    bypass = config.bypass_approvals_and_sandbox or (model is not None and model.is_external)
     if bypass:
         options["approval_mode"] = sdk.ApprovalMode.deny_all
         options["sandbox"] = sdk.Sandbox.full_access
     return options
+
+
+def codex_model_options(response: Any) -> tuple[ModelOption, ...]:
+    """Map a Codex ``model/list`` response to protocol model options.
+
+    Args:
+        response: ``ModelListResponse`` from ``AsyncCodex.models()``.
+
+    Returns:
+        One option per listed model, hidden models excluded.
+    """
+    result: list[ModelOption] = []
+    for model in getattr(response, "data", None) or ():
+        if getattr(model, "hidden", False):
+            continue
+        efforts = tuple(
+            _enum_value(getattr(item, "reasoning_effort", None))
+            for item in getattr(model, "supported_reasoning_efforts", None) or ()
+        )
+        efforts = tuple(item for item in efforts if item)
+        default_effort = _enum_value(getattr(model, "default_reasoning_effort", None)) or None
+        result.append(
+            ModelOption(
+                model_id=str(model.id),
+                display_name=str(getattr(model, "display_name", "") or ""),
+                description=str(getattr(model, "description", "") or ""),
+                efforts=efforts,
+                default_effort=default_effort if default_effort in efforts or not efforts else None,
+                is_default=bool(getattr(model, "is_default", False)),
+            )
+        )
+    return tuple(result)
+
+
+def _enum_value(value: Any) -> str:
+    """Return the wire string of an SDK enum member (or plain string)."""
+    return str(getattr(value, "value", value) or "")
 
 
 async def append_developer_instructions(client: Any, sdk: Any, config: CodexHarnessConfig,
@@ -219,17 +348,46 @@ async def append_developer_instructions(client: Any, sdk: Any, config: CodexHarn
     return "\n\n".join(part for part in (existing, system_prompt) if part)
 
 
-async def start_thread_with_raw_events(
+def dynamic_tools_to_wire(definitions: tuple[ToolDefinition, ...]) -> list[dict[str, Any]]:
+    """Render host tools as top-level Codex dynamic function tools."""
+    return [
+        {
+            "type": "function",
+            "name": definition.name,
+            "description": definition.description,
+            "inputSchema": json_value_to_builtin(definition.input_schema),
+        }
+        for definition in definitions
+    ]
+
+
+def dynamic_tools_fingerprint(definitions: tuple[ToolDefinition, ...]) -> str:
+    """Return a stable fingerprint for one Codex dynamic-tool registration."""
+    tools = dynamic_tools_to_wire(definitions)
+    canonical_tools = sorted(
+        tools,
+        key=lambda tool: (
+            str(tool["name"]),
+            json.dumps(tool, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        ),
+    )
+    payload = json.dumps(canonical_tools, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+async def start_thread_with_raw_events_and_dynamic_tools(
     *,
     client: Any,
     sdk: Any,
     options: dict[str, Any],
+    experimental_raw_events: bool,
+    dynamic_tools: tuple[ToolDefinition, ...] = (),
 ) -> tuple[Any, str]:
-    """Start a thread with App Server model-response notifications enabled.
+    """Start a thread with raw events and host dynamic tools.
 
-    Newer SDKs may expose ``experimental_raw_events`` directly. The currently
-    supported SDK can still send the App Server field through its low-level
-    JSON-RPC client, so keep that compatibility code isolated here.
+    The Python SDK high-level API can lag the App Server protocol. Send
+    unsupported fields through its low-level JSON-RPC client, while retaining
+    the high-level path when it exposes every requested option.
 
     Returns ``(thread, model)`` where ``model`` is the effective model the App
     Server confirmed on the response (``ThreadStartResponse.model``) — the
@@ -240,14 +398,27 @@ async def start_thread_with_raw_events(
     signature = inspect.signature(thread_start)
     parameters = signature.parameters.values()
     accepts_kwargs = any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters)
-    if "experimental_raw_events" in signature.parameters or accepts_kwargs:
-        response = await thread_start(experimental_raw_events=True, **options)
+    supports_raw_events = "experimental_raw_events" in signature.parameters or accepts_kwargs
+    supports_dynamic_tools = "dynamic_tools" in signature.parameters or accepts_kwargs
+    requested_raw_events_supported = not experimental_raw_events or supports_raw_events
+    requested_dynamic_tools_supported = not dynamic_tools or supports_dynamic_tools
+    if requested_raw_events_supported and requested_dynamic_tools_supported:
+        direct_options = dict(options)
+        if experimental_raw_events:
+            direct_options["experimental_raw_events"] = True
+        if dynamic_tools:
+            direct_options["dynamic_tools"] = dynamic_tools_to_wire(dynamic_tools)
+        response = await thread_start(**direct_options)
         return response, str(getattr(response, "model", "") or "")
 
     ensure_initialized = getattr(client, "_ensure_initialized", None)
     low_level_client = getattr(client, "_client", None)
     async_thread_type = getattr(sdk, "AsyncThread", None)
     if not callable(ensure_initialized) or low_level_client is None or async_thread_type is None:
+        if dynamic_tools:
+            raise UnsupportedHarnessCapabilityError(
+                "the Codex SDK cannot register host dynamic tools through thread/start"
+            )
         logger.warning("[codex] SDK does not expose experimental raw events; falling back to thread_start")
         response = await thread_start(**options)
         return response, str(getattr(response, "model", "") or "")
@@ -268,7 +439,10 @@ async def start_thread_with_raw_events(
             **wire_options,
         )
         request = params.model_dump(by_alias=True, exclude_none=True, mode="json")
-        request["experimentalRawEvents"] = True
+        if experimental_raw_events:
+            request["experimentalRawEvents"] = True
+        if dynamic_tools:
+            request["dynamicTools"] = dynamic_tools_to_wire(dynamic_tools)
         await ensure_initialized()
         started = await low_level_client.thread_start(request)
         return (
@@ -276,6 +450,10 @@ async def start_thread_with_raw_events(
             str(getattr(started, "model", "") or ""),
         )
     except (ImportError, AttributeError, TypeError, ValueError) as exc:
+        if dynamic_tools:
+            raise UnsupportedHarnessCapabilityError(
+                "the Codex SDK failed to register host dynamic tools through thread/start"
+            ) from exc
         logger.warning("[codex] raw-event compatibility path is unavailable (%s); using thread_start", exc)
         response = await thread_start(**options)
         return response, str(getattr(response, "model", "") or "")
@@ -283,12 +461,21 @@ async def start_thread_with_raw_events(
 
 __all__ = [
     "CODEX_API_KEY_ENV",
+    "DEFAULT_TOOL_NAMESPACE",
     "USER_INPUT_FEATURE_OVERRIDE",
     "build_codex_config",
     "build_process_env",
     "build_thread_options",
     "codex_mcp_config_overrides",
+    "codex_mcp_tool_naming",
     "codex_model_config_overrides",
+    "codex_otel_config_overrides",
+    "codex_telemetry_env",
+    "codex_model_options",
+    "codex_server_key",
+    "dynamic_tools_to_wire",
+    "dynamic_tools_fingerprint",
     "load_codex_sdk",
-    "start_thread_with_raw_events",
+    "namespaced_tool_name",
+    "start_thread_with_raw_events_and_dynamic_tools",
 ]

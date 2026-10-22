@@ -7,21 +7,22 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from openjiuwen.symphony.flow.distill import (
     DistillResult,
+    aggregate_edges,
     distill_group,
     group_by_structure,
     normalize_execution_graph,
-    qualified_edges,
     recipe_provenance,
-    topological_order,
+    structure_unchanged,
 )
 from openjiuwen.symphony.flow.models import (
     OUTCOME_SUCCESS,
+    RECIPE_GRADE_VERIFIED,
     RECIPE_STATUS_DEPRECATED,
     SUPPORTED_TARGET_KINDS,
     TARGET_KIND_SKILL,
@@ -35,7 +36,7 @@ from openjiuwen.symphony.flow.models import (
 from openjiuwen.symphony.flow.narrative import distill_texts
 from openjiuwen.symphony.flow.packager import CapabilityPackager
 from openjiuwen.symphony.flow.privacy import sanitize_distilled_text
-from openjiuwen.symphony.flow.render import render_package
+from openjiuwen.symphony.flow.render import SkillArtifactAdapter, render_package
 from openjiuwen.symphony.flow.review import PackageReviewGate
 from openjiuwen.symphony.flow.store import FlowStore
 from openjiuwen.symphony.orchestration.config import SymphonyFlowConfig
@@ -64,7 +65,7 @@ class SymphonyFlowEngine:
         store: FlowStore | None = None,
         packager: CapabilityPackager | None = None,
         gate: PackageReviewGate | None = None,
-        skill_adapter: Any | None = None,
+        skill_adapter: SkillArtifactAdapter | None = None,
     ) -> None:
         self.config = config or SymphonyFlowConfig()
         self.llm_client = llm_client
@@ -213,40 +214,96 @@ class SymphonyFlowEngine:
     # ---------------- distill ----------------
 
     async def distill(self) -> DistillReport:
-        """批处理蒸馏：全局边统计 → 结构分组 → 叙事 → 版本化落盘。
+        """批处理蒸馏：确定性分组 → 只蒸馏变化组 → 版本化落盘。
 
-        分组键 = 轨迹【成功边】∩ 全局合格边（失败边只参与边质量统计、
-        不参与分组）；组内每条轨迹都完整走过 pack 全部边，组合级统计
-        归因严格——靠被剔边成功的轨迹不会给新 pack 虚增成功经验。
+        分组键 = 轨迹自身的全部成功边（签名只依赖轨迹内容，同一条轨迹
+        永远属于同一个组，不随全局统计漂移换组）。只对相对上一轮发生
+        变化的组做完整蒸馏（LLM 叙事 + 版本判断）：
+
+        - 结构未变且计数/判级都没变：零写入；
+        - 结构未变但计数/判级变了：复用既有叙事，仅刷新可变状态
+          （不调 LLM、不建版本）——避免 LLM 输出抖动把已安装包误升
+          版本、导致重复弹安装询问；
+        - 新结构：达到 verified 阈值才调 LLM 叙事，未达标只落模板草稿；
+        - 结构未变但首次达到 verified 阈值：补一次 LLM 叙事并按内容升
+          版本（草稿期不浪费 LLM 调用）。
+
+        由此一条新轨迹最多触发一个组的 LLM 蒸馏；min_successes 即"同一
+        结构出现多少次后才做完整（LLM）蒸馏并开放安装"。
         """
 
         records = [record for record in self.store.read_evidence() if record.outcome == OUTCOME_SUCCESS]
         report = DistillReport(evidence_total=len(records))
-        qualified, stats = qualified_edges(
-            records,
-            min_edge_support=getattr(self.config, "min_edge_support", 1),
-            min_edge_success_rate=getattr(self.config, "min_edge_success_rate", 0.8),
-        )
-        groups = group_by_structure(records, qualified)
+        groups = group_by_structure(records)
         report.groups_total = len(groups)
         grouped_traces = {record.trace_id for group in groups.values() for record in group.records}
         report.groups_without_structure = [
             record.trace_id for record in records if record.trace_id not in grouped_traces
         ]
+        stats = aggregate_edges(records)
         max_examples = getattr(self.config, "max_narrative_examples", 5)
 
         for _signature, group in sorted(groups.items()):
             result = distill_group(
                 group,
                 stats,
-                min_successes_candidate=getattr(self.config, "min_successes_candidate", 1),
-                min_successes_verified=getattr(self.config, "min_successes_verified", 1),
-                min_pack_success_rate_verified=getattr(self.config, "min_pack_success_rate_verified", 0.8),
+                min_successes=getattr(self.config, "min_successes", 1),
+                min_pack_success_rate=getattr(self.config, "min_pack_success_rate", 0.8),
             )
+            existing = self.store.read_recipe(result.recipe_id)
+            if existing is not None and structure_unchanged(
+                existing.combination_structure, result.member_ids, group.edges
+            ):
+                unchanged = (
+                    (existing.quality or {}).get("execution_count")
+                    == result.quality.get("execution_count")
+                    and existing.status == result.status
+                    and existing.grade == result.grade
+                )
+                if unchanged:
+                    report.recipes_unchanged.append(result.recipe_id)
+                    continue
+                became_verified = (
+                    result.grade == RECIPE_GRADE_VERIFIED
+                    and existing.grade != RECIPE_GRADE_VERIFIED
+                )
+                if became_verified:
+                    # 首次达到可安装阈值：此时才补 LLM 叙事并按内容升版本，
+                    # 未达标期间只积累模板草稿，不浪费 LLM 调用。
+                    recipe = await self._build_recipe(
+                        result,
+                        group.records,
+                        max_examples=max_examples,
+                    )
+                    if self._save_recipe_versioned(recipe):
+                        report.recipes_saved.append(recipe.recipe_id)
+                    else:
+                        report.recipes_unchanged.append(recipe.recipe_id)
+                    continue
+                provenance = recipe_provenance(result, group.records)
+                provenance["sample_queries"] = [
+                    sanitize_distilled_text(query) for query in provenance.get("sample_queries", ())
+                ]
+                refreshed = replace(
+                    existing,
+                    quality=result.quality,
+                    status=result.status,
+                    grade=result.grade,
+                    provenance={
+                        **provenance,
+                        "narrative_source": (existing.provenance or {}).get("narrative_source", "template"),
+                    },
+                )
+                self.store.update_recipe_current(refreshed)
+                report.recipes_unchanged.append(result.recipe_id)
+                continue
+            # 新结构（同 id 结构变化在确定性分组下按构造不会发生，此分支
+            # 仅兜底哈希碰撞/旧数据）：达到阈值才调 LLM，否则模板草稿。
             recipe = await self._build_recipe(
                 result,
                 group.records,
                 max_examples=max_examples,
+                use_llm=result.grade == RECIPE_GRADE_VERIFIED,
             )
             saved = self._save_recipe_versioned(recipe)
             if saved:
@@ -262,12 +319,18 @@ class SymphonyFlowEngine:
         records: list[RecipeEvidence],
         *,
         max_examples: int,
+        use_llm: bool = True,
     ) -> ExperienceRecipe:
         texts = await distill_texts(
             records,
             skill_pack=result.skill_pack,
             max_examples=max_examples,
-            llm_client=self.llm_client,
+            llm_client=self.llm_client if use_llm else None,
+            capability_infos={
+                str(node_id): (node.get("metadata") or {})
+                for node_id, node in (result.skill_pack.get("nodes") or {}).items()
+                if isinstance(node, dict)
+            },
         )
         existing = self.store.read_recipe(result.recipe_id)
         version = (existing.version + 1) if existing else 1
@@ -277,6 +340,7 @@ class SymphonyFlowEngine:
         ]
         return ExperienceRecipe(
             recipe_id=result.recipe_id,
+            name=texts["name"],
             version=version,
             status=result.status,
             grade=result.grade,
@@ -469,7 +533,7 @@ class SymphonyFlowEngine:
         return tuple(candidates)
 
     def acknowledge_candidate(self, recipe_id: str, version: int) -> bool:
-        """Acknowledge successful Host Event delivery for one candidate version."""
+        """Acknowledge successful completion for one candidate version."""
 
         current = self.get_recipe(recipe_id)
         if current is None:
@@ -477,6 +541,16 @@ class SymphonyFlowEngine:
         if current.version != version or current.status != "active" or current.grade != "verified":
             return False
         return self.store.acknowledge_candidate(recipe_id, version)
+
+    def release_candidate(self, recipe_id: str, version: int) -> bool:
+        """Release a deferred candidate version so it can be offered again."""
+
+        current = self.get_recipe(recipe_id)
+        if current is None:
+            return False
+        if current.version != version or current.status != "active" or current.grade != "verified":
+            return False
+        return self.store.release_candidate(recipe_id, version)
 
     def review_history(self, package_id: str) -> list[ReviewResult]:
         """评审结果按包存储；v1 返回最近一次（幂等输入 → 幂等评审）。"""
@@ -517,11 +591,10 @@ def _candidate_from_recipe(recipe: ExperienceRecipe) -> CombinationCandidate:
         for edge in edges
         if isinstance(edge, dict)
     )
-    capability_ids = topological_order(recipe.combination_structure)
     return CombinationCandidate(
         recipe_id=recipe.recipe_id,
         version=recipe.version,
-        name=" → ".join(capability_ids) or recipe.recipe_id,
+        name=recipe.name,
         applicability=summary,
         structure=structure,
         execution_count=int(recipe.quality.get("execution_count") or 0),

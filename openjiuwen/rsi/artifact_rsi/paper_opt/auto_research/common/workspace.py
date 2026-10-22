@@ -133,6 +133,11 @@ def reflection_path(run_id: str, revision: int) -> Path:
     return reflection_dir(run_id) / f"revision-{revision}.md"
 
 
+def reflection_metrics_summary_path(run_id: str, revision: int) -> Path:
+    """Host-built compact metrics dump shown to the reflection agent."""
+    return reflection_dir(run_id) / f"revision-{revision}.metrics_summary.json"
+
+
 def report_path(run_id: str) -> Path:
     """The final reporting artifact — experiments/<run_id>/report.md."""
     return workspace_dir(run_id) / "report.md"
@@ -174,6 +179,17 @@ def paper_scoring_dir(run_id: str) -> Path:
     itself, not its evaluation artifacts.
     """
     return workspace_dir(run_id) / "paper_scoring"
+
+
+def paper_dist_dir(run_id: str) -> Path:
+    """Clean, front-end-facing copy of the paper's real content (main.tex,
+    main.pdf, sections/*.tex, figures/*, refs.bib) — distinct from
+    paper_workspace_dir, which also holds the reporting agent's own
+    scratch/bookkeeping files (.skills/, lint overrides, LaTeX compile
+    byproducts, etc.) that would otherwise clutter a file browser pointed
+    at the workspace directly.
+    """
+    return workspace_dir(run_id) / "paper_dist"
 
 
 def smoke_test_dir(run_id: str) -> Path:

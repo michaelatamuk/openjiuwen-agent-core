@@ -7,11 +7,16 @@ import asyncio
 
 import pytest
 
+from openjiuwen.agent_teams.context import get_session_id, reset_session_id, set_session_id
 from openjiuwen.agent_teams.external import ExternalTeamClient
 from openjiuwen.agent_teams.external import client as client_module
+from openjiuwen.agent_teams.external.tool_gateway import build_external_team_tool_gateway
 from openjiuwen.agent_teams.messager import hybrid as hybrid_module
+from openjiuwen.agent_teams.messager.base import MessagerTransportConfig, create_messager
 from openjiuwen.agent_teams.schema.status import TaskStatus
 from openjiuwen.agent_teams.team_workspace.models import TeamWorkspaceConfig
+from openjiuwen.agent_teams.tools.team import TeamBackend
+from openjiuwen.harness_protocol import ToolInvocation
 
 
 class _FakeWebSocketPublisher:
@@ -68,6 +73,29 @@ async def test_fetch_inbox_marks_messages_read(team_db, make_descriptor):
 
         second = await dev.fetch_inbox()
         assert all(m.content != "your task" for m in second.messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_inbox_is_oldest_first_across_direct_and_broadcast(team_db, make_descriptor):
+    """Direct and broadcast queries are each time-ordered; the merge must be too.
+
+    Regression: the inbox used to list every direct message before every
+    broadcast, so a broadcast sent earlier was read after a later direct one.
+    """
+    async with ExternalTeamClient(make_descriptor(member="leader", role="leader")) as leader:
+        await leader.send_message("*", "earlier announcement")
+        await asyncio.sleep(0.01)
+        await leader.send_message("dev-1", "later direct")
+
+    async with ExternalTeamClient(make_descriptor(member="dev-1")) as dev:
+        inbox = await dev.fetch_inbox(mark_read=False)
+        assert [m.content for m in inbox.messages] == ["earlier announcement", "later direct"]
+
+        text = await dev.read_inbox()
+        # The clock anchor comes first: the messages carry absolute send times only.
+        assert text.startswith('<team-clock now="')
+        assert text.index("earlier announcement") < text.index("later direct")
 
 
 @pytest.mark.asyncio
@@ -138,6 +166,79 @@ async def test_member_scope_tools_follow_teammate_mode(team_db, make_descriptor)
 
     async with ExternalTeamClient(plan_descriptor) as plan_client:
         assert "submit_plan" in plan_client.tools
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_client_can_connect_and_close_in_different_tasks(team_db, make_descriptor):
+    session_before = get_session_id()
+    client = ExternalTeamClient(make_descriptor(member="dev-1", scope="member"))
+
+    await asyncio.create_task(client.connect())
+    assert client.tools
+    assert get_session_id() == session_before
+
+    await asyncio.create_task(client.close())
+    assert client.tools == {}
+    assert get_session_id() == session_before
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_member_tool_gateway_exposes_and_invokes_local_team_tools(team_db):
+    await team_db.task.create_task(
+        task_id="t1",
+        team_name="ext_team",
+        title="Do X",
+        content="details",
+        status=TaskStatus.PENDING.value,
+    )
+    messager = create_messager(MessagerTransportConfig(backend="inprocess", team_name="ext_team"))
+    await messager.start()
+    backend = TeamBackend(
+        team_name="ext_team",
+        member_name="dev-1",
+        is_leader=False,
+        db=team_db,
+        messager=messager,
+    )
+    gateway = build_external_team_tool_gateway(
+        session_id="ext_session",
+        team_backend=backend,
+        role="teammate",
+        teammate_mode="build_mode",
+        dispatch_mode="autonomous",
+        lifecycle="temporary",
+        language="cn",
+    )
+    try:
+        definitions = await gateway.definitions()
+        assert {definition.name for definition in definitions} >= {
+            "view_task",
+            "claim_task",
+            "verify_task",
+            "send_message",
+        }
+
+        wrong_session_token = set_session_id("wrong-codex-callback-session")
+        try:
+            result = await gateway.invoke(
+                ToolInvocation(
+                    call_id="call-1",
+                    name="claim_task",
+                    arguments={"task_id": "t1", "status": "claimed"},
+                )
+            )
+            assert get_session_id() == "wrong-codex-callback-session"
+        finally:
+            reset_session_id(wrong_session_token)
+
+        assert result.is_error is False
+        task = await team_db.task.get_task("t1")
+        assert task.assignee == "dev-1"
+        assert task.status == TaskStatus.IN_PROGRESS.value
+    finally:
+        await messager.stop()
 
 
 @pytest.mark.asyncio
@@ -242,3 +343,45 @@ async def test_watch_wakes_on_inbound_message(team_db, make_descriptor):
             pass
 
     assert "wake up" in received
+
+
+@pytest.mark.asyncio
+@pytest.mark.level0
+async def test_group_inbox_only_consumes_mentions(
+    team_db, make_descriptor, tmp_path, monkeypatch, isolated_group_home,
+):
+    from openjiuwen.agent_teams.tools.database import message_dao
+
+    timestamps = iter([100, 200])
+    monkeypatch.setattr(message_dao, "get_current_time", lambda: next(timestamps))
+    descriptor = make_descriptor(
+        member="dev-1", scope="member",
+        workspace_config=TeamWorkspaceConfig(enabled=True, root_path=str(tmp_path)),
+    )
+    async with ExternalTeamClient(descriptor) as client:
+        assert "group_send_message" not in client.tools
+        await client._backend.append_group_message("user", "Earlier discussion", client_message_id="one")
+        assert (await client.fetch_inbox()).messages == []
+        assert await team_db.message.get_broadcast_read_at("ext_team", "dev-1") == 0
+        await client._backend.append_group_message(
+            "user", "Please review", client_message_id="two", mentions=["dev-1"],
+        )
+        preview = await client.fetch_inbox(mark_read=False)
+        assert len(preview.messages) == 1
+        assert "Earlier discussion" in preview.messages[0].content
+        assert "history.jsonl" in preview.messages[0].content
+        assert await team_db.message.get_broadcast_read_at("ext_team", "dev-1") == 0
+        assert len((await client.fetch_inbox()).messages) == 1
+        assert await team_db.message.get_broadcast_read_at("ext_team", "dev-1") == 200
+        assert (await client.fetch_inbox()).messages == []
+
+
+@pytest.fixture
+def isolated_group_home(tmp_path):
+    from openjiuwen.agent_teams.paths import reset_task_openjiuwen_home, set_task_openjiuwen_home
+
+    token = set_task_openjiuwen_home(tmp_path)
+    try:
+        yield
+    finally:
+        reset_task_openjiuwen_home(token)
